@@ -1191,6 +1191,10 @@ write_wallpaper_state() {
     mkdir -p "$(dirname -- "$WALLPAPER_FILE")"
     printf '%s' "$wallpaper" > "$WALLPAPER_FILE"
     ln -sfn "$wallpaper" "$WALLPAPER_LINK"
+
+    if command -v skwd-paper-v2 >/dev/null 2>&1; then
+        skwd-paper-v2 apply ALL "$wallpaper" >/dev/null 2>&1 || true
+    fi
 }
 
 stored_wallpaper() {
