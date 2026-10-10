@@ -17,6 +17,7 @@ Searcher {
     readonly property string fallback: Quickshell.shellPath("assets/wallpaper.webp")
 
     property bool showPreview: false
+    property bool previousWallpaperEnabledState: false
     readonly property string current: showPreview ? previewPath : actualCurrent
     property string previewPath
     property string actualCurrent
@@ -142,6 +143,11 @@ Searcher {
     }
 
     function preview(path: string): void {
+        if (!showPreview) {
+            previousWallpaperEnabledState = GlobalConfig.background.wallpaperEnabled;
+            GlobalConfig.background.wallpaperEnabled = true;
+        }
+
         previewPath = path;
         showPreview = true;
 
@@ -150,6 +156,10 @@ Searcher {
     }
 
     function stopPreview(): void {
+        if (showPreview) {
+            GlobalConfig.background.wallpaperEnabled = previousWallpaperEnabledState;
+        }
+
         showPreview = false;
         if (previewColourLock)
             pendingPreviewClear = true;
