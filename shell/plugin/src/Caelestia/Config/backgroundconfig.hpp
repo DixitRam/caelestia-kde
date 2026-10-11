@@ -92,7 +92,7 @@ class BackgroundConfig : public settings::ObjectNode {
     CONFIG_NODE(BackgroundConfig, settings::ObjectNode)
 
     CONFIG_PROPERTY(bool, enabled, true)
-    CONFIG_PROPERTY(bool, wallpaperEnabled, true)
+    CONFIG_PROPERTY(bool, wallpaperEnabled, false)
     CONFIG_PROPERTY(int, wallpaperFillMode, 2)
     CONFIG_PROPERTY(bool, wallpaperRecolor, false)
     CONFIG_PROPERTY(qreal, wallpaperRecolorStrength, 0.5)
@@ -108,6 +108,7 @@ class BackgroundConfig : public settings::ObjectNode {
     CONFIG_PROPERTY(bool, desktopIconsEnabled, true)
     CONFIG_PROPERTY(bool, materialYouIconsEnabled, true)
     CONFIG_PROPERTY(bool, materialYouIconsVibrant, true)
+    CONFIG_PROPERTY(bool, disableQuickshellDesktop, false)
     CONFIG_SUBOBJECT(DesktopClock, desktopClock)
     CONFIG_SUBOBJECT(DesktopLyrics, desktopLyrics)
     CONFIG_SUBOBJECT(DesktopShapes, desktopShapes)

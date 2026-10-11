@@ -33,7 +33,7 @@ Variants {
         isDesktopWidget: true
         color: (Config.background.wallpaperEnabled && wallpaperHasBeenUp && !ContextMenuStore.editMode) ? "black" : "transparent"
         surfaceFormat.opaque: false
-        mask: !ContextMenuStore.editMode ? null : emptyRegion
+        mask: (!Config.background.disableQuickshellDesktop && !ContextMenuStore.editMode) ? null : emptyRegion
         anchors.top: true
         anchors.bottom: true
         anchors.left: true
@@ -47,7 +47,10 @@ Variants {
         }
         TapHandler {
             acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+            enabled: !Config.background.disableQuickshellDesktop
             onTapped: (eventPoint, button) => {
+                if (Config.background.disableQuickshellDesktop)
+                    return;
                 if (desktopIcons.renameActive)
                     desktopIcons.renamingDelegate?.commitRename();
                 const onEmptyDesktop = !desktopIcons.iconAt(eventPoint.position.x, eventPoint.position.y) && !ContextMenuStore.editMode;
@@ -84,7 +87,7 @@ Variants {
                 screen: win.modelData
                 wallpaper: wallpaper
                 z: 2
-                visible: true
+                visible: !Config.background.disableQuickshellDesktop
             }
         }
         DesktopIcons {
@@ -101,7 +104,7 @@ Variants {
             readonly property int clockBaseMargin: Tokens.padding.extraLargeIncreased
 
             asynchronous: true
-            active: Config.background.desktopClock.enabled
+            active: !Config.background.disableQuickshellDesktop && Config.background.desktopClock.enabled
             anchors.margins: clockBaseMargin
             anchors.leftMargin: Config.bar.position === "left" ? clockBaseMargin + clockBarZone : clockBaseMargin
             anchors.rightMargin: Config.bar.position === "right" ? clockBaseMargin + clockBarZone : clockBaseMargin
@@ -226,7 +229,7 @@ Variants {
             readonly property int lyricsBaseMargin: Tokens.padding.large * 2
 
             asynchronous: true
-            active: Config.background.desktopLyrics.enabled && !(GameMode.enabled && GlobalConfig.utilities.gameMode.disableDesktopLyrics)
+            active: !Config.background.disableQuickshellDesktop && Config.background.desktopLyrics.enabled && !(GameMode.enabled && GlobalConfig.utilities.gameMode.disableDesktopLyrics)
             anchors.margins: lyricsBaseMargin
             anchors.leftMargin: Config.bar.position === "left" ? lyricsBaseMargin + lyricsBarZone : lyricsBaseMargin
             anchors.rightMargin: Config.bar.position === "right" ? lyricsBaseMargin + lyricsBarZone : lyricsBaseMargin
@@ -352,7 +355,7 @@ Variants {
             readonly property int shapesBaseMargin: Tokens.padding.large * 2
 
             asynchronous: true
-            active: Config.background.desktopShapes.enabled && !(GameMode.enabled && GlobalConfig.utilities.gameMode.disableDesktopLyrics)
+            active: !Config.background.disableQuickshellDesktop && Config.background.desktopShapes.enabled && !(GameMode.enabled && GlobalConfig.utilities.gameMode.disableDesktopLyrics)
             anchors.margins: shapesBaseMargin
             anchors.leftMargin: Config.bar.position === "left" ? shapesBaseMargin + shapesBarZone : shapesBaseMargin
             anchors.rightMargin: Config.bar.position === "right" ? shapesBaseMargin + shapesBarZone : shapesBaseMargin
@@ -473,6 +476,6 @@ Variants {
         }
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
         WlrLayershell.layer: WlrLayer.Bottom
-        WlrLayershell.keyboardFocus: desktopIcons.renameActive ? WlrKeyboardFocus.Exclusive : desktopIcons.visible ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+        WlrLayershell.keyboardFocus: (!Config.background.disableQuickshellDesktop && desktopIcons.renameActive) ? WlrKeyboardFocus.Exclusive : (!Config.background.disableQuickshellDesktop && desktopIcons.visible) ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
     }
 }

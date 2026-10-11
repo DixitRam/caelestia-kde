@@ -673,7 +673,7 @@ StyledWindow {
         }
         Connections {
             function onOpenDesktopContextMenu(x, y, screenName) {
-                if (ContextMenuStore.editMode)
+                if (ContextMenuStore.editMode || Config.background.disableQuickshellDesktop)
                     return;
                 if (root.screen.name === screenName) {
                     desktopContextMenuAnchor.x = x;
