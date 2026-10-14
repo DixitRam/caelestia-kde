@@ -452,7 +452,6 @@ jobs:
       - shell-tests
       - release-update-safety
       - repo-integrity
-      - json-validation
       - file-hygiene
       - qml-conventions
       - qml-finals
@@ -465,8 +464,7 @@ jobs:
       - shell-quality
       - cpp-format
       - build-parity
-      - installer-build
-      - installer-sanitizers
+      - installer
       - runtime-smoke
       - shell-sanitizers
     runs-on: ubuntu-latest
@@ -480,7 +478,6 @@ jobs:
           declare -A job_results
           job_results[python-quality]="${{ needs.python-quality.result }}"
           job_results[repo-integrity]="${{ needs.repo-integrity.result }}"
-          job_results[json-validation]="${{ needs.json-validation.result }}"
           job_results[file-hygiene]="${{ needs.file-hygiene.result }}"
           job_results[qml-conventions]="${{ needs.qml-conventions.result }}"
           job_results[embedded-bash]="${{ needs.embedded-bash.result }}"
@@ -494,8 +491,7 @@ jobs:
           job_results[release-update-safety]="${{ needs.release-update-safety.result }}"
           job_results[cpp-format]="${{ needs.cpp-format.result }}"
           job_results[build-parity]="${{ needs.build-parity.result }}"
-          job_results[installer-build]="${{ needs.installer-build.result }}"
-          job_results[installer-sanitizers]="${{ needs.installer-sanitizers.result }}"
+          job_results[installer]="${{ needs.installer.result }}"
           job_results[runtime-smoke]="${{ needs.runtime-smoke.result }}"
           job_results[shell-sanitizers]="${{ needs.shell-sanitizers.result }}"
 
