@@ -1,0 +1,19 @@
+[package]
+name = "caelestia-install"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "The Caelestia installer TUI"
+license = "MIT"
+publish = false
+
+# No dependencies yet: the theme, menu and step data are typed source, so no
+# parser ships. ratatui and crossterm arrive with the wizard.
+[dependencies]
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+# panics unwind on purpose: the terminal is restored by a destructor, so
+# aborting would leave the user's terminal in raw mode.

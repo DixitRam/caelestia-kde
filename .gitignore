@@ -6,6 +6,7 @@ __pycache__/
 *.py[cod]
 
 installer/build/
+installer/target/
 caelestia-install
 build
 

@@ -1,0 +1,167 @@
+//! Command line parsing.
+//!
+//! The surface is deliberately the same as the C++ installer's: a positional
+//! bundle directory, the update and uninstall presets, and nothing else. The
+//! additions are `--version`, which the launcher uses to detect a binary that
+//! disagrees with the checkout, and `--debug`, which is where the phase trace
+//! went when it stopped being written unconditionally.
+
+use std::ffi::OsString;
+use std::path::PathBuf;
+
+/// What the user asked the installer to do.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PresetAction {
+    /// Show the wizard. The default, and the only path `setup.sh` takes.
+    Wizard,
+    /// Hand off to the bundle's update script.
+    Update,
+    /// Hand off to the bundle's uninstall script.
+    Uninstall,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Args {
+    /// The bundle to operate on; discovered from the binary's own location when absent.
+    pub bundle: Option<PathBuf>,
+    pub action: PresetAction,
+    pub debug: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Invocation {
+    Run(Args),
+    /// Print the version marker and exit.
+    Version,
+    Help,
+}
+
+/// Parse argv without the program name.
+///
+/// A bare argument is the bundle directory, last one winning, as before.
+/// Anything else beginning with `-` is rejected: the previous installer silently
+/// treated an unrecognised flag as the bundle directory, and then failed
+/// somewhere further from the cause.
+pub fn parse<I>(args: I) -> Result<Invocation, String>
+where
+    I: IntoIterator<Item = OsString>,
+{
+    let mut parsed = Args {
+        bundle: None,
+        action: PresetAction::Wizard,
+        debug: false,
+    };
+    let mut seen_preset: Option<&'static str> = None;
+
+    for arg in args {
+        match arg.to_str() {
+            Some("-h") | Some("--help") => return Ok(Invocation::Help),
+            Some("--version") => return Ok(Invocation::Version),
+            Some("--debug") => parsed.debug = true,
+            Some("--update") | Some("--uninstall") => {
+                let flag = if arg == "--update" {
+                    "--update"
+                } else {
+                    "--uninstall"
+                };
+                if let Some(previous) = seen_preset {
+                    return Err(format!("{previous} and {flag} cannot be combined"));
+                }
+                seen_preset = Some(flag);
+                parsed.action = if flag == "--update" {
+                    PresetAction::Update
+                } else {
+                    PresetAction::Uninstall
+                };
+            }
+            Some(text) if text.starts_with('-') && text != "-" => {
+                return Err(format!("unknown option: {text}"));
+            }
+            _ => parsed.bundle = Some(PathBuf::from(arg)),
+        }
+    }
+
+    Ok(Invocation::Run(parsed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse, Args, Invocation, PresetAction};
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    fn parse_args(args: &[&str]) -> Result<Invocation, String> {
+        parse(args.iter().map(OsString::from))
+    }
+
+    fn run(args: &[&str]) -> Args {
+        match parse_args(args) {
+            Ok(Invocation::Run(parsed)) => parsed,
+            other => panic!("expected a run invocation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_arguments_means_the_wizard_on_the_discovered_bundle() {
+        let parsed = run(&[]);
+        assert_eq!(parsed.action, PresetAction::Wizard);
+        assert_eq!(parsed.bundle, None);
+        assert!(!parsed.debug);
+    }
+
+    #[test]
+    fn a_bare_argument_is_the_bundle_directory() {
+        assert_eq!(
+            run(&["/srv/caelestia"]).bundle,
+            Some(PathBuf::from("/srv/caelestia"))
+        );
+    }
+
+    #[test]
+    fn the_last_bare_argument_wins() {
+        assert_eq!(
+            run(&["/first", "/second"]).bundle,
+            Some(PathBuf::from("/second"))
+        );
+    }
+
+    #[test]
+    fn the_presets_select_the_handoff() {
+        assert_eq!(run(&["--update"]).action, PresetAction::Update);
+        assert_eq!(run(&["--uninstall"]).action, PresetAction::Uninstall);
+    }
+
+    #[test]
+    fn combining_the_presets_is_a_usage_error() {
+        let error = parse_args(&["--update", "--uninstall"]).unwrap_err();
+        assert!(error.contains("--update"), "{error}");
+        assert!(error.contains("--uninstall"), "{error}");
+    }
+
+    #[test]
+    fn debug_is_off_until_asked_for() {
+        assert!(run(&["--debug"]).debug);
+    }
+
+    #[test]
+    fn version_and_help_short_circuit() {
+        assert_eq!(parse_args(&["--version"]), Ok(Invocation::Version));
+        assert_eq!(parse_args(&["--help"]), Ok(Invocation::Help));
+        assert_eq!(parse_args(&["-h"]), Ok(Invocation::Help));
+        assert_eq!(
+            parse_args(&["--update", "--version"]),
+            Ok(Invocation::Version)
+        );
+    }
+
+    #[test]
+    fn an_unknown_option_is_refused_rather_than_taken_for_a_bundle() {
+        let error = parse_args(&["--bogus"]).unwrap_err();
+        assert!(error.contains("--bogus"), "{error}");
+    }
+
+    #[test]
+    fn a_lone_dash_is_still_a_bundle_argument() {
+        assert_eq!(run(&["-"]).bundle, Some(PathBuf::from("-")));
+    }
+}
