@@ -1,15 +1,24 @@
 //! The Caelestia installer.
 //!
 //! This entry point owns the argument surface and the exit-code contract. The
-//! wizard, the step runner and the privilege shim arrive behind it; the codes in
+//! wizard, the step runner and the credential live behind it; the codes in
 //! `exit` are what `scripts/setup.sh` reads, so they are the one thing here that
 //! cannot change on its own.
 
+mod app;
 mod bundle;
 mod cli;
 mod exit;
 mod handoff;
+mod menu;
+mod privileges;
+mod runner;
+mod screens;
+mod signals;
+mod steps;
+mod theme;
 
+use std::path::Path;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -69,10 +78,29 @@ fn main() -> ExitCode {
             println!("{}", VERSION.trim());
             Outcome::Ok
         }
+        Invocation::Askpass(pipe) => askpass(&pipe),
         Invocation::Run(args) => run(args),
     };
 
     ExitCode::from(outcome.code())
+}
+
+/// Serve one password question.
+///
+/// This is not a mode a user picks: it is what the generated askpass helper
+/// runs, and it is why the password can stay off disk — the helper only exists
+/// while `sudo` is waiting for the answer.
+fn askpass(pipe: &Path) -> Outcome {
+    match privileges::read_secret(pipe) {
+        Ok(secret) => {
+            println!("{secret}");
+            Outcome::Ok
+        }
+        Err(problem) => {
+            eprintln!("caelestia-install: {problem}");
+            Outcome::Environment
+        }
+    }
 }
 
 fn run(args: Args) -> Outcome {
@@ -92,15 +120,12 @@ fn run(args: Args) -> Outcome {
             handoff::run_script(&script)
         }
         PresetAction::Wizard => {
-            // The wizard lands with the screens. Until it exists, saying so is
-            // the only honest answer, and the code says so out loud.
             if let Err(problem) = bundle.check_scripts() {
                 eprintln!("caelestia-install: {problem}");
                 return Outcome::Environment;
             }
-            eprintln!("caelestia-install: the interactive wizard is not implemented yet");
-            eprintln!("caelestia-install: use --update or --uninstall, or run setup.sh");
-            Outcome::Internal
+            trace("phase 1: welcome_screen");
+            app::run(bundle.root().to_path_buf(), app::log_path())
         }
     }
 }

@@ -121,13 +121,14 @@ fn a_bundle_without_step_scripts_is_reported_as_the_environment() {
 }
 
 #[test]
-fn the_wizard_is_not_available_yet() {
-    // This test goes away with the ticket that adds the screens.
+fn the_wizard_refuses_to_start_without_a_terminal() {
+    // A full-screen wizard with no terminal would wait forever for keys nobody
+    // can press. This is also what keeps a test run from hanging on it.
     let bundle = Bundle::new("with-scripts").with_step_scripts();
     let output = run(&[&bundle.path().to_string_lossy()]);
-    assert_eq!(code(&output), 5);
+    assert_eq!(code(&output), 4);
     assert!(
-        stderr(&output).contains("not implemented yet"),
+        stderr(&output).contains("needs a terminal"),
         "{}",
         stderr(&output)
     );

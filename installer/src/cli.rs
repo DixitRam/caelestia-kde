@@ -34,6 +34,8 @@ pub enum Invocation {
     /// Print the version marker and exit.
     Version,
     Help,
+    /// Answer one password question for `sudo`, reading the pipe named here.
+    Askpass(PathBuf),
 }
 
 /// Parse argv without the program name.
@@ -52,12 +54,17 @@ where
         debug: false,
     };
     let mut seen_preset: Option<&'static str> = None;
+    let mut args = args.into_iter();
 
-    for arg in args {
+    while let Some(arg) = args.next() {
         match arg.to_str() {
             Some("-h") | Some("--help") => return Ok(Invocation::Help),
             Some("--version") => return Ok(Invocation::Version),
             Some("--debug") => parsed.debug = true,
+            Some("--askpass") => {
+                let pipe = args.next().ok_or("--askpass needs the pipe to read")?;
+                return Ok(Invocation::Askpass(PathBuf::from(pipe)));
+            }
             Some("--update") | Some("--uninstall") => {
                 let flag = if arg == "--update" {
                     "--update"
@@ -163,5 +170,17 @@ mod tests {
     #[test]
     fn a_lone_dash_is_still_a_bundle_argument() {
         assert_eq!(run(&["-"]).bundle, Some(PathBuf::from("-")));
+    }
+
+    #[test]
+    fn askpass_carries_the_pipe_the_helper_must_read() {
+        assert_eq!(
+            parse_args(&["--askpass", "/run/user/1000/fifo"]),
+            Ok(Invocation::Askpass(PathBuf::from("/run/user/1000/fifo")))
+        );
+        assert!(
+            parse_args(&["--askpass"]).is_err(),
+            "the pipe has to be named"
+        );
     }
 }
