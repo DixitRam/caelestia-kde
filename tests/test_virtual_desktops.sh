@@ -92,8 +92,8 @@ test_both_step_scripts_apply_the_helper() {
 }
 
 test_the_install_entries_mark_the_run_and_the_update_does_not() {
-    assert_contains "$(cat "$REPO_ROOT/installer/tui/Runner.cpp")" \
-        'setenv("CAELESTIA_FRESH_INSTALL", "1", 1);' \
+    assert_contains "$(cat "$REPO_ROOT/installer/src/app.rs")" \
+        '("CAELESTIA_FRESH_INSTALL", "1"' \
         "the TUI installer should mark the run it runs the steps for"
     assert_contains "$(cat "$REPO_ROOT/src/bin/caelestia")" \
         'CAELESTIA_FRESH_INSTALL="${CAELESTIA_FRESH_INSTALL:-1}"' \

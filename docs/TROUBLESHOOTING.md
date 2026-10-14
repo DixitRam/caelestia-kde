@@ -26,18 +26,20 @@ This document catalogs known failure modes, error conditions, and edge cases dis
 
 ## 1. Build & Compilation Issues
 
-### 1.1 C++ Installer Compilation Fails
+### 1.1 The Installer Will Not Start
 
-The installer compiles the `caelestia-install` TUI binary during `setup.sh`. The CMake project requires **C++20** (`CMAKE_CXX_STANDARD 20`).
+`setup.sh` downloads the published `caelestia-install` binary and runs it. Nothing is
+compiled on your machine, and the binary is static, so it does not care which glibc you
+have.
 
 | Symptom | Likely Cause | Fix |
 |---|---|---|
-| `g++: command not found` | Build tools not installed | Arch: `sudo pacman -S base-devel` — Fedora: `sudo dnf install gcc-c++` |
-| `cmake: command not found` | CMake missing | Auto-installer handles this if `BASE_DISTRO` is detected; otherwise install manually |
-| `[FATAL] Failed to build the Caelestia installer` | General CMake/make error | Read build log: `cat /tmp/caelestia_build.log` |
-| Compiler error about modern C++ features | GCC older than 10 | Ensure GCC 10+ is installed: `g++ --version` |
-| Exit 139 (SIGSEGV) at runtime | C++ bug in the TUI | Check stderr log at `/tmp/caelestia_installer_err.log` |
-| Exit 127 at runtime | Missing shared library | Run `ldd` on the binary to find missing `.so` files |
+| `[FATAL] Could not download the installer for vN` | No network, or the release is gone | Check the connection; the release named by `.github/version.env` has to be published |
+| `[FATAL] The downloaded installer failed its checksum` | A truncated or tampered download | Re-run `setup.sh`; if it repeats, the published asset is wrong |
+| `[FATAL] The release publishes no checksum for the installer` | A release from before checksums existed | Update the checkout, or install from an older release |
+| `[FATAL] The downloaded installer does not report vN` | The checkout and the published binary disagree | Update the checkout |
+| `[FATAL] There is no prebuilt installer for <arch>` | An architecture we do not publish | Build it: `cargo build --release --manifest-path installer/Cargo.toml` |
+| The installer refuses to start | It was run without a terminal, or from outside a checkout | Run `setup.sh`, or pass the bundle directory as its argument |
 
 ### 1.2 Shell / Plugin Compilation Fails
 
@@ -85,11 +87,11 @@ This means the CMake install step didn't copy required `qmldir` or `.so` files p
 
 ### 1.4 ccache Not Speeding Up Rebuilds
 
-The project enables ccache in both `installer/CMakeLists.txt` and `shell/CMakeLists.txt`. If rebuilds are still slow:
+The project enables ccache in `shell/CMakeLists.txt`. If rebuilds are still slow:
 
 - Check ccache stats: `ccache -s`
 - The cache directory (`~/.cache/ccache`) may be too small — increase it: `ccache -M 5G`
-- Debug builds (`-DCMAKE_BUILD_TYPE=Debug`) are much slower; the installer uses `Release`
+- Debug builds (`-DCMAKE_BUILD_TYPE=Debug`) are much slower
 
 ---
 
@@ -754,20 +756,30 @@ If you chose not to log out:
 2. Log back in
 3. If the shell still doesn't appear, run: `caelestia shell -d`
 
-### 8.2 Installer Exited Prematurely (Marker Check)
+### 8.2 Installer Exit Codes
 
-The outer `setup.sh` wrapper checks if `[installer] done (success)` appears in stderr:
+`setup.sh` reads the installer's exit code. It does not scrape the installer's output,
+so the two cannot disagree about whether the install worked.
 
-| Condition | Warning |
+| Code | Meaning |
 |---|---|
-| Exit 0 but elapsed < 3 seconds without marker | **"INSTALLER EXITED PREMATURELY"** |
-| Exit 0 but elapsed > 3 seconds without marker | **"INSTALLER EXITED UNEXPECTEDLY"** |
+| 0 | Finished |
+| 1 | A step failed - the failing step is named on screen |
+| 2 | Called with arguments it does not understand |
+| 3 | Cancelled. Nothing failed |
+| 4 | Cannot run here: no terminal, or the step scripts are missing |
+| 5 | A bug in the installer - report it with the log |
+| 130 | Interrupted |
+| 128+n | Killed by signal n |
+
+The install log it writes is named by `CAELESTIA_INSTALL_LOG`, which `setup.sh` points
+at `$XDG_CACHE_HOME/caelestia/install.log`; a failure prints its last lines.
 
 ### 8.3 CONFIRM_ARG Behavior
 
 The configuration menu sets `CONFIRM_ARG` as `true`/`false`. The installer converts it per-script context:
 - Some scripts use `-n "$CONFIRM_ARG"` (non-empty = auto-confirm)
-- The installer writes an `[installer] done (success)` marker line to its stderr log, and `setup.sh` greps that log for it to decide whether the install succeeded (see `scripts/setup.sh`).
+The installer passes each of the Configure answers to the step scripts in the environment they are spawned with.
 
 ### 8.4 Stale Lock Files
 
@@ -988,9 +1000,6 @@ kreadconfig6 --file kscreenlockerrc --group Greeter --key WallpaperPlugin
 
 # View failed packages log
 cat $XDG_CACHE_HOME/caelestia-kde/failed_packages.txt 2>/dev/null
-
-# View installer build log
-cat /tmp/caelestia_build.log 2>/dev/null | tail -60
 
 # View installer stderr log
 cat /tmp/caelestia_installer_err.log 2>/dev/null

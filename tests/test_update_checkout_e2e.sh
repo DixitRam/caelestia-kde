@@ -51,7 +51,7 @@ REQUIRED_IN_CHECKOUT=(
     src/matugen
     src/dots/starship.toml
     shell/CMakeLists.txt
-    installer/tui/CMakeLists.txt
+    installer/Cargo.toml
     .github/version.env
     .gitmodules
     uninstall.sh

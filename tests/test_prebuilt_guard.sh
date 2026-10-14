@@ -136,79 +136,138 @@ test_a_tree_that_is_not_a_checkout_builds_locally() {
     fi
 }
 
-INSTALLER_SOURCE="$(awk '
-    $0 ~ "^try_download_prebuilt_installer\\(\\) \\{" { capture = 1 }
-    capture { print }
-    capture && $0 == "}" { exit }
-' "$REPO_ROOT/scripts/setup.sh")"
+# The launcher used to fall back to compiling the installer. It does not any more:
+# the download is the only path, so these check what happens when it fails.
+fetch_function() {
+    local name="$1" source
+    source="$(awk -v fn="$name" '
+        $0 ~ "^" fn "\\(\\) \\{" { capture = 1 }
+        capture { print }
+        capture && $0 == "}" { exit }
+    ' "$REPO_ROOT/scripts/setup.sh")"
+    if [[ -z "$source" ]]; then
+        fail "could not find $name in scripts/setup.sh"
+    fi
+    printf '%s\n' "$source"
+}
 
-if [[ -z "$INSTALLER_SOURCE" ]]; then
-    fail "could not find try_download_prebuilt_installer in scripts/setup.sh"
-fi
+FETCH_SOURCE="$(fetch_function fetch_installer)"
+MATCH_SOURCE="$(fetch_function installer_matches_checkout)"
 
-installer_stdout_with_status() {
-    local status="$1"
+# Runs fetch_installer with the network, the checksum tool and uname stubbed, and
+# prints whatever it printed.
+fetch_with_status() {
+    local status="$1" arch="${2:-x86_64}"
+    BIN="$(mktemp -d)/caelestia-install"
     bash -c "
+        BIN='$BIN'
         tui_version() { echo '9.9.9'; }
         release_tag() { echo 'v9.9.9'; }
         fetch_asset() { : > \"\$2\"; return 0; }
         verify_download() { return $status; }
-        uname() { echo x86_64; }
-        $INSTALLER_SOURCE
-        try_download_prebuilt_installer
-    " 2>/dev/null
+        uname() { echo '$arch'; }
+        $FETCH_SOURCE
+        fetch_installer
+    "
 }
 
-installer_stderr_with_status() {
-    local status="$1"
-    bash -c "
-        tui_version() { echo '9.9.9'; }
-        release_tag() { echo 'v9.9.9'; }
-        fetch_asset() { : > \"\$2\"; return 0; }
-        verify_download() { return $status; }
-        uname() { echo x86_64; }
-        $INSTALLER_SOURCE
-        try_download_prebuilt_installer
-    " 2>&1 >/dev/null
-}
+test_a_verified_download_succeeds_quietly() {
+    local out err status
 
-test_no_checksum_prints_nothing_to_stdout() {
-    local out
-    out="$(installer_stdout_with_status 2)"
+    fetch_with_status 0 >/dev/null 2>&1
+    status=$?
+    if [[ $status -ne 0 ]]; then
+        fail "a verified download should succeed, got status $status"
+    fi
 
+    out="$(fetch_with_status 0 2>/dev/null)"
     if [[ -n "$out" ]]; then
-        fail "a failed download must print nothing to stdout, got: $out"
+        fail "a verified download must print nothing to stdout, got: $out"
+    fi
+
+    err="$(fetch_with_status 0 2>&1 >/dev/null)"
+    if [[ -n "$err" ]]; then
+        fail "a verified download must print nothing to stderr, got: $err"
     fi
 }
 
-test_no_checksum_warns_on_stderr() {
-    local err
-    err="$(installer_stderr_with_status 2)"
+test_a_checksum_mismatch_is_fatal() {
+    local err status
 
+    fetch_with_status 1 >/dev/null 2>&1
+    status=$?
+    if [[ $status -eq 0 ]]; then
+        fail "a mismatched download must fail the install"
+    fi
+
+    err="$(fetch_with_status 1 2>&1 >/dev/null)"
     case "$err" in
-        *"No published checksum"*) ;;
-        *) fail "the reason should still be reported, on stderr; got: $err" ;;
+        *"checksum"*) ;;
+        *) fail "a mismatched download should say so on stderr; got: $err" ;;
     esac
 }
 
-test_checksum_mismatch_prints_nothing_to_stdout() {
-    local out
-    out="$(installer_stdout_with_status 1)"
+test_a_release_without_a_checksum_is_fatal() {
+    # There is no compile-on-target fallback to fall back to, so a release with no
+    # published checksum stops here rather than building something unverified.
+    local err status
 
-    if [[ -n "$out" ]]; then
-        fail "a mismatched download must print nothing to stdout, got: $out"
+    fetch_with_status 2 >/dev/null 2>&1
+    status=$?
+    if [[ $status -eq 0 ]]; then
+        fail "a release with no published checksum must not be trusted"
+    fi
+
+    err="$(fetch_with_status 2 2>&1 >/dev/null)"
+    case "$err" in
+        *"no checksum"*) ;;
+        *) fail "the reason should name the missing checksum; got: $err" ;;
+    esac
+}
+
+test_an_architecture_with_no_release_is_reported() {
+    local err status
+
+    fetch_with_status 0 riscv64 >/dev/null 2>&1
+    status=$?
+    if [[ $status -eq 0 ]]; then
+        fail "an architecture with no published binary must not be attempted"
+    fi
+
+    err="$(fetch_with_status 0 riscv64 2>&1 >/dev/null)"
+    case "$err" in
+        *"no prebuilt installer"*) ;;
+        *) fail "the unsupported architecture should be named; got: $err" ;;
+    esac
+}
+
+test_a_binary_from_another_version_is_refused() {
+    local dir binary
+
+    dir="$(mktemp -d)"
+    binary="$dir/caelestia-install"
+    printf '#!/bin/sh\necho 1.2.3\n' > "$binary"
+    chmod +x "$binary"
+
+    if bash -c "
+        BIN='$binary'
+        tui_version() { echo '9.9.9'; }
+        $MATCH_SOURCE
+        installer_matches_checkout
+    " >/dev/null 2>&1; then
+        fail "a binary that disagrees with the checkout must be refused"
+    fi
+
+    printf '#!/bin/sh\necho 9.9.9\n' > "$binary"
+    chmod +x "$binary"
+
+    if ! bash -c "
+        BIN='$binary'
+        tui_version() { echo '9.9.9'; }
+        $MATCH_SOURCE
+        installer_matches_checkout
+    " >/dev/null 2>&1; then
+        fail "a binary that matches the checkout must be accepted"
     fi
 }
-
-test_a_verified_download_prints_only_the_path() {
-    local out
-    out="$(installer_stdout_with_status 0)"
-
-    case "$out" in
-        /tmp/*|/var/*) ;;
-        "") fail "a verified download should print its path, got nothing" ;;
-        *) fail "stdout should carry the path and nothing else, got: $out" ;;
-    esac
-}
-
 run_tests

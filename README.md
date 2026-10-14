@@ -101,8 +101,8 @@ For detailed logs, enable Debug Mode in Nexus -> About -> Advanced, then run
 
 ```
 installer/     TUI installer and the per-distro package lists
-  tui/         C++ TUI source and its CMakeLists
-  data/        menu.json, theme.json, tui.version
+  src/         the Rust installer
+  data/        tui.version
   distro/      per-distro package installation (arch, debian, fedora)
 scripts/       install/update pipeline: the numbered steps and their shared lib/
 src/           files copied onto the system, plus the vendored submodules

@@ -29,21 +29,24 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue((ROOT / rel_path).is_file(), f"Missing installer entrypoint: {rel_path.as_posix()}")
 
     def test_setup_references_existing_step_scripts(self) -> None:
-        runner_text = (ROOT / "installer/tui/Runner.cpp").read_text(encoding="utf-8")
-        matches = re.findall(r'\{"[^"]+",\s*"(scripts/[^"]+)",\s*"[^"]+",\s*"[^"]+"\}', runner_text)
+        steps_text = (ROOT / "installer" / "src" / "steps.rs").read_text(encoding="utf-8")
+        matches = re.findall(r'script: "(scripts/[^"]+)"', steps_text)
 
-        self.assertTrue(matches, "No installer steps found in Runner.cpp")
+        self.assertTrue(matches, "No installer steps found in installer/src/steps.rs")
 
         for rel_path in matches:
             normalized = Path(rel_path.replace("\\", "/"))
             resolved = ROOT / normalized
-            self.assertTrue(resolved.is_file(), f"Missing installer step referenced by Runner.cpp: {resolved.relative_to(ROOT).as_posix()}")
+            self.assertTrue(
+                resolved.is_file(),
+                f"Missing installer step referenced by steps.rs: {resolved.relative_to(ROOT).as_posix()}",
+            )
 
     def test_no_duplicate_step_names(self) -> None:
-        """Runner.cpp must not define two steps with the same display name."""
-        runner_text = (ROOT / "installer/tui/Runner.cpp").read_text(encoding="utf-8")
-        names = re.findall(r'\{"([^"]+)",\s*"(scripts/[^"]+)",\s*"[^"]+",\s*"[^"]+"\}', runner_text)
-        display_names = [n[0] for n in names]
+        """The step table must not define two steps with the same display name."""
+        steps_text = (ROOT / "installer" / "src" / "steps.rs").read_text(encoding="utf-8")
+        display_names = re.findall(r'name: "([^"]+)"', steps_text)
+        self.assertTrue(display_names, "No step names found in installer/src/steps.rs")
 
         seen: dict[str, int] = {}
         for name in display_names:
@@ -58,7 +61,7 @@ class InstallerTests(unittest.TestCase):
     def test_every_step_script_is_wired_into_a_step_list(self) -> None:
         """A numbered scripts/*.sh must be run by a step list, and every listed step must exist.
 
-        Three lists run step scripts: the full install (installer/tui/Runner.cpp), the
+        Three lists run step scripts: the full install (installer/src/steps.rs), the
         user's half of a packaged install (src/bin/caelestia), and the subset
         08-build-shell.sh runs on its own when a checkout updates itself. A script in none
         of them is dead weight that every other check still reports as covered; a list
@@ -67,7 +70,7 @@ class InstallerTests(unittest.TestCase):
         lists differ in failure policy - the installer stops, the update path warns and
         carries on - so only their membership is comparable, which is all this checks.
         """
-        runner_text = (ROOT / "installer" / "tui" / "Runner.cpp").read_text(encoding="utf-8")
+        runner_text = (ROOT / "installer" / "src" / "steps.rs").read_text(encoding="utf-8")
         packaged_text = (ROOT / "src" / "bin" / "caelestia").read_text(encoding="utf-8")
         update_text = (ROOT / "scripts" / "08-build-shell.sh").read_text(encoding="utf-8")
 
@@ -238,74 +241,48 @@ class InstallStepSafetyTests(unittest.TestCase):
             "the scheme.json wait must run after the shell is restarted, not before",
         )
 
-    def test_the_tui_build_configures_from_a_clean_directory(self) -> None:
-        """cmake refuses a CMakeCache.txt that names another source directory.
+    def test_the_launcher_fetches_the_installer_the_release_publishes(self) -> None:
+        """The launcher and the release job have to agree on one asset name.
 
-        One checkout routinely has two names - ~/Desktop/caelestia-kwin and
-        /mnt/c/.../caelestia-kwin are the same tree - so a cache left behind by the other
-        name made the build fail with "the current CMakeCache.txt directory is different
-        than the directory where CMakeCache.txt was created", and the installer stopped
-        there. Nothing clears that cache, so the directory has to go before cmake runs.
+        The launcher has nothing to fall back on any more: it downloads the static
+        binary or it stops. So the name it builds and the name the release attaches
+        are the same contract, checked here rather than discovered by a user.
         """
         script = (ROOT / "scripts" / "setup.sh").read_text(encoding="utf-8")
+        release = (ROOT / ".github" / "workflows" / "version-release.yml").read_text(encoding="utf-8")
 
-        wipe_at = script.find('rm -rf "$BUILD_DIR"')
-        configure_at = script.find('cmake -DCMAKE_BUILD_TYPE=Release "$BUNDLE_DIR/installer/tui"')
+        self.assertIn("fetch_installer", script, "setup.sh should fetch the installer")
+        self.assertNotIn("cmake", script, "nothing is compiled on the user's machine any more")
+        self.assertIn("installer_matches_checkout", script,
+                      "the launcher should refuse a binary that disagrees with the checkout")
 
-        self.assertNotEqual(wipe_at, -1, "setup.sh should clear the TUI build directory")
-        self.assertNotEqual(configure_at, -1, "setup.sh should still configure the TUI build")
-        self.assertLess(
-            wipe_at,
-            configure_at,
-            "the TUI build directory must be cleared before cmake configures into it",
-        )
+        asset = "caelestia-install-${arch}-v${version}"
+        self.assertIn(asset, script, "setup.sh should build the published asset name")
+        self.assertIn('BINARY="caelestia-install-${{ matrix.arch }}-v${TUI_VERSION}"', release,
+                      "the release job should attach the asset the launcher asks for")
 
 
 class TuiArgumentTests(unittest.TestCase):
     def test_every_argument_is_read_for_a_mode_and_a_directory(self) -> None:
-        main_cpp = (ROOT / "installer" / "tui" / "main.cpp").read_text(encoding="utf-8")
+        cli_rs = (ROOT / "installer" / "src" / "cli.rs").read_text(encoding="utf-8")
 
-        self.assertIn("for (int argi = 1; argi < argc; ++argi)", main_cpp,
-                      "main.cpp should walk every argument, not just argv[1]")
-        self.assertIn('arg == "--update"', main_cpp, "the update mode should still be recognised")
-        self.assertIn('arg == "--uninstall"', main_cpp, "the uninstall mode should still be recognised")
-        self.assertIn("g_bundle_dir = arg", main_cpp, "a non-flag argument should set the bundle directory")
+        self.assertIn('Some("--update")', cli_rs, "the update mode should still be recognised")
+        self.assertIn('Some("--uninstall")', cli_rs, "the uninstall mode should still be recognised")
+        self.assertIn("parsed.bundle = Some(", cli_rs,
+                      "a non-flag argument should set the bundle directory")
+        self.assertIn("while let Some(arg) = args.next()", cli_rs,
+                      "every argument should be read, not just the first")
 
     def test_a_mode_and_a_directory_can_both_be_given(self) -> None:
-        main_cpp = (ROOT / "installer" / "tui" / "main.cpp").read_text(encoding="utf-8")
+        cli_rs = (ROOT / "installer" / "src" / "cli.rs").read_text(encoding="utf-8")
 
         self.assertNotIn(
-            "std::string first = argv[1];",
-            main_cpp,
-            "reading only argv[1] discards the second argument of a two-argument call",
+            "let _ = args.next();",
+            cli_rs,
+            "reading a single argument discards the second of a two-argument call",
         )
-
-
-class TerminalHandoverTests(unittest.TestCase):
-    def test_the_raw_mode_is_tracked_apart_from_the_alt_screen(self) -> None:
-        term_hpp = (ROOT / "installer" / "tui" / "Term.hpp").read_text(encoding="utf-8")
-        term_cpp = (ROOT / "installer" / "tui" / "Term.cpp").read_text(encoding="utf-8")
-
-        self.assertIn("extern bool raw_mode;", term_hpp,
-                      "the tty attribute change needs its own flag")
-        restore_body = term_cpp.split("void restore()", 1)[1].split("void init()", 1)[0]
-        self.assertIn("if (raw_mode)", restore_body,
-                      "restore() should undo the tty attributes whenever they were changed")
-
-    def test_the_handover_restores_the_terminal_before_forking(self) -> None:
-        main_cpp = (ROOT / "installer" / "tui" / "main.cpp").read_text(encoding="utf-8")
-
-        run_external_body = main_cpp.split("void run_external(", 1)[1].split("\nint main(", 1)[0]
-        restore_at = run_external_body.find("Term::restore()")
-        fork_at = run_external_body.find("fork()")
-
-        self.assertNotEqual(restore_at, -1, "run_external should restore the terminal")
-        self.assertNotEqual(fork_at, -1, "run_external should still fork the script")
-        self.assertLess(
-            restore_at,
-            fork_at,
-            "the terminal has to be restored before the child inherits it",
-        )
+        self.assertIn('text.starts_with(\'-\')', cli_rs,
+                      "an unknown option should be refused rather than taken for a directory")
 
 
 class ScriptNumberingTests(unittest.TestCase):
@@ -334,47 +311,34 @@ class ScriptNumberingTests(unittest.TestCase):
             )
 
 
-class InstallerEnvironmentTests(unittest.TestCase):
-    """The TUI reads its directories from the environment, and HOME is optional here.
+class InstallerSourceTests(unittest.TestCase):
+    """The installer is Rust now, and the checks above read its sources.
 
-    POSIX does not promise HOME. UI.cpp already treats it as optional for its state
-    directory, but three other call sites built a std::string straight from
-    getenv("HOME"), and libstdc++ throws std::logic_error ("basic_string: construction
-    from null is not valid") on a null pointer rather than yielding an empty string.
-    That aborts the installer: in Runner::execute before the first step runs, and again
-    on the success path in phase 5. Nothing executes the TUI at test time - the CI job
-    only compiles it - so reading the source is what catches it. Every caller now goes
-    through xdg_cache_dir() in Globals.cpp, which is where the checked form lives.
+    The C++ version needed a source-reading guard for a bug the language allowed:
+    `string(getenv("HOME"))` throws when HOME is unset, which aborted the install
+    before the first step ran. Rust's `std::env::var` returns a `Result`, so that
+    bug cannot be written here. What is still worth guarding is the crate's shape,
+    because the checks in this file grep it by name.
     """
 
-    TUI = ROOT / "installer" / "tui"
-    # A direct argument to string()/std::string(), with or without the "std::" prefix. A
-    # ternary whose condition is itself a getenv() call counts too: it is the false
-    # branch that decides what gets constructed.
-    UNCHECKED_GETENV = re.compile(r"\bstring\(\s*(?:std::)?getenv\(")
+    SRC = ROOT / "installer" / "src"
 
-    def tui_sources(self) -> list[Path]:
-        return sorted(self.TUI.glob("*.cpp"))
+    def test_the_installer_sources_are_where_this_expects_them(self) -> None:
+        """Keeps the checks above from passing just because they read no files."""
+        names = {path.name for path in self.SRC.glob("*.rs")}
+        for expected in ("main.rs", "cli.rs", "steps.rs", "menu.rs", "app.rs", "screens.rs", "runner.rs"):
+            self.assertIn(expected, names, f"installer/src/{expected} is missing")
 
-    def test_the_tui_sources_are_where_this_expects_them(self) -> None:
-        """Keeps the check below from passing just because it read no files."""
-        names = [path.name for path in self.tui_sources()]
-        self.assertIn("main.cpp", names)
-        self.assertIn("Runner.cpp", names)
-
-    def test_no_string_is_constructed_from_an_unchecked_getenv(self) -> None:
-        offenders = []
-        for path in self.tui_sources():
-            text = path.read_text(encoding="utf-8")
-            for number, line in enumerate(text.splitlines(), start=1):
-                if self.UNCHECKED_GETENV.search(line):
-                    offenders.append(f"{path.relative_to(ROOT).as_posix()}:{number}")
-
-        self.assertEqual(
-            offenders,
-            [],
-            "string is built from getenv() without checking the pointer for null:",
-        )
+    def test_step_scripts_are_named_in_one_place_only(self) -> None:
+        """The step table is the single list; everything else renders what it holds."""
+        for name in ("app.rs", "screens.rs", "menu.rs", "theme.rs", "bundle.rs"):
+            text = (self.SRC / name).read_text(encoding="utf-8")
+            self.assertNotIn(
+                "scripts/",
+                text,
+                f"installer/src/{name} names a step script; installer/src/steps.rs "
+                "is the only place that may",
+            )
 
 
 if __name__ == "__main__":

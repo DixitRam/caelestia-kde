@@ -52,10 +52,6 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
-      - name: Build Installer Binary
-        run: |
-          chown -R builduser:builduser .
-          su - builduser -c "cd $GITHUB_WORKSPACE && mkdir -p installer/build && cd installer/build && cmake -DCMAKE_BUILD_TYPE=Release ../tui && make -j\$(nproc)"
       - name: Run Installer Steps
         run: |
           chown -R builduser:builduser .
@@ -80,11 +76,6 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
-      - name: Build Installer Binary
-        run: |
-          mkdir -p installer/build && cd installer/build
-          cmake -DCMAKE_BUILD_TYPE=Release ../tui
-          make -j$(nproc)
       - name: Run Installer Steps
         run: python3 .github/scripts/run_installer_steps.py
       - name: Verify Package Installation
@@ -109,11 +100,6 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
-      - name: Build Installer Binary
-        run: |
-          mkdir -p installer/build && cd installer/build
-          cmake -DCMAKE_BUILD_TYPE=Release ../tui
-          make -j$(nproc)
       - name: Run Installer Steps
         run: python3 .github/scripts/run_installer_steps.py
       - name: Verify Package Installation
