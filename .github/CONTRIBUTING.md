@@ -29,8 +29,8 @@ Make your changes in the cloned repo, test them (see below), then open a PR. Tha
 | Shell UI (launcher, bar, notifications, etc.) | `shell/` | QML + Quickshell |
 | Lock screen greeter (Plasma 6 shell) | `src/kde/shells/caelestia.desktop/` | QML + KDE ScreenLocker |
 | KWin plugin (window management, shortcuts) | `shell/plugin/` | C++ |
-| TUI installer | `installer/` | Rust |
-| Install step scripts | `scripts/` | Bash |
+| TUI installer and install steps | `installer/` | Rust |
+| Steps not ported yet | `scripts/` | Bash |
 | User-facing update scripts | `src/bin/` | Bash |
 
 ## Development workflow

@@ -779,7 +779,7 @@ at `$XDG_CACHE_HOME/caelestia/install.log`; a failure prints its last lines.
 
 The configuration menu sets `CONFIRM_ARG` as `true`/`false`. The installer converts it per-script context:
 - Some scripts use `-n "$CONFIRM_ARG"` (non-empty = auto-confirm)
-The installer passes each of the Configure answers to the step scripts in the environment they are spawned with.
+The installer passes each of the Configure answers in the environment each step is spawned with, whether the step is a Rust step or one of the scripts under `scripts/`.
 
 ### 8.4 Stale Lock Files
 
