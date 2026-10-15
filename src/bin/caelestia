@@ -246,7 +246,7 @@ has_step_scripts() {
 # CAELESTIA_INSTALL_KIND=package so the package-owned sections stay out (parity-6).
 #
 # The list is that half in installer order: steps that install packages or optional apps
-# belong to the package manager. 05-sddm-theme.sh is here because choosing a login screen
+# belong to the package manager. 05-sddm-theme is here because choosing a login screen
 # is the user's half - the package ships the theme and helper, leaving the posthook.
 packaged_install() {
     if ! has_step_scripts; then
@@ -360,15 +360,20 @@ EOF
         return 2
     fi
 
-    local step="$SCRIPTS_DIR/05-sddm-theme.sh"
-    if [[ ! -f "$step" ]]; then
-        printf '[ERR] no login screen step script at %s\n\n' "$step" >&2
-        printf '      A package keeps the installer scripts in /usr/share/caelestia;\n' >&2
-        printf '      a checkout is named with CAELESTIA_DIR.\n' >&2
+    if [[ ! -f "$SCRIPTS_DIR/lib/installer-bin.sh" ]]; then
+        printf '[ERR] no installer scripts found in %s\n\n' "$SCRIPTS_DIR" >&2
+        printf '      A package keeps them in /usr/share/caelestia and runs this command\n' >&2
+        printf '      from its own copy. Reinstall the package, or set CAELESTIA_DATA_DIR to\n' >&2
+        printf '      where they are.\n' >&2
         return 1
     fi
 
-    exec env BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND="$KIND" INSTALL_SDDM=true bash "$step"
+    # shellcheck source=/dev/null
+    . "$SCRIPTS_DIR/lib/installer-bin.sh"
+
+    # INSTALL_SDDM is what the step reads: running it by hand is asking for the login screen.
+    BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND="$KIND" INSTALL_SDDM=true \
+        caelestia_run_step 05-sddm-theme
 }
 
 cmd_version() {

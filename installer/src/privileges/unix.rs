@@ -223,6 +223,22 @@ pub fn elevated(program: &str, args: &[&str], directory: Option<&Path>) -> Resul
         .map_err(|error| format!("could not run {program}: {error}"))
 }
 
+// The same route, with the child's own complaint kept out of the installer's output: the
+// caller reports what it could not do instead of relaying a tool's message about it.
+pub fn elevated_quietly(
+    program: &str,
+    args: &[&str],
+    directory: Option<&Path>,
+) -> Result<i32, String> {
+    let mut command = elevated_command(program, args, directory)?;
+    command
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.code().unwrap_or(1))
+        .map_err(|error| format!("could not run {program}: {error}"))
+}
+
 // Escalate only where no password can be needed: a terminal or pkexec route would ask, and
 // a step nobody is watching must not stall on a prompt. The caller warns and carries on.
 pub fn quiet(program: &str, args: &[&str], directory: Option<&Path>) -> Result<i32, String> {

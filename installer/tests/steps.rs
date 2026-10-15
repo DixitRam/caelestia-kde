@@ -29,6 +29,11 @@ impl Fixture {
         self.path("cache").join("caelestia-kde").join(name)
     }
 
+    #[cfg(unix)]
+    fn text(&self, name: &str) -> String {
+        self.path(name).to_string_lossy().to_string()
+    }
+
     fn step(&self, id: &str, path: &Path, extra: &[(&str, &str)]) -> Output {
         self.in_bundle(id, path, None, extra)
     }
@@ -2036,6 +2041,666 @@ fn an_update_never_removes_panels() {
         std::fs::read_to_string(&appletsrc).expect("the layout"),
         layout,
         "an update must not delete a panel somebody recreated"
+    );
+}
+
+#[cfg(unix)]
+struct LoginScreen {
+    path: PathBuf,
+    calls: PathBuf,
+    sudo: PathBuf,
+}
+
+// The step writes to /usr and /etc, so the two system directories it owns are pointed at a
+// tree the test owns, and the sudo it escalates through is a stub that refuses anything
+// under /etc - a test must not be able to write a sudoers rule on the machine it runs on.
+#[cfg(unix)]
+fn login_tools(fixture: &Fixture) -> LoginScreen {
+    let bin = fixture.path("bin");
+    let calls = fixture.path("calls.log");
+    std::fs::write(&calls, "").expect("the call log");
+
+    let sudo = stub_in(
+        &bin,
+        "sudo",
+        "#!/bin/sh\ncase \"$*\" in\n    '-n -v'*) exit 0 ;;\nesac\nprintf 'sudo %s\\n' \"$*\" >> \"$KW_CALLS\"\n\
+         for arg in \"$@\"; do\n    case \"$arg\" in /etc/*) exit 1 ;; esac\ndone\nshift\nexec \"$@\"\n",
+    );
+    stub_in(
+        &bin,
+        "systemctl",
+        "#!/bin/sh\n[ \"${KW_PLASMALOGIN:-}\" = 1 ] && case \"$*\" in *plasmalogin*) exit 0 ;; esac\nexit 1\n",
+    );
+    stub_in(
+        &bin,
+        "readlink",
+        "#!/bin/sh\nprintf '%s\\n' \"${KW_DM_ALIAS:-}\"\n",
+    );
+    stub_in(
+        &bin,
+        "kwriteconfig6",
+        "#!/bin/sh\nprintf 'kwriteconfig6 %s\\n' \"$*\" >> \"$KW_CALLS\"\nexit 0\n",
+    );
+    stub_in(
+        &bin,
+        "kreadconfig6",
+        "#!/bin/sh\n[ -n \"${KW_SELECTION:-}\" ] && printf '%s\\n' \"$KW_SELECTION\"\nexit 0\n",
+    );
+    stub_in(
+        &bin,
+        "visudo",
+        "#!/bin/sh\nexit \"${KW_VISUDO_FAILS:-0}\"\n",
+    );
+    stub_in(&bin, "sddm-greeter-qt6", "#!/bin/sh\nexit 0\n");
+    // The greeter's packages are the distribution's business: this reports them present so
+    // that the dependency stage is exercised without a package manager on the test host.
+    stub_in(
+        &bin,
+        "pacman",
+        "#!/bin/sh\nprintf 'pacman %s\\n' \"$*\" >> \"$KW_CALLS\"\nexit 0\n",
+    );
+
+    let system = std::env::var("PATH").unwrap_or_default();
+    LoginScreen {
+        path: PathBuf::from(format!("{}:{system}", bin.display())),
+        calls,
+        sudo,
+    }
+}
+
+#[cfg(unix)]
+fn theme_fixture(fixture: &Fixture, variant: &str, qt_version: &str) {
+    let theme = fixture.path("theme");
+    std::fs::create_dir_all(&theme).expect("the theme directory");
+    std::fs::write(
+        theme.join("metadata.desktop"),
+        format!("[SddmGreeterTheme]\nQtVersion={qt_version}\n"),
+    )
+    .expect("the metadata");
+    std::fs::write(theme.join("Main.qml"), "// theme\n").expect("the entrypoint");
+    std::fs::write(theme.join("theme.conf"), "[General]\n").expect("the theme config");
+
+    let assets = theme.join("assets/google-sans-flex");
+    std::fs::create_dir_all(&assets).expect("the font directory");
+    std::fs::write(assets.join("GoogleSansFlex.ttf"), b"font").expect("the font");
+
+    let installed = fixture.path("installed");
+    std::fs::create_dir_all(&installed).expect("the installed theme directory");
+    std::fs::write(
+        installed.join("metadata.desktop"),
+        format!("[SddmGreeterTheme]\nQtVersion={qt_version}\n"),
+    )
+    .expect("the metadata");
+    std::fs::write(installed.join("theme.conf"), "[General]\n").expect("the theme config");
+    std::fs::write(installed.join("Main.qml"), "// theme\n").expect("the entrypoint");
+    if variant == "mini" {
+        std::fs::create_dir_all(installed.join("singletons")).expect("the singletons");
+    }
+    std::fs::create_dir_all(installed.join("scripts")).expect("the scripts directory");
+    stub_in(&installed.join("scripts"), "sync.sh", "#!/bin/sh\nexit 0\n");
+    std::fs::write(installed.join("theme.conf.template"), "[General]\n").expect("the template");
+}
+
+#[cfg(unix)]
+fn run_login(fixture: &Fixture, tools: &LoginScreen, extra: &[(&str, &str)]) -> Output {
+    let calls = tools.calls.to_str().expect("a path");
+    let sudo = tools.sudo.to_str().expect("a path");
+    let mut environment: Vec<(&str, &str)> = vec![
+        ("CAELESTIA_FRESH_INSTALL", "0"),
+        ("KW_CALLS", calls),
+        ("CAELESTIA_SUDO_BIN", sudo),
+    ];
+    environment.extend_from_slice(extra);
+    let bundle = fixture.path("bundle");
+    fixture.step_in("05-sddm-theme", &tools.path, &bundle, &environment)
+}
+
+#[cfg(unix)]
+#[test]
+fn a_packaged_install_installs_no_theme_files_and_selects_none() {
+    let fixture = Fixture::new("login-packaged");
+    let tools = login_tools(&fixture);
+    theme_fixture(&fixture, "full", "6");
+
+    let output = run_login(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            (
+                "CAELESTIA_SDDM_THEME_DIR",
+                &fixture.path("installed").to_string_lossy(),
+            ),
+            (
+                "CAELESTIA_SDDM_CONF_DIR",
+                &fixture.path("conf.d").to_string_lossy(),
+            ),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    assert!(
+        output
+            .stdout
+            .contains("The theme files belong to the package."),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        output
+            .stdout
+            .contains("The theme selection belongs to the package."),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        !fixture.path("conf.d").join("zz-caelestia.conf").exists(),
+        "a package does not write a selection of its own"
+    );
+    assert!(
+        fixture
+            .path(".config/caelestia/templates/sddm-theme.conf")
+            .is_file(),
+        "but the theme's template is still offered to the user"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_packaged_install_registers_the_posthook_and_its_sudoers_rule() {
+    let fixture = Fixture::new("login-posthook");
+    let tools = login_tools(&fixture);
+    theme_fixture(&fixture, "full", "6");
+
+    let theme_dir = fixture.text("installed");
+    let conf_dir = fixture.text("conf.d");
+    let environment = [
+        ("CAELESTIA_INSTALL_KIND", "package"),
+        ("CAELESTIA_SDDM_THEME_DIR", theme_dir.as_str()),
+        ("CAELESTIA_SDDM_CONF_DIR", conf_dir.as_str()),
+    ];
+
+    let output = run_login(&fixture, &tools, &environment);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let cli = std::fs::read_to_string(fixture.path(".config/caelestia/cli.json"))
+        .expect("the posthook registration wrote the config");
+    assert!(
+        cli.contains("--posthook"),
+        "the hook the login screen sync runs should be recorded: {cli}"
+    );
+    assert!(
+        cli.contains(&format!(
+            "{}/scripts/sync.sh",
+            fixture.path("installed").display()
+        )),
+        "and it should name the helper the package installed: {cli}"
+    );
+    assert!(
+        output.stdout.contains("Posthook registered in cli.json"),
+        "{}",
+        output.stdout
+    );
+
+    let calls = std::fs::read_to_string(&tools.calls).unwrap_or_default();
+    assert!(
+        calls.contains("visudo -cf"),
+        "the rule is checked first: {calls}"
+    );
+    assert!(
+        calls.contains("install -m 0440 -o root -g root"),
+        "and installed with the mode sudoers demands: {calls}"
+    );
+
+    let second = run_login(&fixture, &tools, &environment);
+    assert_eq!(second.code, Some(0), "{}", second.stderr);
+    assert_eq!(
+        cli,
+        std::fs::read_to_string(fixture.path(".config/caelestia/cli.json")).expect("the config"),
+        "a second run leaves one hook, not two"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_sudoers_rule_that_does_not_validate_is_not_installed() {
+    let fixture = Fixture::new("login-visudo");
+    let tools = login_tools(&fixture);
+    theme_fixture(&fixture, "full", "6");
+
+    let output = run_login(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            (
+                "CAELESTIA_SDDM_THEME_DIR",
+                &fixture.path("installed").to_string_lossy(),
+            ),
+            (
+                "CAELESTIA_SDDM_CONF_DIR",
+                &fixture.path("conf.d").to_string_lossy(),
+            ),
+            ("KW_VISUDO_FAILS", "1"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("did not validate; leaving sudoers alone."),
+        "{}",
+        output.stdout
+    );
+
+    let calls = std::fs::read_to_string(&tools.calls).unwrap_or_default();
+    assert!(
+        !calls.contains("install -m 0440"),
+        "a rule that does not validate must never reach sudoers: {calls}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_package_without_its_theme_says_so_instead_of_installing_one() {
+    let fixture = Fixture::new("login-no-theme");
+    let tools = login_tools(&fixture);
+    std::fs::create_dir_all(fixture.path("installed")).expect("an empty theme directory");
+
+    let output = run_login(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            (
+                "CAELESTIA_SDDM_THEME_DIR",
+                &fixture.path("installed").to_string_lossy(),
+            ),
+        ],
+    );
+    assert_eq!(output.code, Some(1));
+    assert!(
+        output
+            .stderr
+            .contains("login screen theme is not installed at"),
+        "{}",
+        output.stderr
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reinstall_keeps_a_mini_theme_mini() {
+    // The installed theme is what says which variant this is, so a mini theme that is
+    // installed over stays mini instead of being replaced by the default full one.
+    let fixture = Fixture::new("login-variant");
+    let tools = login_tools(&fixture);
+    theme_fixture(&fixture, "mini", "6");
+
+    for (variant, marker) in [("full", "full"), ("mini", "mini")] {
+        let source = fixture.path("bundle/src/sddm/themes").join(variant);
+        std::fs::create_dir_all(&source).expect("the source theme");
+        std::fs::write(source.join("Main.qml"), format!("// {marker}\n")).expect("the entrypoint");
+        std::fs::write(source.join("theme.conf"), "[General]\n").expect("the theme config");
+    }
+    // The mini theme takes its shapes from the full one's tree.
+    let shapes = fixture.path("bundle/src/sddm/themes/full/components/shapes");
+    std::fs::create_dir_all(&shapes).expect("the shapes");
+    std::fs::write(shapes.join("Shape.qml"), "// shape\n").expect("the shape");
+    stub_in(
+        &fixture.path("bundle/src/sddm"),
+        "sync.sh",
+        "#!/bin/sh\nexit 0\n",
+    );
+
+    let installed = fixture.path("installed");
+    let installed_dir = installed.to_string_lossy().to_string();
+    let conf_dir = fixture.text("conf.d");
+
+    let output = run_login(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "source"),
+            ("BASE_DISTRO", "arch"),
+            ("CAELESTIA_SDDM_THEME_DIR", &installed_dir),
+            ("CAELESTIA_SDDM_CONF_DIR", &conf_dir),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    assert_eq!(
+        std::fs::read_to_string(installed.join("Main.qml")).expect("the entrypoint"),
+        "// mini\n",
+        "the variant the installed theme declared is the one that is installed again"
+    );
+    assert!(
+        installed.join("components/shapes/Shape.qml").is_file(),
+        "and the mini theme is given the shapes it takes from the full one"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_variant_that_is_not_one_is_refused_before_anything_is_written() {
+    let fixture = Fixture::new("login-bad-variant");
+    let tools = login_tools(&fixture);
+    theme_fixture(&fixture, "full", "6");
+
+    let output = run_login(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            (
+                "CAELESTIA_SDDM_THEME_DIR",
+                &fixture.path("installed").to_string_lossy(),
+            ),
+            ("SDDM_THEME_VARIANT", "huge"),
+        ],
+    );
+    assert_eq!(output.code, Some(1));
+    assert!(
+        output.stderr.contains("Unknown SDDM theme variant: huge"),
+        "{}",
+        output.stderr
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_login_screen_step_can_be_switched_off() {
+    let fixture = Fixture::new("login-off");
+    let tools = login_tools(&fixture);
+
+    let output = run_login(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("INSTALL_SDDM", "false"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("SDDM theme not selected."),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        !fixture.path("calls.log").exists()
+            || std::fs::read_to_string(fixture.path("calls.log"))
+                .expect("the log")
+                .is_empty(),
+        "nothing is asked of the system when the theme is not wanted"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_theme_without_a_greeter_is_installed_but_left_unselected() {
+    let fixture = Fixture::new("login-no-greeter");
+    let tools = login_tools(&fixture);
+    theme_fixture(&fixture, "full", "6");
+    // A Qt version nothing on this machine can run: the step must not select the theme.
+    std::fs::write(
+        fixture.path("installed/metadata.desktop"),
+        "[SddmGreeterTheme]\nQtVersion=9\n",
+    )
+    .expect("the metadata");
+
+    let output = run_login(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            (
+                "CAELESTIA_SDDM_THEME_DIR",
+                &fixture.path("installed").to_string_lossy(),
+            ),
+            (
+                "CAELESTIA_SDDM_CONF_DIR",
+                &fixture.path("conf.d").to_string_lossy(),
+            ),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("SDDM has no sddm-greeter-qt9"),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        output
+            .stdout
+            .contains("The package selects the theme anyway."),
+        "and a packaged install is told the package has already selected it: {}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_theme_that_cannot_run_takes_an_earlier_selection_back() {
+    let fixture = Fixture::new("login-revert");
+    let tools = login_tools(&fixture);
+    theme_fixture(&fixture, "full", "6");
+
+    // The checkout's theme declares a Qt version nothing here can run.
+    let source = fixture.path("bundle/src/sddm/themes/full");
+    std::fs::create_dir_all(&source).expect("the source theme");
+    for (name, body) in [
+        ("Main.qml", "// theme\n"),
+        ("theme.conf", "[General]\n"),
+        ("metadata.desktop", "[SddmGreeterTheme]\nQtVersion=9\n"),
+    ] {
+        std::fs::write(source.join(name), body).expect("a theme file");
+    }
+    stub_in(
+        &fixture.path("bundle/src/sddm"),
+        "sync.sh",
+        "#!/bin/sh\nexit 0\n",
+    );
+
+    let conf = fixture.path("conf.d");
+    std::fs::create_dir_all(&conf).expect("the drop-in directory");
+    std::fs::write(
+        conf.join("zz-caelestia.conf"),
+        "[Theme]\nCurrent=caelestia\n",
+    )
+    .expect("a selection an earlier run made");
+    std::fs::write(conf.join("caelestia.conf"), "[Theme]\nCurrent=caelestia\n")
+        .expect("an older one");
+    let conf_dir = conf.to_string_lossy().to_string();
+
+    // The selection the install recorded: there was none, so taking it back deletes the key
+    // rather than restoring another theme's name.
+    let state = fixture.path(".local/state/caelestia");
+    std::fs::create_dir_all(&state).expect("the state directory");
+    std::fs::write(state.join("sddm.conf.theme-current"), "#none\n").expect("the record");
+
+    let output = run_login(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "source"),
+            ("BASE_DISTRO", "arch"),
+            (
+                "CAELESTIA_SDDM_THEME_DIR",
+                &fixture.path("installed").to_string_lossy(),
+            ),
+            ("CAELESTIA_SDDM_CONF_DIR", &conf_dir),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("SDDM has no sddm-greeter-qt9"),
+        "{}",
+        output.stdout
+    );
+
+    assert!(
+        !conf.join("zz-caelestia.conf").exists(),
+        "the selection this installer made is taken back"
+    );
+    assert!(
+        !conf.join("caelestia.conf").exists(),
+        "and so is the one from before the drop-in was renamed"
+    );
+
+    let calls = std::fs::read_to_string(&tools.calls).unwrap_or_default();
+    assert!(
+        calls.contains("kwriteconfig6 --file /etc/sddm.conf --group Theme --key Current --delete"),
+        "a machine that had no selection gets the key deleted, not set to a name: {calls}"
+    );
+    assert!(
+        output
+            .stdout
+            .contains("Restored the login screen theme selection."),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        !state.join("sddm.conf.theme-current").exists(),
+        "the record is spent once it has been put back"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_source_install_puts_the_theme_where_sddm_looks_for_it() {
+    let fixture = Fixture::new("login-source");
+    let tools = login_tools(&fixture);
+    theme_fixture(&fixture, "full", "6");
+
+    // The theme the checkout ships, which is what a source install copies from.
+    let source = fixture.path("bundle/src/sddm/themes/full");
+    std::fs::create_dir_all(&source).expect("the source theme");
+    std::fs::write(source.join("Main.qml"), "// source theme\n").expect("the entrypoint");
+    std::fs::write(source.join("theme.conf"), "[General]\n").expect("the theme config");
+    std::fs::write(
+        source.join("metadata.desktop"),
+        "[SddmGreeterTheme]\nQtVersion=6\n",
+    )
+    .expect("the metadata");
+    std::fs::write(source.join(".hidden"), "not part of the theme").expect("a dotfile");
+    std::fs::write(source.join("theme.conf.template"), "[General]\n").expect("the template");
+
+    let font = fixture.path("bundle/src/kde/shells/caelestia.desktop/contents/fonts");
+    std::fs::create_dir_all(&font).expect("the font directory");
+    std::fs::write(font.join("GoogleSansFlex.ttf"), b"font").expect("the font");
+    stub_in(
+        &fixture.path("bundle/src/sddm"),
+        "sync.sh",
+        "#!/bin/sh\nexit 0\n",
+    );
+
+    let installed = fixture.path("installed");
+    let installed_dir = installed.to_string_lossy().to_string();
+    let conf = fixture.path("conf.d");
+    let conf_dir = conf.to_string_lossy().to_string();
+    std::fs::create_dir_all(&installed).expect("the installed theme directory");
+
+    let output = run_login(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "source"),
+            ("BASE_DISTRO", "arch"),
+            ("CAELESTIA_SDDM_THEME_DIR", &installed_dir),
+            ("CAELESTIA_SDDM_CONF_DIR", &conf_dir),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    assert_eq!(
+        std::fs::read_to_string(installed.join("Main.qml")).expect("the installed entrypoint"),
+        "// source theme\n",
+        "the checkout's theme is what lands in the installed tree"
+    );
+    assert!(
+        !installed.join(".hidden").exists(),
+        "a dotfile is not part of the theme"
+    );
+    assert!(
+        installed
+            .join("assets/google-sans-flex/GoogleSansFlex.ttf")
+            .is_file(),
+        "the lock screen's font is installed beside it"
+    );
+    assert!(
+        installed.join("scripts/sync.sh").is_file(),
+        "and so is the sync helper"
+    );
+    assert_eq!(
+        std::fs::read_to_string(conf.join("zz-caelestia.conf"))
+            .unwrap_or_else(|error| panic!("the drop-in: {error}\n{}", output.stdout)),
+        "[General]\nGreeterEnvironment=QML_XHR_ALLOW_FILE_READ=1\n\n[Theme]\nCurrent=caelestia\n",
+        "the drop-in is what selects the theme"
+    );
+    assert!(
+        fixture
+            .path(".config/caelestia/templates/sddm-theme.conf")
+            .is_file(),
+        "and the template is offered to the user"
+    );
+    assert!(
+        output.stdout.contains("Dependencies met."),
+        "an arch install checks the greeter's packages: {}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_source_install_says_which_distribution_it_cannot_help() {
+    let fixture = Fixture::new("login-unsupported");
+    let tools = login_tools(&fixture);
+    let source = fixture.path("bundle/src/sddm/themes/full");
+    std::fs::create_dir_all(&source).expect("the source theme");
+    for (name, body) in [
+        ("theme.conf", "[General]\n"),
+        ("Main.qml", "// theme\n"),
+        ("metadata.desktop", "[SddmGreeterTheme]\nQtVersion=6\n"),
+    ] {
+        std::fs::write(source.join(name), body).expect("a theme file");
+    }
+    stub_in(
+        &fixture.path("bundle/src/sddm"),
+        "sync.sh",
+        "#!/bin/sh\nexit 0\n",
+    );
+
+    let output = run_login(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "source"),
+            ("BASE_DISTRO", "gentoo"),
+            (
+                "CAELESTIA_SDDM_THEME_DIR",
+                &fixture.path("installed").to_string_lossy(),
+            ),
+            (
+                "CAELESTIA_SDDM_CONF_DIR",
+                &fixture.path("conf.d").to_string_lossy(),
+            ),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("SDDM Qt6 dependencies must be installed manually."),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        output
+            .stdout
+            .contains("Login screen installed with warnings."),
+        "and the run is reported as incompletely applied: {}",
+        output.stdout
     );
 }
 

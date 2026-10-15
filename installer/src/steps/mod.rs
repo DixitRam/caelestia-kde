@@ -3,6 +3,7 @@ mod backup;
 mod configs;
 mod kde_apps;
 mod kde_theme;
+mod login_screen;
 mod optional_apps;
 mod prereqs;
 mod services;
@@ -90,6 +91,15 @@ impl Status {
 pub enum Failure {
     Message(String),
     Reported,
+}
+
+impl std::fmt::Debug for Failure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Failure::Message(message) => formatter.write_str(message),
+            Failure::Reported => formatter.write_str("reported to the user"),
+        }
+    }
 }
 
 impl From<String> for Failure {
@@ -200,7 +210,7 @@ pub const STEPS: [Step; 17] = [
         name: "Install SDDM theme",
         id: "05-sddm-theme",
         phase: Phase::Configure,
-        body: Body::Script("scripts/05-sddm-theme.sh"),
+        body: Body::Native(login_screen::run),
     },
     Step {
         name: "Enable system services",

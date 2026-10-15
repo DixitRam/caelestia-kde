@@ -42,6 +42,40 @@ pub fn install(package: &str, confirm: Option<&str>) -> bool {
     }
 }
 
+pub fn missing<'a>(packages: &[&'a str]) -> Vec<&'a str> {
+    packages
+        .iter()
+        .copied()
+        .filter(|package| !present(package))
+        .collect()
+}
+
+// One transaction for a set of packages: the managers resolve the dependency graph once,
+// and a failure is reported once. This is the direct route (no AUR helper), which is what
+// a dependency the distro itself carries wants.
+pub fn install_all(packages: &[&str]) -> bool {
+    if packages.is_empty() {
+        return true;
+    }
+
+    let family = distro::detect();
+    let (program, mut args): (&str, Vec<&str>) = match family {
+        Distro::Arch => ("pacman", vec!["-S", "--noconfirm"]),
+        Distro::Fedora => ("dnf", vec!["install", "-y"]),
+        Distro::Debian => ("apt-get", vec!["install", "-y"]),
+        Distro::Unknown => {
+            output::warn(&format!(
+                "No package manager is known for '{}'; cannot install {}.",
+                family.name(),
+                packages.join(" ")
+            ));
+            return false;
+        }
+    };
+    args.extend_from_slice(packages);
+    privileges::elevated(program, &args, None) == Ok(0)
+}
+
 pub fn install_first(candidates: &[&str]) -> bool {
     let confirm = std::env::var("CONFIRM_ARG")
         .ok()
@@ -87,5 +121,25 @@ mod tests {
     #[test]
     fn nothing_is_present_for_an_unknown_distribution() {
         assert!(!present("caelestia-not-a-package-for-any-distro"));
+    }
+
+    #[test]
+    fn a_set_of_packages_nothing_is_missing_from_needs_no_manager() {
+        assert!(install_all(&[]), "an empty set is already satisfied");
+    }
+
+    #[test]
+    fn what_is_missing_is_reported_in_the_order_it_was_asked_for() {
+        assert_eq!(
+            missing(&[
+                "caelestia-not-a-package-for-any-distro",
+                "caelestia-nor-this-one",
+            ]),
+            [
+                "caelestia-not-a-package-for-any-distro",
+                "caelestia-nor-this-one"
+            ]
+        );
+        assert_eq!(missing(&[]), Vec::<&str>::new());
     }
 }

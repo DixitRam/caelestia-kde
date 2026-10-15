@@ -101,12 +101,12 @@ test_the_machine_steps_stay_out_of_a_packaged_install() {
 
 test_the_greeter_step_selects_without_installing_the_theme() {
     local script
-    script="$(cat "$REPO_ROOT/scripts/05-sddm-theme.sh")"
+    script="$(cat "$REPO_ROOT/installer/src/steps/login_screen.rs")"
 
-    assert_contains "$script" 'skip "The theme files belong to the package."' "the theme copy should be skipped"
-    assert_contains "$script" 'skip "The theme selection belongs to the package."' "the selection under /etc should be skipped"
-    assert_contains "$script" "skip \"The display manager's dependencies belong to the package.\"" "the distro dependencies should be skipped"
-    assert_contains "$script" 'register_greeter_sync "SDDM theme installed."' "while the posthook is still registered for both kinds"
+    assert_contains "$script" 'The theme files belong to the package.' "the theme copy should be skipped"
+    assert_contains "$script" 'The theme selection belongs to the package.' "the selection under /etc should be skipped"
+    assert_contains "$script" "The display manager's dependencies belong to the package." "the distro dependencies should be skipped"
+    assert_contains "$script" '"SDDM theme installed."' "while the posthook is still registered for both kinds"
 
     local cmake pkgbuild
     cmake="$(cat "$REPO_ROOT/shell/CMakeLists.txt")"
