@@ -1478,6 +1478,41 @@ fn the_retired_entries_and_a_dead_enable_link_do_not_survive() {
 
 #[cfg(unix)]
 #[test]
+fn the_isolated_autostart_step_is_idempotent() {
+    let fixture = Fixture::new("autostart-again");
+    let tools = autostart_tools(&fixture);
+    let shell_config = fixture.path(".config/quickshell/caelestia/shell.qml");
+    std::fs::create_dir_all(shell_config.parent().expect("a parent")).expect("the config tree");
+    std::fs::write(&shell_config, b"// shell").expect("the entrypoint");
+
+    let launcher = fixture.path(".local/bin/caelestia-autostart.sh");
+    let unit = fixture.path(".config/systemd/user/caelestia-shell.service");
+    let declaration = fixture.path(".local/share/applications/quickshell.desktop");
+
+    let first = run_autostart(&fixture, &tools, &[("CAELESTIA_INSTALL_KIND", "source")]);
+    assert_eq!(first.code, Some(0), "{}", first.stderr);
+    let before = [
+        std::fs::read(&launcher).expect("the launcher"),
+        std::fs::read(&unit).expect("the unit"),
+        std::fs::read(&declaration).expect("the declaration"),
+    ];
+
+    let second = run_autostart(&fixture, &tools, &[("CAELESTIA_INSTALL_KIND", "source")]);
+    assert_eq!(second.code, Some(0), "{}", second.stderr);
+    let after = [
+        std::fs::read(&launcher).expect("the launcher"),
+        std::fs::read(&unit).expect("the unit"),
+        std::fs::read(&declaration).expect("the declaration"),
+    ];
+
+    assert_eq!(
+        before, after,
+        "repeating the step keeps the files it generates byte for byte"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn without_quickshell_the_step_refuses_to_configure_anything() {
     let fixture = Fixture::new("autostart-no-quickshell");
     let bare = fixture.path("bare");
