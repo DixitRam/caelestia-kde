@@ -162,7 +162,7 @@ fn install_todoist() {
                     "Todoist publishes no checksum; the AppImage's SHA-256 is {digest}."
                 ));
             }
-            make_executable(&appimage);
+            paths::make_executable(&appimage);
             output::ok(&format!("Todoist installed to {}", appimage.display()));
         }
     }
@@ -234,6 +234,3 @@ fn make_executable(path: &Path) {
         let _ = fs::set_permissions(path, permissions);
     }
 }
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) {}

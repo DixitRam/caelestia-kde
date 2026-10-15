@@ -6,7 +6,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SDDM_SCRIPT="$REPO_ROOT/scripts/05-sddm-theme.sh"
-KDE_SCRIPT="$REPO_ROOT/scripts/04-deploy-kde.sh"
 UNINSTALL_SCRIPT="$REPO_ROOT/uninstall.sh"
 SYNC_SCRIPT="$REPO_ROOT/src/sddm/sync.sh"
 CLI="$REPO_ROOT/src/bin/caelestia"
@@ -144,18 +143,6 @@ test_uninstall_removes_only_the_schemes_that_were_copied() {
     assert_contains "$(cat "$SYNC_SCRIPT")" 'color-schemes/Matugen*.colors' "the sync should copy only those schemes in the first place"
 
     assert_contains "$(cat "$UNINSTALL_SCRIPT")" 'rm -f "$HOME/.local/share/color-schemes/Matugen"*.colors' "uninstall should remove the generated schemes from the user's own directory too"
-}
-
-test_the_breeze_login_wallpaper_is_patched_in_one_place() {
-    local script
-    script="$(cat "$KDE_SCRIPT")"
-
-    assert_eq "1" "$(printf '%s\n' "$script" | grep -c '^patch_breeze_login_wallpaper() {')" "the patch should be defined once"
-    assert_eq "1" "$(printf '%s\n' "$script" | grep -c 'background=$image')" "and should be the only thing that writes that background"
-    assert_contains "$script" 'patch_breeze_login_wallpaper "$WALLPAPER_IN_USE"' "the branch that keeps the user's wallpaper should still match the logout screen to it"
-    assert_contains "$script" 'patch_breeze_login_wallpaper "$WALLPAPER_PATH"' "and the default branch should match it to the wallpaper it sets"
-
-    assert_contains "$script" 'if ! install_is_packaged &&' "the helper should skip a packaged install, where the theme is a package's file"
 }
 
 test_the_login_screen_command_runs_the_greeter_step() {

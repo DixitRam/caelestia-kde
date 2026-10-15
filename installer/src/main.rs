@@ -5,6 +5,8 @@ mod distro;
 mod download;
 mod exit;
 mod handoff;
+mod install_kind;
+mod js;
 mod menu;
 mod output;
 mod paths;

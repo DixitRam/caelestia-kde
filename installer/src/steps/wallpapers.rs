@@ -3,9 +3,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::output;
-use crate::paths;
 use crate::process;
-use crate::steps::{Context, Failure};
+use crate::steps::{Context, Failure, wallpapers_dir};
 use crate::tmp::TempDir;
 
 const REPOSITORY: &str = "https://github.com/dharmx/walls.git";
@@ -14,7 +13,7 @@ const DEFAULT_IMAGE: &str = "a_couple_of_people_standing_on_a_mountain.png";
 const EXTENSIONS: [&str; 5] = ["png", "jpg", "jpeg", "webp", "gif"];
 
 pub fn run(context: &Context) -> Result<(), Failure> {
-    let pack = library_dir(context).join(PACK_NAME);
+    let pack = wallpapers_dir(context).join(PACK_NAME);
     let default_image = pack.join(DEFAULT_IMAGE);
 
     output::info("Downloading wallpaper pack (dharmx/walls digital)...");
@@ -154,21 +153,6 @@ fn has_content(directory: &Path) -> bool {
     fs::read_dir(directory)
         .map(|mut entries| entries.next().is_some())
         .unwrap_or(false)
-}
-
-fn library_dir(context: &Context) -> PathBuf {
-    if let Some(directory) = context.variable("CAELESTIA_WALLPAPERS_DIR") {
-        return PathBuf::from(directory);
-    }
-    if let Some(directory) = context.variable("XDG_PICTURES_DIR") {
-        return PathBuf::from(directory).join("Wallpapers");
-    }
-    if process::available("xdg-user-dir")
-        && let Some(pictures) = process::capture("xdg-user-dir", &["PICTURES"])
-    {
-        return PathBuf::from(pictures).join("Wallpapers");
-    }
-    paths::home().join("Pictures").join("Wallpapers")
 }
 
 #[cfg(test)]

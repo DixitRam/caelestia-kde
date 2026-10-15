@@ -1,5 +1,6 @@
 mod backup;
 mod kde_apps;
+mod kde_theme;
 mod optional_apps;
 mod prereqs;
 mod system_update;
@@ -182,7 +183,7 @@ pub const STEPS: [Step; 17] = [
         name: "Apply KDE theme",
         id: "04-deploy-kde",
         phase: Phase::Configure,
-        body: Body::Script("scripts/04-deploy-kde.sh"),
+        body: Body::Native(kde_theme::run),
     },
     Step {
         name: "Apply window rules",
@@ -236,6 +237,21 @@ pub const STEPS: [Step; 17] = [
 
 pub fn find(id: &str) -> Option<&'static Step> {
     STEPS.iter().find(|step| step.id == id)
+}
+
+pub fn wallpapers_dir(context: &Context) -> PathBuf {
+    if let Some(directory) = context.variable("CAELESTIA_WALLPAPERS_DIR") {
+        return PathBuf::from(directory);
+    }
+    if let Some(directory) = context.variable("XDG_PICTURES_DIR") {
+        return PathBuf::from(directory).join("Wallpapers");
+    }
+    if crate::process::available("xdg-user-dir")
+        && let Some(pictures) = crate::process::capture("xdg-user-dir", &["PICTURES"])
+    {
+        return PathBuf::from(pictures).join("Wallpapers");
+    }
+    crate::paths::home().join("Pictures").join("Wallpapers")
 }
 
 pub fn run(step: &Step, context: &Context) -> i32 {

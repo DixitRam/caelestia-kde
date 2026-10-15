@@ -962,3 +962,335 @@ fn process_available(program: &str) -> bool {
             !directory.is_empty() && std::path::Path::new(directory).join(program).is_file()
         })
 }
+
+#[cfg(unix)]
+fn stub_in(directory: &Path, name: &str, body: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::create_dir_all(directory).expect("a directory for the stub");
+    let path = directory.join(name);
+    std::fs::write(&path, body).expect("a stub");
+    let mut permissions = std::fs::metadata(&path).expect("the stub").permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&path, permissions).expect("an executable stub");
+    path
+}
+
+#[cfg(unix)]
+struct KdeTools {
+    path: PathBuf,
+    calls: PathBuf,
+    state: PathBuf,
+}
+
+#[cfg(unix)]
+fn kde_tools(fixture: &Fixture) -> KdeTools {
+    let bin = fixture.path("bin");
+    let calls = fixture.path("calls.log");
+    std::fs::write(&calls, "").expect("the call log");
+
+    stub_in(
+        &bin,
+        "kwriteconfig6",
+        "#!/bin/sh\nprintf '%s %s\\n' 'kwriteconfig6' \"$*\" >> \"$KW_CALLS\"\nexit 0\n",
+    );
+    stub_in(
+        &bin,
+        "systemctl",
+        "#!/bin/sh\nprintf '%s %s\\n' 'systemctl' \"$*\" >> \"$KW_CALLS\"\nexit 0\n",
+    );
+    stub_in(
+        &bin,
+        "qdbus6",
+        "#!/bin/sh\nprintf '%s %s\\n' 'qdbus6' \"$*\" >> \"$KW_CALLS\"\nexit 0\n",
+    );
+    stub_in(
+        &bin,
+        "lookandfeeltool",
+        "#!/bin/sh\ncase \"$1\" in
+    --list) [ -n \"$KW_LNF\" ] && printf '%s\\n' \"$KW_LNF\" ;;
+    --apply) printf 'applied %s\\n' \"$2\" >> \"$KW_CALLS\" ;;
+esac
+exit 0",
+    );
+
+    let system = std::env::var("PATH").unwrap_or_default();
+    KdeTools {
+        path: PathBuf::from(format!("{}:{system}", bin.display())),
+        calls,
+        state: fixture.path("state"),
+    }
+}
+
+#[cfg(unix)]
+fn run_kde_theme(fixture: &Fixture, tools: &KdeTools, extra: &[(&str, &str)]) -> Output {
+    let calls = tools.calls.to_str().expect("a path");
+    let state = tools.state.to_str().expect("a path");
+    let mut environment: Vec<(&str, &str)> = vec![
+        ("KW_CALLS", calls),
+        ("XDG_STATE_HOME", state),
+        ("XDG_DATA_HOME", calls),
+    ];
+    environment.extend_from_slice(extra);
+
+    let bundle = fixture.path("bundle");
+    fixture.step_in("04-deploy-kde", &tools.path, &bundle, &environment)
+}
+
+#[cfg(unix)]
+fn recorded(tools: &KdeTools, program: &str) -> Vec<String> {
+    std::fs::read_to_string(&tools.calls)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.starts_with(program))
+        .map(|line| line.trim_start_matches(program).trim().to_string())
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn the_darkly_settings_are_written_once_each() {
+    let fixture = Fixture::new("kde-darkly");
+    let tools = kde_tools(&fixture);
+
+    let output = run_kde_theme(&fixture, &tools, &[("KW_LNF", "Darkly")]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let writes = recorded(&tools, "kwriteconfig6");
+    for expected in [
+        "--file plasmarc --group Theme --key name darkly",
+        "--file kdeglobals --group KDE --key widgetStyle darkly",
+        "--file kdeglobals --group General --key ColorScheme Darkly",
+        "--file kwinrc --group org.kde.kdecoration2 --key library org.kde.breeze",
+        "--file kwinrc --group org.kde.kdecoration2 --key theme Breeze",
+    ] {
+        assert!(writes.contains(&expected.to_string()), "{writes:?}");
+    }
+    assert!(
+        recorded(&tools, "systemctl").contains(&"--user enable --now cliphist.service".to_string()),
+        "{:?}",
+        recorded(&tools, "systemctl")
+    );
+    assert!(
+        output.stdout.contains("KDE settings applied."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn opting_out_of_darkly_leaves_the_theme_alone() {
+    let fixture = Fixture::new("kde-no-darkly");
+    let tools = kde_tools(&fixture);
+
+    let output = run_kde_theme(&fixture, &tools, &[("APPLY_DARKLY", "false")]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("Skipping Darkly theme"),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        !recorded(&tools, "kwriteconfig6")
+            .iter()
+            .any(|call| call.contains("widgetStyle")),
+        "no application style should be chosen"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_runner_feeds_the_history_and_serves_the_persister() {
+    let fixture = Fixture::new("kde-cliphist");
+    let tools = kde_tools(&fixture);
+    let _ = run_kde_theme(&fixture, &tools, &[]);
+
+    let runner = fixture.path(".local/bin/caelestia-cliphist");
+    assert!(runner.is_file(), "the runner is installed");
+
+    let watchers = fixture.path("watchers.log");
+    let persister = fixture.path("persister.log");
+    let bin = fixture.path("runner-bin");
+    stub_in(
+        &bin,
+        "wl-paste",
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$KW_WATCHERS\"\nexit 0\n",
+    );
+    stub_in(&bin, "cliphist", "#!/bin/sh\nexit 0\n");
+    stub_in(
+        &bin,
+        "wl-clip-persist",
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$KW_PERSISTER\"\nexit 0\n",
+    );
+
+    let watchers_path = watchers.to_str().expect("a path").to_string();
+    let persister_path = persister.to_str().expect("a path").to_string();
+    let output = Command::new(&runner)
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                bin.display(),
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        )
+        .env("KW_WATCHERS", &watchers_path)
+        .env("KW_PERSISTER", &persister_path)
+        .output()
+        .expect("the runner runs");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let fed = std::fs::read_to_string(&watchers).unwrap_or_default();
+    assert!(fed.contains("--type text --watch cliphist store"), "{fed}");
+    assert!(fed.contains("--type image --watch cliphist store"), "{fed}");
+
+    let serve = std::fs::read_to_string(&persister).unwrap_or_default();
+    let lines: Vec<&str> = serve.lines().collect();
+    assert_eq!(
+        lines.first().map(|line| line.contains("--clipboard")),
+        Some(true),
+        "{lines:?}"
+    );
+    assert_eq!(
+        lines.get(1).map(|line| line.contains("regular")),
+        Some(true),
+        "{lines:?}"
+    );
+    assert_eq!(
+        lines
+            .get(2)
+            .map(|line| line.contains("--all-mime-type-regex")),
+        Some(true),
+        "{lines:?}"
+    );
+    assert_eq!(
+        lines
+            .get(3)
+            .map(|line| line.contains("application/x-krita-")
+                && line.contains("image/x-inkscape-svg")),
+        Some(true),
+        "the filter reaches the tool as one argument: {lines:?}"
+    );
+    assert_eq!(lines.len(), 4, "{lines:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_missing_helper_is_reported() {
+    let fixture = Fixture::new("kde-cliphist-missing");
+    let tools = kde_tools(&fixture);
+    let _ = run_kde_theme(&fixture, &tools, &[]);
+
+    let runner = fixture.path(".local/bin/caelestia-cliphist");
+    let bin = fixture.path("runner-bin");
+    stub_in(&bin, "wl-paste", "#!/bin/sh\nexit 0\n");
+    stub_in(&bin, "cliphist", "#!/bin/sh\nexit 0\n");
+
+    let output = Command::new(&runner)
+        .env("PATH", bin.display().to_string())
+        .output()
+        .expect("the runner runs");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("missing: wl-clip-persist"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_wallpaper_in_use_is_kept_and_matched_to_the_logout_screen() {
+    let fixture = Fixture::new("kde-wallpaper-keep");
+    let tools = kde_tools(&fixture);
+    let chosen = fixture.path("Pictures/My Walls/mine.png");
+    std::fs::create_dir_all(chosen.parent().expect("a parent")).expect("the pictures directory");
+    std::fs::write(&chosen, b"png").expect("the wallpaper");
+
+    let state = fixture.path("state/caelestia/wallpaper");
+    std::fs::create_dir_all(&state).expect("the state directory");
+    std::fs::write(state.join("path.txt"), format!("{}\n", chosen.display())).expect("the record");
+
+    let output = run_kde_theme(&fixture, &tools, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("Keeping the wallpaper in use: mine.png"),
+        "{}",
+        output.stdout
+    );
+
+    let log = std::fs::read_to_string(&tools.calls).expect("the call log");
+    assert!(log.contains("d.writeConfig('Image'"), "{log}");
+    assert!(
+        log.contains("My\\u0020Walls"),
+        "a space reaches the script escaped, not raw: {log}"
+    );
+    assert!(
+        log.contains("file:///"),
+        "and the slashes are left as they are: {log}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_default_wallpaper_is_recorded_and_given_to_the_logout_screen() {
+    let fixture = Fixture::new("kde-wallpaper-default");
+    let tools = kde_tools(&fixture);
+
+    let fallback = fixture.path("bundle/shell/assets/wallpaper.webp");
+    std::fs::create_dir_all(fallback.parent().expect("a parent")).expect("the assets directory");
+    std::fs::write(&fallback, b"webp").expect("the fallback wallpaper");
+
+    let output = run_kde_theme(&fixture, &tools, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("Setting default wallpaper to wallpaper.webp"),
+        "{}",
+        output.stdout
+    );
+
+    let recorded_path = fixture.path("state/caelestia/wallpaper/path.txt");
+    assert_eq!(
+        std::fs::read_to_string(&recorded_path)
+            .expect("the record")
+            .trim(),
+        fallback.display().to_string()
+    );
+
+    let writes = recorded(&tools, "kwriteconfig6");
+    assert!(
+        writes.contains(
+            &"--file kscreenlockerrc --group Greeter --key WallpaperPlugin org.kde.image"
+                .to_string()
+        ),
+        "{writes:?}"
+    );
+    assert!(
+        writes
+            .iter()
+            .any(|call| call.contains("--group Greeter --group Wallpaper")),
+        "{writes:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_missing_wallpaper_leaves_the_desktop_alone() {
+    let fixture = Fixture::new("kde-wallpaper-none");
+    let tools = kde_tools(&fixture);
+
+    let output = run_kde_theme(&fixture, &tools, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(recorded(&tools, "qdbus6").is_empty(), "nothing to set");
+    assert!(!fixture.path("state/caelestia/wallpaper/path.txt").exists());
+}
