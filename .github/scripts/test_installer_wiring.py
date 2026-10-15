@@ -357,6 +357,66 @@ class InstallerSourceTests(unittest.TestCase):
             )
 
 
+class PackagingTests(unittest.TestCase):
+    """The AUR package and the release jobs have to agree on what is shipped."""
+
+    def pkgbuild(self) -> str:
+        return (ROOT / "packaging" / "aur" / "caelestia-kde" / "PKGBUILD").read_text(encoding="utf-8")
+
+    def release_workflow(self) -> str:
+        return (ROOT / ".github" / "workflows" / "version-release.yml").read_text(encoding="utf-8")
+
+    def test_the_package_builds_and_installs_the_installer(self) -> None:
+        """A packaged install runs its steps through the binary, so it has to ship one."""
+        pkgbuild = self.pkgbuild()
+        self.assertIn("'rust'", pkgbuild, "building the crate needs the Rust toolchain")
+        self.assertIn(
+            "cargo build --release --frozen --offline",
+            pkgbuild,
+            "the build has no network, so cargo has to be told to stay offline",
+        )
+        self.assertIn("--manifest-path installer/Cargo.toml", pkgbuild)
+        self.assertIn('replace-with = "vendored-sources"', pkgbuild)
+        self.assertIn(
+            'install -Dm755 "$srcdir/cargo-target/release/caelestia-install"',
+            pkgbuild,
+            "the built installer has to be installed",
+        )
+        self.assertIn(
+            "usr/bin/caelestia-install",
+            pkgbuild,
+            "the layout check should fail a package that lost the installer",
+        )
+
+    def test_the_pkgbuild_names_the_installer_version_the_crate_ships(self) -> None:
+        """The asset name carries the installer's own version, which drifts silently."""
+        version = (
+            (ROOT / "installer" / "data" / "tui.version")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        match = re.search(r'^_tui_version="\$\{_tui_version:-([^}]+)\}"', self.pkgbuild(), re.MULTILINE)
+        self.assertIsNotNone(match, "the PKGBUILD should name _tui_version")
+        self.assertEqual(
+            match.group(1),
+            version,
+            "PKGBUILD _tui_version drifted from installer/data/tui.version",
+        )
+
+    def test_the_release_publishes_the_vendor_tree_the_package_asks_for(self) -> None:
+        pkgbuild_asset = re.search(r"(caelestia-vendor-v[^\"]*\.tar\.gz)", self.pkgbuild())
+        self.assertIsNotNone(pkgbuild_asset, "the PKGBUILD should name the vendored-crate asset")
+
+        release_asset = re.search(r'ARTIFACT="(caelestia-vendor-v[^"]+\.tar\.gz)"', self.release_workflow())
+        self.assertIsNotNone(release_asset, "the release job should build a vendored-crate asset")
+
+        self.assertEqual(
+            pkgbuild_asset.group(1).replace("$_tui_version", "${TUI_VERSION}"),
+            release_asset.group(1),
+            "the PKGBUILD and the release job disagree on the vendored-crate asset name",
+        )
+
+
 if __name__ == "__main__":
     suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
     result = unittest.TextTestRunner(verbosity=2).run(suite)
