@@ -1,3 +1,4 @@
+mod backup;
 mod wallpapers;
 
 use std::path::{Path, PathBuf};
@@ -122,7 +123,7 @@ pub const STEPS: [Step; 17] = [
         name: "Back up current setup",
         id: "00-backup-themes",
         phase: Phase::Prepare,
-        body: Body::Script("scripts/00-backup-themes.sh"),
+        body: Body::Native(backup::run),
     },
     Step {
         name: "Install packages",

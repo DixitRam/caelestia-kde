@@ -24,13 +24,37 @@ impl Fixture {
         self.path("Wallpapers")
     }
 
+    #[cfg(unix)]
+    fn cache_file(&self, name: &str) -> PathBuf {
+        self.path("cache").join("caelestia-kde").join(name)
+    }
+
     fn step(&self, id: &str, path: &Path, extra: &[(&str, &str)]) -> Output {
+        self.in_bundle(id, path, None, extra)
+    }
+
+    #[cfg(unix)]
+    fn step_in(&self, id: &str, path: &Path, bundle: &Path, extra: &[(&str, &str)]) -> Output {
+        self.in_bundle(id, path, Some(bundle), extra)
+    }
+
+    fn in_bundle(
+        &self,
+        id: &str,
+        path: &Path,
+        bundle: Option<&Path>,
+        extra: &[(&str, &str)],
+    ) -> Output {
         let mut command = Command::new(BINARY);
+        command.args(["step", id]);
+        if let Some(bundle) = bundle {
+            command.arg("--bundle").arg(bundle);
+        }
         command
-            .args(["step", id])
             .env("PATH", path)
-            .env("CAELESTIA_WALLPAPERS_DIR", self.library())
             .env("HOME", &self.root)
+            .env("XDG_CACHE_HOME", self.path("cache"))
+            .env("CAELESTIA_WALLPAPERS_DIR", self.library())
             .env_remove("XDG_PICTURES_DIR")
             .env_remove("TMPDIR");
         for (key, value) in extra {
@@ -123,15 +147,20 @@ fn no_git_on_the_path_skips_the_download_without_failing() {
 
 #[cfg(unix)]
 fn stub_git(fixture: &Fixture, body: &str) -> PathBuf {
+    stub_program(fixture, "git", body)
+}
+
+#[cfg(unix)]
+fn stub_program(fixture: &Fixture, name: &str, body: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
 
     let directory = fixture.path("bin");
     std::fs::create_dir_all(&directory).expect("a directory for the stub");
-    let git = directory.join("git");
-    std::fs::write(&git, format!("#!/bin/sh\n{body}\n")).expect("the stub");
-    let mut permissions = std::fs::metadata(&git).expect("the stub").permissions();
+    let program = directory.join(name);
+    std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).expect("the stub");
+    let mut permissions = std::fs::metadata(&program).expect("the stub").permissions();
     permissions.set_mode(0o755);
-    std::fs::set_permissions(&git, permissions).expect("an executable stub");
+    std::fs::set_permissions(&program, permissions).expect("an executable stub");
 
     let system = std::env::var("PATH").unwrap_or_default();
     PathBuf::from(format!("{}:{system}", directory.display()))
@@ -177,6 +206,122 @@ exit 0"#,
             .contains("Expected default wallpaper missing from the pack"),
         "{}",
         output.stdout
+    );
+}
+
+#[cfg(unix)]
+const KONSAVE_STUB: &str = r#"mode=""
+dir=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -e) mode=export ;;
+        -s) mode=save ;;
+        -d) dir="$2" ;;
+    esac
+    shift
+done
+if [ "${STUB_FAIL_SAVE:-0}" = "1" ] && [ "$mode" = "save" ]; then
+    exit 1
+fi
+if [ "$mode" = "export" ]; then
+    : > "$dir/caelestia-preinstall.knsv"
+fi
+exit 0"#;
+
+#[cfg(unix)]
+#[test]
+fn the_backup_exports_a_profile_and_puts_the_users_configuration_back() {
+    let fixture = Fixture::new("backup");
+    let path = stub_program(&fixture, "konsave", KONSAVE_STUB);
+    let bundle = fixture.path("bundle");
+    std::fs::create_dir_all(&bundle).expect("the bundle");
+    let user_conf = fixture.path(".config/konsave/conf.yaml");
+    std::fs::create_dir_all(user_conf.parent().expect("a parent")).expect("the config directory");
+    std::fs::write(&user_conf, "mine\n").expect("the user's configuration");
+
+    let output = fixture.step_in("00-backup-themes", &path, &bundle, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("Saving konsave profile 'caelestia-preinstall'..."),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        output
+            .stdout
+            .contains("KDE settings backed up to caelestia-preinstall.knsv"),
+        "{}",
+        output.stdout
+    );
+
+    let backups: Vec<_> = std::fs::read_dir(bundle.join("backups"))
+        .expect("the backups directory")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect();
+    assert_eq!(backups.len(), 1, "one backup directory");
+    assert!(
+        backups[0].join("caelestia-preinstall.knsv").is_file(),
+        "the exported profile is in the backup"
+    );
+
+    let recorded = std::fs::read_to_string(fixture.cache_file("backup-dir.txt"))
+        .expect("the backup directory is recorded");
+    assert_eq!(recorded.trim(), backups[0].display().to_string());
+
+    assert_eq!(
+        std::fs::read_to_string(&user_conf).expect("the user's configuration"),
+        "mine\n",
+        "what the user had is what the user keeps"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_configuration_we_wrote_ourselves_is_taken_away_again() {
+    let fixture = Fixture::new("backup-clean");
+    let path = stub_program(&fixture, "konsave", KONSAVE_STUB);
+    let bundle = fixture.path("bundle");
+    std::fs::create_dir_all(&bundle).expect("the bundle");
+
+    let output = fixture.step_in("00-backup-themes", &path, &bundle, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        !fixture.path(".config/konsave/conf.yaml").exists(),
+        "the configuration we wrote is removed again"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_save_fails_the_step_and_still_restores_the_configuration() {
+    let fixture = Fixture::new("backup-fails");
+    let path = stub_program(&fixture, "konsave", KONSAVE_STUB);
+    let bundle = fixture.path("bundle");
+    std::fs::create_dir_all(&bundle).expect("the bundle");
+    let user_conf = fixture.path(".config/konsave/conf.yaml");
+    std::fs::create_dir_all(user_conf.parent().expect("a parent")).expect("the config directory");
+    std::fs::write(&user_conf, "mine\n").expect("the user's configuration");
+
+    let output = fixture.step_in(
+        "00-backup-themes",
+        &path,
+        &bundle,
+        &[("STUB_FAIL_SAVE", "1")],
+    );
+    assert_eq!(output.code, Some(1));
+    assert!(
+        output
+            .stderr
+            .contains("Failed to save the current KDE profile."),
+        "{}",
+        output.stderr
+    );
+    assert_eq!(
+        std::fs::read_to_string(&user_conf).expect("the user's configuration"),
+        "mine\n"
     );
 }
 

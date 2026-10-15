@@ -55,7 +55,7 @@ fn command(program: &str, args: &[&str], directory: Option<&Path>) -> Command {
 }
 
 #[cfg(unix)]
-fn is_executable(path: &Path) -> bool {
+pub fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
 
     path.is_file()
@@ -66,7 +66,7 @@ fn is_executable(path: &Path) -> bool {
 }
 
 #[cfg(not(unix))]
-fn is_executable(path: &Path) -> bool {
+pub fn is_executable(path: &Path) -> bool {
     path.is_file()
 }
 
