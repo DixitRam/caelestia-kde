@@ -98,7 +98,7 @@ Variants {
             z: 3
         }
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.layer: WlrLayer.Background
+        WlrLayershell.layer: WlrLayer.Bottom
         WlrLayershell.keyboardFocus: (!Config.background.disableQuickshellDesktop && desktopIcons.renameActive) ? WlrKeyboardFocus.Exclusive : (!Config.background.disableQuickshellDesktop && desktopIcons.visible) ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
     }
 }
