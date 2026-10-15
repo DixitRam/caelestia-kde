@@ -456,7 +456,7 @@ This is a **hard failure** - the installer cannot proceed past config deployment
 
 ```bash
 git -C ~/caelestia-kde submodule update --init --recursive src/dots
-bash ~/caelestia-kde/scripts/02a-submodules.sh
+caelestia-install step 02a-submodules --bundle ~/caelestia-kde
 ```
 
 The shared folder mounted at `/mnt/hgfs/` is read-only, so an install run from there cannot fetch anything: clone the repository to a writable directory first.

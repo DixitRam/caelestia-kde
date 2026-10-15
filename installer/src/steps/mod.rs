@@ -6,6 +6,7 @@ mod kde_theme;
 mod optional_apps;
 mod prereqs;
 mod services;
+mod submodules;
 mod system_update;
 mod wallpapers;
 mod window_rules;
@@ -150,7 +151,7 @@ pub const STEPS: [Step; 17] = [
         name: "Update submodules",
         id: "02a-submodules",
         phase: Phase::Prepare,
-        body: Body::Script("scripts/02a-submodules.sh"),
+        body: Body::Native(submodules::run),
     },
     Step {
         name: "Back up current setup",

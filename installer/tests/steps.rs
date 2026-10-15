@@ -1675,6 +1675,262 @@ struct ConfigTools {
 }
 
 #[cfg(unix)]
+fn git_is_available() -> bool {
+    std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn run_git(directory: &Path, arguments: &[&str]) -> bool {
+    std::process::Command::new("git")
+        .args(["-c", "protocol.file.allow=always"])
+        .args(["-c", "user.email=test@example.com"])
+        .args(["-c", "user.name=Test"])
+        .args(["-c", "init.defaultBranch=main"])
+        .args(arguments)
+        .current_dir(directory)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+// The step runs git with the fixture's HOME, so the file protocol a fixture remote needs is
+// configured where git will look for it.
+#[cfg(unix)]
+fn allow_file_protocol(fixture: &Fixture) {
+    std::fs::write(
+        fixture.path(".gitconfig"),
+        "[protocol \"file\"]\n\tallow = always\n[user]\n\temail = test@example.com\n\tname = Test\n[init]\n\tdefaultBranch = main\n",
+    )
+    .expect("the fixture git config");
+}
+
+#[cfg(unix)]
+fn submodule_source(fixture: &Fixture, name: &str) -> PathBuf {
+    let source = fixture.path(name);
+    std::fs::create_dir_all(&source).expect("the source directory");
+    run_git(&source, &["init", "--quiet"]);
+    std::fs::write(source.join("deployed.conf"), b"deployed\n").expect("the source content");
+    run_git(&source, &["add", "-A"]);
+    run_git(&source, &["commit", "--quiet", "-m", "content"]);
+    source
+}
+
+#[cfg(unix)]
+fn checkout_with_submodule(fixture: &Fixture, source: &Path) -> PathBuf {
+    let bundle = fixture.path("bundle");
+    std::fs::create_dir_all(&bundle).expect("the bundle");
+    run_git(&bundle, &["init", "--quiet"]);
+    std::fs::write(
+        bundle.join(".gitmodules"),
+        format!(
+            "[submodule \"caelestia\"]\n\tpath = src/dots\n\turl = file://{}\n",
+            source.display()
+        ),
+    )
+    .expect("the gitmodules file");
+    run_git(&bundle, &["add", ".gitmodules"]);
+    run_git(&bundle, &["commit", "--quiet", "-m", "add submodule"]);
+    run_git(&bundle, &["submodule", "init", "src/dots"]);
+    std::fs::create_dir_all(bundle.join("src/dots")).expect("the empty checkout");
+
+    bundle
+}
+
+#[cfg(unix)]
+fn run_submodules(fixture: &Fixture, bundle: &Path, extra: &[(&str, &str)]) -> Output {
+    let path = std::env::var("PATH").unwrap_or_default();
+    fixture.step_in("02a-submodules", Path::new(&path), bundle, extra)
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dots_tree_that_is_already_there_is_left_alone() {
+    if !git_is_available() {
+        return;
+    }
+    let fixture = Fixture::new("submodules-present");
+    let bundle = fixture.path("bundle");
+    std::fs::create_dir_all(bundle.join("src/dots")).expect("the dots tree");
+    std::fs::write(bundle.join("src/dots/local.conf"), b"mine\n").expect("the local content");
+
+    let output = run_submodules(&fixture, &bundle, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert_eq!(
+        std::fs::read_to_string(bundle.join("src/dots/local.conf")).expect("the content"),
+        "mine\n",
+        "content that is already there is not replaced"
+    );
+    assert!(
+        output.stdout.contains("src/dots ready."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_empty_dots_submodule_is_fetched_from_the_url_gitmodules_records() {
+    if !git_is_available() {
+        return;
+    }
+    let fixture = Fixture::new("submodules-fetch");
+    allow_file_protocol(&fixture);
+    let source = submodule_source(&fixture, "source");
+    let bundle = checkout_with_submodule(&fixture, &source);
+
+    let output = run_submodules(&fixture, &bundle, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert_eq!(
+        std::fs::read_to_string(bundle.join("src/dots/deployed.conf")).expect("the content"),
+        "deployed\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dots_submodule_that_cannot_be_fetched_fails_and_invents_nothing() {
+    if !git_is_available() {
+        return;
+    }
+    let fixture = Fixture::new("submodules-unfetchable");
+    allow_file_protocol(&fixture);
+    let bundle = fixture.path("bundle");
+    std::fs::create_dir_all(&bundle).expect("the bundle");
+    run_git(&bundle, &["init", "--quiet"]);
+    std::fs::write(
+        bundle.join(".gitmodules"),
+        format!(
+            "[submodule \"caelestia\"]\n\tpath = src/dots\n\turl = file://{}/gone\n",
+            fixture.path("nowhere").display()
+        ),
+    )
+    .expect("the gitmodules file");
+    std::fs::create_dir_all(bundle.join("src/dots")).expect("the empty checkout");
+
+    let output = run_submodules(&fixture, &bundle, &[]);
+    assert_eq!(output.code, Some(1));
+    assert!(
+        output.stderr.contains("cannot deploy without it"),
+        "{}",
+        output.stderr
+    );
+    assert!(
+        output.stderr.contains("02a-submodules"),
+        "and it says how to retry it: {}",
+        output.stderr
+    );
+    assert_eq!(
+        std::fs::read_dir(bundle.join("src/dots"))
+            .expect("the directory")
+            .count(),
+        0,
+        "nothing is invented in its place"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_submodule_the_checkout_no_longer_lists_is_pruned_and_a_live_one_survives() {
+    if !git_is_available() {
+        return;
+    }
+    let fixture = Fixture::new("submodules-prune");
+    allow_file_protocol(&fixture);
+    let bundle = fixture.path("bundle");
+    std::fs::create_dir_all(&bundle).expect("the bundle");
+    run_git(&bundle, &["init", "--quiet"]);
+    run_git(
+        &bundle,
+        &["commit", "--quiet", "--allow-empty", "-m", "init"],
+    );
+
+    std::fs::write(
+        bundle.join(".gitmodules"),
+        "[submodule \"keep\"]\n\tpath = keep\n\turl = https://example.invalid/keep.git\n",
+    )
+    .expect("the gitmodules file");
+    for (name, path) in [("keep", "keep"), ("gone", "gone")] {
+        run_git(
+            &bundle,
+            &[
+                "config",
+                &format!("submodule.{name}.url"),
+                &format!("https://example.invalid/{name}.git"),
+            ],
+        );
+        run_git(
+            &bundle,
+            &["config", &format!("submodule.{name}.path"), path],
+        );
+        std::fs::create_dir_all(bundle.join(path)).expect("the worktree");
+        std::fs::write(bundle.join(path).join("stale.conf"), b"stale\n").expect("a file");
+        std::fs::create_dir_all(bundle.join(".git/modules").join(name)).expect("the module cache");
+        std::fs::write(
+            bundle.join(".git/modules").join(name).join("stale.conf"),
+            b"stale\n",
+        )
+        .expect("a file");
+    }
+
+    // The two submodules this step does want are already there, so the only thing it has
+    // left to do is the pruning.
+    for tree in ["src/dots", "src/yet-another-monochrome-icon-set"] {
+        std::fs::create_dir_all(bundle.join(tree)).expect("the submodule tree");
+        std::fs::write(bundle.join(tree).join("content"), b"x\n").expect("a file");
+    }
+
+    let output = run_submodules(&fixture, &bundle, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    assert!(!bundle.join("gone").exists(), "the dropped worktree goes");
+    assert!(
+        !bundle.join(".git/modules/gone").exists(),
+        "and its module cache"
+    );
+    let registration = std::process::Command::new("git")
+        .args(["config", "--get", "submodule.gone.url"])
+        .current_dir(&bundle)
+        .output()
+        .expect("git runs");
+    assert!(
+        !registration.status.success(),
+        "and the registration the checkout keeps"
+    );
+
+    assert!(bundle.join("keep").is_dir(), "a listed submodule survives");
+    assert!(bundle.join(".git/modules/keep").is_dir());
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_icon_set_is_a_warning_and_not_a_failure() {
+    if !git_is_available() {
+        return;
+    }
+    let fixture = Fixture::new("submodules-icons");
+    allow_file_protocol(&fixture);
+    let bundle = fixture.path("bundle");
+    std::fs::create_dir_all(bundle.join("src/dots")).expect("the dots tree");
+    std::fs::write(bundle.join("src/dots/local.conf"), b"mine\n").expect("the local content");
+
+    let output = run_submodules(&fixture, &bundle, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("the monochrome icon theme will be missing"),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
 struct Services {
     path: PathBuf,
     calls: PathBuf,
@@ -2333,7 +2589,7 @@ fn a_missing_dots_tree_names_the_step_that_fills_it() {
     let output = run_configs(&fixture, &tools, &environment);
     assert_eq!(output.code, Some(1));
     assert!(
-        output.stderr.contains("scripts/02a-submodules.sh"),
+        output.stderr.contains("02a-submodules"),
         "{}",
         output.stderr
     );

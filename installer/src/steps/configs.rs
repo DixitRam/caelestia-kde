@@ -105,7 +105,7 @@ fn missing_dotfiles(context: &Context, dots: &Path) -> Failure {
         .into()
     } else {
         format!(
-            "Missing src/dots content. Run: bash \"{}/scripts/02a-submodules.sh\"",
+            "Missing src/dots content. Run: caelestia-install step 02a-submodules --bundle \"{}\"",
             context.bundle.display()
         )
         .into()
