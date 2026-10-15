@@ -443,11 +443,7 @@ fn a_todoist_download_that_fails_is_reported_and_skipped() {
     let fixture = Fixture::new("optional-todoist-fail");
     let path = stub_program(&fixture, "curl", "exit 1");
 
-    let output = fixture.step(
-        "11-optional-apps",
-        &path,
-        &[("INSTALL_TODOIST", "true")],
-    );
+    let output = fixture.step("11-optional-apps", &path, &[("INSTALL_TODOIST", "true")]);
     assert_eq!(output.code, Some(0), "{}", output.stderr);
     assert!(
         output
@@ -465,11 +461,7 @@ fn a_todoist_appimage_without_a_published_checksum_is_installed_with_a_warning()
     let fixture = Fixture::new("optional-todoist");
     let path = stub_program(&fixture, "curl", CURL_STUB);
 
-    let output = fixture.step(
-        "11-optional-apps",
-        &path,
-        &[("INSTALL_TODOIST", "true")],
-    );
+    let output = fixture.step("11-optional-apps", &path, &[("INSTALL_TODOIST", "true")]);
     assert_eq!(output.code, Some(0), "{}", output.stderr);
     assert!(
         output.stdout.contains("Todoist publishes no checksum"),
@@ -485,7 +477,10 @@ fn a_todoist_appimage_without_a_published_checksum_is_installed_with_a_warning()
     let installed = fixture.path(".local/bin/todoist.AppImage");
     assert!(installed.is_file());
     use std::os::unix::fs::PermissionsExt;
-    let mode = std::fs::metadata(&installed).expect("the file").permissions().mode();
+    let mode = std::fs::metadata(&installed)
+        .expect("the file")
+        .permissions()
+        .mode();
     assert_eq!(mode & 0o111, 0o111, "the AppImage is made executable");
 }
 

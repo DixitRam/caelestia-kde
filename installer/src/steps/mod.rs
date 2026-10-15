@@ -1,4 +1,5 @@
 mod backup;
+mod kde_apps;
 mod optional_apps;
 mod prereqs;
 mod system_update;
@@ -204,7 +205,7 @@ pub const STEPS: [Step; 17] = [
         name: "Configure KDE applications",
         id: "07-kde-apps",
         phase: Phase::Configure,
-        body: Body::Script("scripts/07-kde-apps.sh"),
+        body: Body::Native(kde_apps::run),
     },
     Step {
         name: "Build Caelestia shell",
