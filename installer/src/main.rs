@@ -23,6 +23,7 @@ mod steps;
 mod theme;
 mod tmp;
 mod toolchain;
+mod update;
 mod update_state;
 
 use std::path::{Path, PathBuf};
@@ -32,6 +33,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use bundle::Bundle;
 use cli::{Args, Invocation, PresetAction};
 use exit::Outcome;
+use steps::Failure;
 
 const VERSION: &str = include_str!("../data/tui.version");
 
@@ -137,12 +139,21 @@ fn run(args: Args) -> Outcome {
     trace(&format!("bundle dir: {}", bundle.root().display()));
 
     match args.action {
-        PresetAction::Update | PresetAction::Uninstall => {
-            let script_name = match args.action {
-                PresetAction::Uninstall => "uninstall.sh",
-                _ => "update.sh",
-            };
-            let script = bundle.root().join(script_name);
+        PresetAction::Update => {
+            let branch = std::env::var("CAELESTIA_UPDATE_BRANCH")
+                .ok()
+                .filter(|value| !value.is_empty());
+            match update::run(bundle.root(), branch) {
+                Ok(()) => Outcome::Ok,
+                Err(Failure::Message(problem)) => {
+                    output::err(&problem);
+                    Outcome::Failed
+                }
+                Err(Failure::Reported) => Outcome::Failed,
+            }
+        }
+        PresetAction::Uninstall => {
+            let script = bundle.root().join("uninstall.sh");
             trace(&format!("handing off to {}", script.display()));
             handoff::run_script(&script)
         }

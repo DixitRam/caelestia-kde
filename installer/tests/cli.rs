@@ -10,8 +10,6 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 struct Bundle {
     root: PathBuf,
-    #[cfg_attr(not(unix), allow(dead_code))]
-    label: String,
 }
 
 impl Bundle {
@@ -23,10 +21,7 @@ impl Bundle {
         ));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).expect("a temporary directory");
-        Self {
-            root: path,
-            label: label.to_string(),
-        }
+        Self { root: path }
     }
 
     fn path(&self) -> &Path {
@@ -155,27 +150,43 @@ fn the_phase_trace_only_appears_when_asked_for() {
 
 #[cfg(unix)]
 #[test]
-fn update_hands_off_to_the_script_in_the_bundle_it_was_given() {
-    let bundle = Bundle::new("handoff").with_scripts_dir();
-    let marker = format!("ran-{}", bundle.label);
-    let bundle = bundle.with_script(
-        "update.sh",
-        &format!("#!/bin/bash\necho \"{marker}\"\nexit 0\n"),
-    );
+fn an_update_runs_in_the_installer_and_says_what_it_needs() {
+    // The update is native now, so what the binary does with --update is its own flow. A
+    // bundle whose PATH carries no build tools is the cheapest place to see that: the flow
+    // starts, refuses to go on, and names the command it is missing.
+    let bundle = Bundle::new("update").with_scripts_dir();
+    let path = bundle.path().to_string_lossy().into_owned();
+    let empty = bundle.path().join("no-tools");
+    fs::create_dir_all(&empty).expect("an empty directory");
 
-    let output = run(&[&bundle.path().to_string_lossy(), "--update"]);
-    assert_eq!(code(&output), 0);
-    assert!(stdout(&output).contains(&marker), "{}", stdout(&output));
-    assert!(stdout(&output).contains("Finished."), "{}", stdout(&output));
+    let output = Command::new(BINARY)
+        .args([&path, "--update"])
+        .env("PATH", &empty)
+        .env("XDG_RUNTIME_DIR", bundle.path())
+        .output()
+        .expect("the installer runs");
+
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("Checking dependencies..."),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        stderr(&output).contains("'git' is missing")
+            || stderr(&output).contains("'cmake' is missing"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 #[cfg(unix)]
 #[test]
 fn a_failing_handoff_is_a_failure() {
     let bundle = Bundle::new("failing").with_scripts_dir();
-    let bundle = bundle.with_script("update.sh", "#!/bin/bash\nexit 7\n");
+    let bundle = bundle.with_script("uninstall.sh", "#!/bin/bash\nexit 7\n");
 
-    let output = run(&[&bundle.path().to_string_lossy(), "--update"]);
+    let output = run(&[&bundle.path().to_string_lossy(), "--uninstall"]);
     assert_eq!(code(&output), 1);
     assert!(
         stdout(&output).contains("Finished with errors."),

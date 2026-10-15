@@ -92,22 +92,22 @@ class InstallerTests(unittest.TestCase):
         """A numbered step has to be reachable, and every list entry has to resolve.
 
         Three lists run steps: the full install (installer/src/steps/mod.rs), the user's
-        half of a packaged install (src/bin/caelestia), and the subset the build step runs
-        on its own when a checkout updates itself (installer/src/steps/build_shell.rs);
-        update.sh and caelestia-update name their subset the same way. A step in none of
-        them is dead weight that every other check still reports as covered; an entry that
-        resolves to neither a script nor a native step fails at install time instead of
-        here. The step numbers are not an order: the TUI runs 00-backup-themes after
-        02a-submodules, deliberately. The lists differ in failure policy - the installer
-        stops, the update path warns and carries on - so only their membership is
-        comparable, which is all this checks.
+        half of a packaged install (src/bin/caelestia), and the subsets the build step and
+        the update run on their own (installer/src/steps/build_shell.rs,
+        installer/src/update.rs); caelestia-update names its own the same way. A step in
+        none of them is dead weight that every other check still reports as covered; an
+        entry that resolves to no step at all fails at install time instead of here. The
+        step numbers are not an order: the TUI runs 00-backup-themes after 02a-submodules,
+        deliberately. The lists differ in failure policy - the installer stops, the update
+        path warns and carries on - so only their membership is comparable, which is all
+        this checks.
         """
         steps_table = (ROOT / "installer" / "src" / "steps" / "mod.rs").read_text(encoding="utf-8")
         lists = [
             (ROOT / "src" / "bin" / "caelestia"),
             (ROOT / "src" / "bin" / "caelestia-update"),
             (ROOT / "installer" / "src" / "steps" / "build_shell.rs"),
-            (ROOT / "update.sh"),
+            (ROOT / "installer" / "src" / "update.rs"),
         ]
 
         native = set(re.findall(r'id: "([^"]+)"', steps_table))
@@ -126,7 +126,12 @@ class InstallerTests(unittest.TestCase):
                 re.findall(r"run_step\s+\d+\s+([0-9][0-9a-z]*-[A-Za-z0-9._-]+)", text)
             )
             listed |= set(
-                re.findall(r'run_step\(context, "([0-9][0-9a-z]*-[A-Za-z0-9._-]+)"\)', text)
+                re.findall(r"run_step\([^,]+,\s*\"([0-9][0-9a-z]*-[A-Za-z0-9._-]+)\"", text)
+            )
+            listed |= set(
+                re.findall(
+                    r'\(\"([0-9][0-9a-z]*-[A-Za-z0-9._-]+)\", (?:true|false)\)', text
+                )
             )
             listed |= set(
                 re.findall(r"^\s+([0-9][0-9a-z]*-[A-Za-z0-9._-]+)$", text, re.MULTILINE)
@@ -298,13 +303,19 @@ class InstallStepSafetyTests(unittest.TestCase):
 
     def test_scheme_wait_happens_after_the_shell_restart(self) -> None:
         """#666: waiting before the restart polls for a file from a killed process."""
-        script = (ROOT / "update.sh").read_text(encoding="utf-8")
+        script = (ROOT / "installer" / "src" / "update.rs").read_text(encoding="utf-8")
 
-        start_at = script.find('"$SHELL_IPC" start')
-        wait_at = script.find("wait_for_nonempty_file")
+        start_at = script.find("    start_shell();")
+        wait_at = script.find("wait_for_nonempty_file(&scheme")
 
-        self.assertNotEqual(start_at, -1, "update.sh should still start the shell through the IPC wrapper")
-        self.assertNotEqual(wait_at, -1, "update.sh should wait for the restarted shell to persist the scheme")
+        self.assertNotEqual(
+            start_at, -1, "the update should start the shell again after stopping it"
+        )
+        self.assertNotEqual(
+            wait_at,
+            -1,
+            "the update should wait for the restarted shell to persist the scheme",
+        )
         self.assertLess(
             start_at,
             wait_at,

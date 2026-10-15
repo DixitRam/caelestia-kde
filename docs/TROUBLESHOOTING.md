@@ -795,7 +795,7 @@ If the script is killed with **SIGKILL** (not SIGTERM), lock files may persist:
 | Lock File | Script |
 |---|---|
 | `${XDG_RUNTIME_DIR:-/tmp}/caelestia-setup.lock` | `setup.sh` |
-| `${XDG_RUNTIME_DIR:-/tmp}/caelestia-update.lock` | `update.sh` |
+| `${XDG_RUNTIME_DIR:-/tmp}/caelestia-update.lock` | `update.sh`, then `caelestia-install --update` |
 
 **Always use Ctrl+C (SIGINT)** which is handled gracefully. Remove stale locks:
 ```bash

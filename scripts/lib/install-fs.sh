@@ -1,20 +1,5 @@
 #!/usr/bin/env bash
 
-wait_for_nonempty_file() {
-    local path="$1" timeout="$2" waited=0
-
-    while :; do
-        if [[ -s "$path" ]]; then
-            return 0
-        fi
-        if (( waited >= timeout )); then
-            return 1
-        fi
-        sleep 1
-        waited=$((waited + 1))
-    done
-}
-
 validate_install_manifest() {
     local manifest="$1" root="$2" path
 
