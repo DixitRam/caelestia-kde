@@ -45,23 +45,6 @@ PageBase {
         ToggleRow {
             Layout.fillWidth: true
             first: true
-            text: qsTr("Use Quickshell Wallpaper Engine")
-            subtext: qsTr("Disable native Plasma wallpaper engine, low performance.")
-            reset: ({ node: GlobalConfig.background, setting: "wallpaperEnabled" })
-            checked: Config.background.wallpaperEnabled
-            onToggled: {
-                GlobalConfig.background.wallpaperEnabled = checked;
-                for (let i = 0; i < Quickshell.screens.length; i++) {
-                    let sConf = GlobalConfig.forScreen(Quickshell.screens[i].name);
-                    if (sConf) sConf.background.resetOption("wallpaperEnabled");
-                }
-                GlobalConfig.save();
-            }
-        }
-
-        ToggleRow {
-            Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
-            Layout.fillWidth: true
             text: qsTr("Disable Quickshell Desktop")
             subtext: qsTr("Completely disable quickshell desktop features and use plasma desktop.")
             checked: Config.background.disableQuickshellDesktop
