@@ -3,8 +3,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::output;
+use crate::paths;
 use crate::process;
-use crate::steps::Context;
+use crate::steps::{Context, Failure};
 use crate::tmp::TempDir;
 
 const REPOSITORY: &str = "https://github.com/dharmx/walls.git";
@@ -12,7 +13,7 @@ const PACK_NAME: &str = "dharmx-digital";
 const DEFAULT_IMAGE: &str = "a_couple_of_people_standing_on_a_mountain.png";
 const EXTENSIONS: [&str; 5] = ["png", "jpg", "jpeg", "webp", "gif"];
 
-pub fn run(context: &Context) -> Result<(), String> {
+pub fn run(context: &Context) -> Result<(), Failure> {
     let pack = library_dir(context).join(PACK_NAME);
     let default_image = pack.join(DEFAULT_IMAGE);
 
@@ -167,13 +168,7 @@ fn library_dir(context: &Context) -> PathBuf {
     {
         return PathBuf::from(pictures).join("Wallpapers");
     }
-    home().join("Pictures").join("Wallpapers")
-}
-
-fn home() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"))
+    paths::home().join("Pictures").join("Wallpapers")
 }
 
 #[cfg(test)]

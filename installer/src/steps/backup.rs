@@ -3,8 +3,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::output;
+use crate::paths;
 use crate::process;
-use crate::steps::Context;
+use crate::steps::{Context, Failure};
 
 const PROFILE: &str = "caelestia-preinstall";
 
@@ -33,9 +34,9 @@ export:
 ...
 "#;
 
-pub fn run(context: &Context) -> Result<(), String> {
-    let home = home();
-    let cache = cache_dir(&home);
+pub fn run(context: &Context) -> Result<(), Failure> {
+    let home = paths::home();
+    let cache = paths::cache_dir().join("caelestia-kde");
     let mut guard = KonsaveConf::new(&cache, &home);
 
     output::info("Backing up current KDE configuration with konsave...");
@@ -67,7 +68,7 @@ pub fn run(context: &Context) -> Result<(), String> {
 
     output::info(&format!("Saving konsave profile '{PROFILE}'..."));
     if !process::succeeds(&konsave, &["-s", PROFILE, "-f"], None) {
-        return Err("Failed to save the current KDE profile.".to_string());
+        return Err("Failed to save the current KDE profile.".into());
     }
 
     output::info(&format!(
@@ -80,7 +81,7 @@ pub fn run(context: &Context) -> Result<(), String> {
         &["-e", PROFILE, "-d", &destination, "-n", PROFILE, "-f"],
         None,
     ) {
-        return Err("Failed to export the KDE profile backup.".to_string());
+        return Err("Failed to export the KDE profile backup.".into());
     }
 
     let archive = first_archive(&backup)
@@ -227,20 +228,6 @@ fn timestamp() -> Option<String> {
         return None;
     }
     Some(stamp)
-}
-
-fn cache_dir(home: &Path) -> PathBuf {
-    std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| home.join(".cache"))
-        .join("caelestia-kde")
-}
-
-fn home() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"))
 }
 
 #[cfg(test)]

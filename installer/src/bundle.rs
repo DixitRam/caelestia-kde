@@ -5,8 +5,6 @@ pub struct Bundle {
     root: PathBuf,
 }
 
-const CANARY_STEP: &str = "00a-system-update.sh";
-
 impl Bundle {
     pub fn discover(explicit: Option<PathBuf>) -> Self {
         if let Some(root) = explicit {
@@ -29,7 +27,7 @@ impl Bundle {
 
     pub fn check_scripts(&self) -> Result<(), String> {
         let scripts = self.scripts_dir();
-        if scripts.join(CANARY_STEP).is_file() {
+        if scripts.is_dir() {
             return Ok(());
         }
         Err(format!(

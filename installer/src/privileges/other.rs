@@ -35,3 +35,7 @@ pub fn is_root() -> bool {
 pub fn sudo_cached() -> bool {
     false
 }
+
+pub fn elevated(_program: &str, _args: &[&str], _directory: Option<&Path>) -> Result<i32, String> {
+    Err("privilege escalation needs Linux".to_string())
+}

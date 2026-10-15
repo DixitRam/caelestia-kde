@@ -1,4 +1,6 @@
 mod backup;
+mod prereqs;
+mod system_update;
 mod wallpapers;
 
 use std::path::{Path, PathBuf};
@@ -76,7 +78,24 @@ impl Status {
     }
 }
 
-pub type Act = fn(&Context) -> Result<(), String>;
+pub enum Failure {
+    Message(String),
+    Reported,
+}
+
+impl From<String> for Failure {
+    fn from(message: String) -> Self {
+        Failure::Message(message)
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(message: &str) -> Self {
+        Failure::Message(message.to_string())
+    }
+}
+
+pub type Act = fn(&Context) -> Result<(), Failure>;
 
 pub enum Body {
     Script(&'static str),
@@ -98,6 +117,13 @@ impl Context {
     pub fn variable(&self, name: &str) -> Option<String> {
         std::env::var(name).ok().filter(|value| !value.is_empty())
     }
+
+    pub fn flag(&self, name: &str, fallback: bool) -> bool {
+        match std::env::var(name) {
+            Ok(value) => value == "true",
+            Err(_) => fallback,
+        }
+    }
 }
 
 pub const STEPS: [Step; 17] = [
@@ -105,13 +131,13 @@ pub const STEPS: [Step; 17] = [
         name: "Update system",
         id: "00a-system-update",
         phase: Phase::Prepare,
-        body: Body::Script("scripts/00a-system-update.sh"),
+        body: Body::Native(system_update::run),
     },
     Step {
         name: "Ensure prerequisites",
         id: "01-ensure-prereqs",
         phase: Phase::Prepare,
-        body: Body::Script("scripts/01-ensure-prereqs.sh"),
+        body: Body::Native(prereqs::run),
     },
     Step {
         name: "Update submodules",
@@ -213,10 +239,11 @@ pub fn run(step: &Step, context: &Context) -> i32 {
     match step.body {
         Body::Native(act) => match act(context) {
             Ok(()) => 0,
-            Err(problem) => {
+            Err(Failure::Message(problem)) => {
                 output::err(&problem);
                 1
             }
+            Err(Failure::Reported) => 1,
         },
         Body::Script(script) => run_script(&context.bundle.join(script)),
     }

@@ -1,10 +1,12 @@
 mod app;
 mod bundle;
 mod cli;
+mod distro;
 mod exit;
 mod handoff;
 mod menu;
 mod output;
+mod paths;
 mod privileges;
 mod process;
 mod runner;

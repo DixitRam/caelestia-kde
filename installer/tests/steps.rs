@@ -327,6 +327,88 @@ fn a_failed_save_fails_the_step_and_still_restores_the_configuration() {
 
 #[cfg(unix)]
 #[test]
+fn the_system_update_can_be_skipped_without_touching_the_system() {
+    let fixture = Fixture::new("skip-update");
+    let output = fixture.step(
+        "00a-system-update",
+        &fixture.empty_path(),
+        &[("SKIP_SYSTEM_UPDATE", "true")],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("Skipping full system update (SKIP_SYSTEM_UPDATE=true)."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unknown_distribution_skips_the_update_with_a_warning() {
+    let fixture = Fixture::new("unknown-distro");
+    let output = fixture.step(
+        "00a-system-update",
+        &fixture.empty_path(),
+        &[("BASE_DISTRO", "unknown")],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("Distro not set properly, skipping system update."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stale_session_mark_from_another_session_is_cleared() {
+    let fixture = Fixture::new("stale-session");
+    let state = fixture.path("state/caelestia");
+    std::fs::create_dir_all(&state).expect("the state directory");
+    let stamp = state.join("stale-session");
+    std::fs::write(&stamp, "1234 5678\n").expect("a stale mark");
+
+    let output = fixture.step(
+        "00a-system-update",
+        &fixture.empty_path(),
+        &[
+            ("SKIP_SYSTEM_UPDATE", "true"),
+            (
+                "XDG_STATE_HOME",
+                &fixture.path("state").display().to_string(),
+            ),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(!stamp.exists(), "the stale mark is cleared");
+}
+
+#[cfg(unix)]
+#[test]
+fn prerequisites_that_are_present_are_reported_as_present() {
+    let fixture = Fixture::new("prereqs");
+    let mut path = PathBuf::new();
+    for program in ["yq", "jq", "g++", "apt-get"] {
+        path = stub_program(&fixture, program, "exit 0");
+    }
+
+    let output = fixture.step("01-ensure-prereqs", &path, &[("BASE_DISTRO", "debian")]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("Prerequisites are already installed."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn a_failed_clone_leaves_the_library_as_it_was() {
     let fixture = Fixture::new("clone-fails");
     let path = stub_git(&fixture, "exit 1");

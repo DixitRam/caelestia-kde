@@ -102,7 +102,7 @@ The project enables ccache in `shell/CMakeLists.txt`. If rebuilds are still slow
 | Issue | Cause |
 |---|---|
 | `yay` fails to install | Network issues, AUR down, or PKGBUILD changes. The script (`installer/distro/arch/packages.sh`) retries individually and falls back to `makepkg -si`. |
-| `pacman` errors during install | The script uses `-Sy --noconfirm` (refresh DB) then `-S --needed --noconfirm`. If the system update step (`00a-system-update.sh`) was skipped, partial upgrades can cause conflicts. |
+| `pacman` errors during install | The script uses `-Sy --noconfirm` (refresh DB) then `-S --needed --noconfirm`. If the `00a-system-update` step was skipped, partial upgrades can cause conflicts. |
 
 **AUR packages used by Caelestia:**
 
@@ -806,7 +806,7 @@ rm -f "${XDG_RUNTIME_DIR:-/tmp}/caelestia-update.lock"
 
 ### 8.6 Installer Stops After a System Upgrade
 
-`00a-system-update.sh` upgrades the system first, and later steps compile and load the Caelestia
+The `00a-system-update` step upgrades the system first, and later steps compile and load the Caelestia
 KWin plugin into the session that is **already running**. If the upgrade replaced `kwin`,
 `plasma-workspace`, `libplasma`, `qt6-base` or `qt6-declarative`, the live session still holds the
 old libraries in memory while the on-disk headers are new, so the installer stops and names the

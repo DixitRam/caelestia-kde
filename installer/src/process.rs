@@ -30,6 +30,27 @@ pub fn succeeds(program: &str, args: &[&str], directory: Option<&Path>) -> bool 
         .unwrap_or(false)
 }
 
+pub fn status(program: &str, args: &[&str], directory: Option<&Path>) -> Option<i32> {
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::null());
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
+    command.status().ok().and_then(|status| status.code())
+}
+
+pub fn status_quietly(program: &str, args: &[&str], directory: Option<&Path>) -> Option<i32> {
+    let mut command = Command::new(program);
+    command
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null());
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
+    command.status().ok().and_then(|status| status.code())
+}
+
 pub fn capture(program: &str, args: &[&str]) -> Option<String> {
     let output = command(program, args, None)
         .stdout(Stdio::piped())

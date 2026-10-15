@@ -122,6 +122,98 @@ pub fn sudo_cached() -> bool {
         .unwrap_or(false)
 }
 
+pub enum Method {
+    Root,
+    Cached,
+    Askpass,
+    Terminal,
+    Pkexec,
+}
+
+pub fn escalation_method() -> Option<Method> {
+    if is_root() {
+        return Some(Method::Root);
+    }
+    if sudo_cached() {
+        return Some(Method::Cached);
+    }
+    if have_askpass() {
+        return Some(Method::Askpass);
+    }
+    if unsafe { libc::isatty(0) } == 1 {
+        return Some(Method::Terminal);
+    }
+    if crate::process::available("pkexec") {
+        return Some(Method::Pkexec);
+    }
+    None
+}
+
+fn have_askpass() -> bool {
+    std::env::var("SUDO_ASKPASS")
+        .ok()
+        .filter(|helper| !helper.is_empty())
+        .map(PathBuf::from)
+        .filter(|helper| crate::process::is_executable(helper))
+        .is_some()
+}
+
+fn sudo_binary() -> Option<PathBuf> {
+    sudo_path().or_else(|| crate::process::locate("sudo"))
+}
+
+pub fn elevated_command(
+    program: &str,
+    args: &[&str],
+    directory: Option<&Path>,
+) -> Result<std::process::Command, String> {
+    let method = escalation_method()
+        .ok_or_else(|| "this installer has no way to become root here".to_string())?;
+
+    let mut command = match method {
+        Method::Root => {
+            let mut command = std::process::Command::new(program);
+            command.args(args);
+            command
+        }
+        Method::Cached => {
+            let mut command = std::process::Command::new(sudo_binary().ok_or("sudo is missing")?);
+            command.arg("-n").arg(program).args(args);
+            command
+        }
+        Method::Askpass => {
+            let mut command = std::process::Command::new(sudo_binary().ok_or("sudo is missing")?);
+            command.arg("-A").arg(program).args(args);
+            command
+        }
+        Method::Terminal => {
+            let mut command = std::process::Command::new(sudo_binary().ok_or("sudo is missing")?);
+            command.arg(program).args(args);
+            command
+        }
+        Method::Pkexec => {
+            let mut command = std::process::Command::new(
+                crate::process::locate("pkexec").ok_or("pkexec is missing")?,
+            );
+            command.arg(program).args(args);
+            command
+        }
+    };
+
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
+    Ok(command)
+}
+
+pub fn elevated(program: &str, args: &[&str], directory: Option<&Path>) -> Result<i32, String> {
+    let mut command = elevated_command(program, args, directory)?;
+    command
+        .status()
+        .map(|status| status.code().unwrap_or(1))
+        .map_err(|error| format!("could not run {program}: {error}"))
+}
+
 pub fn read_secret(pipe: &Path) -> Result<String, String> {
     let file =
         File::open(pipe).map_err(|error| format!("cannot read {}: {error}", pipe.display()))?;
