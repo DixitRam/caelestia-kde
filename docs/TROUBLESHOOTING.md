@@ -405,7 +405,7 @@ qdbus6 org.kde.KWin /KWin reconfigure
 
 ### 5.2 KDE OSD Still Showing
 
-The tweak script disables OSD in `plasmarc`, `kdeglobals`, `plasmanotifyrc`, `powerdevilrc`, and `kmixrc`. If OSD still appears:
+The `09-system-tweaks` step disables OSD in `plasmarc`, `kdeglobals`, `plasmanotifyrc`, `powerdevilrc`, and `kmixrc`. If OSD still appears:
 
 ```bash
 systemctl --user restart plasma-plasmashell

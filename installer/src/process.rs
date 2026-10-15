@@ -39,6 +39,28 @@ pub fn status(program: &str, args: &[&str], directory: Option<&Path>) -> Option<
     command.status().ok().and_then(|status| status.code())
 }
 
+// `timeout <seconds> <program>`: a program that hangs must not hold a step open, so it is
+// killed once the deadline passes and reported as having produced no status.
+pub fn status_with_timeout(program: &str, args: &[&str], seconds: u64) -> Option<i32> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+    let mut child = command(program, args, None).spawn().ok()?;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.code(),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
 pub fn status_quietly(program: &str, args: &[&str], directory: Option<&Path>) -> Option<i32> {
     let mut command = Command::new(program);
     command
@@ -162,5 +184,24 @@ mod tests {
             .is_none(),
             "a directory outside the crate has no manifest"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_command_that_outlasts_its_timeout_is_killed_rather_than_waited_for() {
+        let started = std::time::Instant::now();
+        let status = status_with_timeout("sleep", &["30"], 1);
+        let waited = started.elapsed();
+
+        assert!(status.is_none(), "a killed command has no status");
+        assert!(
+            waited < std::time::Duration::from_secs(10),
+            "the deadline ends the wait, not the command: {waited:?}"
+        );
+    }
+
+    #[test]
+    fn a_command_that_finishes_inside_its_timeout_reports_its_status() {
+        assert_eq!(status_with_timeout("cargo", &["--version"], 60), Some(0));
     }
 }

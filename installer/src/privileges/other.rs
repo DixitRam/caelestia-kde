@@ -39,3 +39,7 @@ pub fn sudo_cached() -> bool {
 pub fn elevated(_program: &str, _args: &[&str], _directory: Option<&Path>) -> Result<i32, String> {
     Err("privilege escalation needs Linux".to_string())
 }
+
+pub fn quiet(_program: &str, _args: &[&str], _directory: Option<&Path>) -> Result<i32, String> {
+    Err("privilege escalation needs Linux".to_string())
+}

@@ -7,20 +7,35 @@ source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# What a fresh install does to the desktop count is the native 06-services step's own
-# behaviour, and the crate tests it there (installer/tests/steps.rs). What is left here is
-# the wiring no single file can see: which steps apply the rule, and what marks a run as an
-# install rather than an update.
+# The rule that gives a fresh install five virtual desktops lives in the crate now, and the
+# crate tests its decision table (installer/src/steps/mod.rs, steps.rs). What is left here is
+# the wiring: which steps apply it, and that the update path reaches one of them.
 
-test_the_helper_reaches_both_steps_that_apply_it() {
-    local native script
-    native="$(cat "$REPO_ROOT/installer/src/steps/services.rs")"
-    assert_contains "$native" "ensure_five_desktops" \
-        "the native services step should apply the helper"
+test_both_steps_that_apply_the_rule_are_native() {
+    local step
+    for step in services system_tweaks; do
+        local file="$REPO_ROOT/installer/src/steps/$step.rs"
+        assert_file_exists "$file" "$step should be a native step"
+        assert_file_contains "$file" "ensure_five_desktops" \
+            "$step should apply the shared desktop rule"
+    done
 
-    script="$(cat "$REPO_ROOT/scripts/09-system-tweaks.sh")"
-    assert_contains "$script" "lib/virtual-desktops.sh" "09-system-tweaks.sh should source the helper"
-    assert_contains "$script" "ensure_five_virtual_desktops" "09-system-tweaks.sh should apply the helper"
+    assert_file_contains "$REPO_ROOT/installer/src/steps/mod.rs" "fn ensure_five_desktops" \
+        "the rule itself should be shared, not written twice"
+}
+
+test_the_update_path_reaches_the_rule_through_a_step() {
+    assert_file_contains "$REPO_ROOT/update.sh" "run_core_step 09-system-tweaks" \
+        "an update re-applies the tweaks step, which applies the rule"
+    assert_file_contains "$REPO_ROOT/scripts/08-build-shell.sh" "caelestia_run_step 06-services" \
+        "building the shell re-applies the services step"
+    assert_file_contains "$REPO_ROOT/src/bin/caelestia-update" "run_step 3600 08-build-shell" \
+        "and a packaged update reaches both by building the shell"
+}
+
+test_the_shell_helper_is_gone_with_its_callers() {
+    assert_file_missing "$REPO_ROOT/scripts/lib/virtual-desktops.sh" \
+        "the shell helper has no caller left, so it should not be carried"
 }
 
 test_the_install_entries_mark_the_run_and_the_update_does_not() {

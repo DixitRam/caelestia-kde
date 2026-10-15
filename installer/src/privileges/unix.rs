@@ -122,6 +122,7 @@ pub fn sudo_cached() -> bool {
         .unwrap_or(false)
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Method {
     Root,
     Cached,
@@ -216,6 +217,38 @@ pub fn elevated_command(
 
 pub fn elevated(program: &str, args: &[&str], directory: Option<&Path>) -> Result<i32, String> {
     let mut command = elevated_command(program, args, directory)?;
+    command
+        .status()
+        .map(|status| status.code().unwrap_or(1))
+        .map_err(|error| format!("could not run {program}: {error}"))
+}
+
+// Escalate only where no password can be needed: a terminal or pkexec route would ask, and
+// a step nobody is watching must not stall on a prompt. The caller warns and carries on.
+pub fn quiet(program: &str, args: &[&str], directory: Option<&Path>) -> Result<i32, String> {
+    let method = escalation_method()
+        .ok_or_else(|| "this installer has no way to become root here".to_string())?;
+    let mut command = match method {
+        Method::Root => {
+            let mut command = std::process::Command::new(program);
+            command.args(args);
+            command
+        }
+        Method::Cached | Method::Askpass => {
+            let mut command = std::process::Command::new(sudo_binary().ok_or("sudo is missing")?);
+            command
+                .arg(if method == Method::Cached { "-n" } else { "-A" })
+                .arg(program)
+                .args(args);
+            command
+        }
+        Method::Terminal | Method::Pkexec => {
+            return Err("escalating here would have to ask for a password".to_string());
+        }
+    };
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
     command
         .status()
         .map(|status| status.code().unwrap_or(1))

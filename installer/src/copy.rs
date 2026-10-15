@@ -40,6 +40,24 @@ fn link(source: &Path, target: &Path) -> io::Result<()> {
     fs::copy(source, target).map(|_| ())
 }
 
+// `ln -sf`: whatever the link was before is replaced rather than written through.
+pub fn symlink(link: &Path, target: &Path) -> io::Result<()> {
+    if let Some(parent) = link.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let _ = fs::remove_file(link);
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = target;
+        Err(io::Error::other("symlinks need a unix"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +90,24 @@ mod tests {
         let target = work.path().join("target");
 
         assert!(tree(&work.path().join("absent"), &target).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_replaces_what_the_link_was_before() {
+        let work = TempDir::new("caelestia-copy-test").expect("a temporary directory");
+        let first = work.path().join("first.conf");
+        let second = work.path().join("second.conf");
+        fs::write(&first, b"first").expect("a file");
+        fs::write(&second, b"second").expect("a file");
+
+        let link = work.path().join("nested/face");
+        symlink(&link, &first).expect("the link is made");
+        assert_eq!(fs::read_to_string(&link).expect("the target"), "first");
+
+        symlink(&link, &second).expect("the link is remade");
+        assert!(fs::symlink_metadata(&link).expect("the link").is_symlink());
+        assert_eq!(fs::read_to_string(&link).expect("the target"), "second");
     }
 
     #[cfg(unix)]

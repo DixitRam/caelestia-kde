@@ -1669,6 +1669,377 @@ fn an_update_never_touches_the_desktop_count() {
 }
 
 #[cfg(unix)]
+fn run_tweaks(fixture: &Fixture, tools: &Services, extra: &[(&str, &str)]) -> Output {
+    let calls = tools.calls.to_str().expect("a path");
+    let state = fixture.path("state").to_string_lossy().to_string();
+    let mut environment: Vec<(&str, &str)> = vec![("KW_CALLS", calls), ("XDG_STATE_HOME", &state)];
+    environment.extend_from_slice(extra);
+    let bundle = fixture.path("bundle");
+    fixture.step_in("09-system-tweaks", &tools.path, &bundle, &environment)
+}
+
+#[cfg(unix)]
+fn settings_written(fixture: &Fixture) -> Vec<String> {
+    std::fs::read_to_string(fixture.path("calls.log"))
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.starts_with("kwriteconfig6 "))
+        .map(|line| line.trim_start_matches("kwriteconfig6 ").to_string())
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn the_osd_the_splash_and_the_kde_daemons_are_turned_off() {
+    let fixture = Fixture::new("tweaks-settings");
+    let tools = services_tools(&fixture);
+
+    let output = run_tweaks(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "0"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let written = settings_written(&fixture);
+    for expected in [
+        "--file plasmarc --group OSD --key Enabled false",
+        "--file plasmarc --group OSD --key ShowOnActiveScreen false",
+        "--file kdeglobals --group KDE --key OSDEnabled false",
+        "--file plasmanotifyrc --group Notifications --key LoudnessChangedOSD false",
+        "--file powerdevilrc --group BrightnessControl --key showOSD false",
+        "--file powerdevilrc --group AC --key brightnessosd false",
+        "--file kmixrc --group Global --key ShowOSD false",
+        "--file ksplashrc --group KSplash --key Engine none",
+    ] {
+        assert!(
+            written.contains(&expected.to_string()),
+            "{expected}: {written:?}"
+        );
+    }
+
+    assert!(
+        output.stdout.contains("All system tweaks applied."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_shell_profiles_are_pointed_at_the_default_shell() {
+    let fixture = Fixture::new("tweaks-shell");
+    let tools = services_tools(&fixture);
+    let konsole = fixture.path(".local/share/konsole");
+    std::fs::create_dir_all(&konsole).expect("a konsole directory");
+    std::fs::write(konsole.join("Caelestia.profile"), b"[General]\n").expect("a profile");
+    stub_in(&fixture.path("bin"), "fish", "#!/bin/sh\nexit 0\n");
+
+    let output = run_tweaks(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "0"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let profile = konsole
+        .join("Caelestia.profile")
+        .to_string_lossy()
+        .to_string();
+    let written = settings_written(&fixture);
+    assert!(
+        written.iter().any(|call| call
+            .starts_with(&format!("--file {profile} --group General --key Command "))
+            && call.ends_with("fish")),
+        "the profile's shell should be the one that was found: {written:?}"
+    );
+    assert!(
+        !written
+            .iter()
+            .any(|call| call.contains("Profile 1.profile")),
+        "a profile that exists is updated rather than a second one invented: {written:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_first_profile_is_written_only_when_there_is_none_to_update() {
+    let fixture = Fixture::new("tweaks-shell-empty");
+    let tools = services_tools(&fixture);
+    stub_in(&fixture.path("bin"), "fish", "#!/bin/sh\nexit 0\n");
+
+    let output = run_tweaks(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "0"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let written = settings_written(&fixture);
+    assert!(
+        written.iter().any(|call| call.contains("Profile 1.profile")
+            && call.contains("--key Name Profile 1")),
+        "{written:?}"
+    );
+    assert!(
+        written.iter().any(|call| call.contains("konsolerc")
+            && call.contains("--key DefaultProfile Profile 1.profile")),
+        "{written:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_shell_that_is_not_installed_is_a_warning_and_leaves_the_profiles_alone() {
+    let fixture = Fixture::new("tweaks-shell-absent");
+    let tools = services_tools(&fixture);
+    let konsole = fixture.path(".local/share/konsole");
+    std::fs::create_dir_all(&konsole).expect("a konsole directory");
+    std::fs::write(konsole.join("Caelestia.profile"), b"[General]\n").expect("a profile");
+
+    let output = run_tweaks(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "0"),
+            ("DEFAULT_SHELL", "a-shell-that-is-not-installed"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("is not installed, skipping shell change."),
+        "{}",
+        output.stdout
+    );
+    assert_eq!(
+        settings_written(&fixture)
+            .iter()
+            .filter(|call| call.contains("konsole"))
+            .count(),
+        0,
+        "no profile is touched for a shell that is not there"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_scheme_the_user_chose_is_kept_and_the_default_is_set_otherwise() {
+    for (current, kept) in [("nord", true), ("dynamic", false)] {
+        let fixture = Fixture::new("tweaks-scheme");
+        let tools = services_tools(&fixture);
+        stub_in(
+            &fixture.path("bin"),
+            "caelestia",
+            &format!(
+                "#!/bin/sh\nprintf 'caelestia %s\\n' \"$*\" >> \"$KW_CALLS\"\n[ \"$1 $2 $3\" = 'scheme get -n' ] && printf '{current}\\n'\nexit 0\n"
+            ),
+        );
+
+        let output = run_tweaks(
+            &fixture,
+            &tools,
+            &[
+                ("CAELESTIA_INSTALL_KIND", "package"),
+                ("CAELESTIA_FRESH_INSTALL", "0"),
+            ],
+        );
+        assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+        let calls: Vec<String> = std::fs::read_to_string(fixture.path("calls.log"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| line.starts_with("caelestia "))
+            .map(|line| line.trim_start_matches("caelestia ").to_string())
+            .collect();
+
+        if kept {
+            assert_eq!(calls, ["scheme get -n"], "a chosen scheme is left alone");
+            assert!(
+                output
+                    .stdout
+                    .contains("Keeping user-selected Caelestia color scheme (nord)."),
+                "{}",
+                output.stdout
+            );
+        } else {
+            assert!(
+                calls.contains(&"scheme set -n dynamic".to_string()),
+                "the default is applied: {calls:?}"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_wallpaper_that_is_there_is_given_to_the_shell_before_the_scheme_is_set() {
+    let fixture = Fixture::new("tweaks-wallpaper");
+    let tools = services_tools(&fixture);
+    stub_in(
+        &fixture.path("bin"),
+        "caelestia",
+        "#!/bin/sh\nprintf 'caelestia %s\\n' \"$*\" >> \"$KW_CALLS\"\n[ \"$1 $2 $3\" = 'scheme get -n' ] && printf 'dynamic\\n'\nexit 0\n",
+    );
+
+    let state = fixture.path("state/caelestia");
+    std::fs::create_dir_all(state.join("wallpaper")).expect("the wallpaper state directory");
+    let image = fixture.path("wall.png");
+    std::fs::write(&image, b"png").expect("the wallpaper");
+    std::fs::write(
+        state.join("wallpaper/path.txt"),
+        image.to_string_lossy().to_string(),
+    )
+    .expect("the recorded wallpaper");
+
+    let output = run_tweaks(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "0"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let calls: Vec<String> = std::fs::read_to_string(fixture.path("calls.log"))
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.starts_with("caelestia "))
+        .map(|line| line.trim_start_matches("caelestia ").to_string())
+        .collect();
+
+    let wallpaper_at = calls
+        .iter()
+        .position(|call| call.starts_with("wallpaper -f "))
+        .expect("the recorded wallpaper is applied");
+    let scheme_at = calls
+        .iter()
+        .position(|call| call == "scheme set -n dynamic")
+        .expect("the scheme is set");
+    assert!(
+        wallpaper_at < scheme_at,
+        "the wallpaper has to be in place before the scheme follows it: {calls:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_panel_is_removed_from_the_config_when_plasma_cannot_be_reached() {
+    let fixture = Fixture::new("tweaks-panels");
+    let tools = services_tools(&fixture);
+
+    let appletsrc = fixture.path(".config/plasma-org.kde.plasma.desktop-appletsrc");
+    std::fs::create_dir_all(appletsrc.parent().expect("a parent")).expect("the config directory");
+    std::fs::write(
+        &appletsrc,
+        "[Containments][1]\nplugin=org.kde.plasma.folder\n\n\
+         [Containments][2]\nplugin=org.kde.plasma.panel\nformfactor=2\n\n\
+         [Containments][2][Applets][3]\nplugin=org.kde.plasma.systemtray\n\n\
+         [General]\n",
+    )
+    .expect("the desktop layout");
+
+    let output = run_tweaks(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "1"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let rewritten = std::fs::read_to_string(&appletsrc).expect("the rewritten layout");
+    assert!(
+        !rewritten.contains("[Containments][2]"),
+        "the panel and its applets go: {rewritten}"
+    );
+    assert!(
+        rewritten.contains("[Containments][1]") && rewritten.contains("[General]"),
+        "and the rest of the layout stays: {rewritten}"
+    );
+    assert!(
+        output.stdout.contains("Removed 1 KDE panel(s)"),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_desktop_the_user_already_configured_keeps_its_panels() {
+    let fixture = Fixture::new("tweaks-panels-kept");
+    let tools = services_tools(&fixture);
+
+    let appletsrc = fixture.path(".config/plasma-org.kde.plasma.desktop-appletsrc");
+    std::fs::create_dir_all(appletsrc.parent().expect("a parent")).expect("the config directory");
+    let layout = "[Containments][2]\nplugin=org.kde.plasma.panel\nformfactor=2\n";
+    std::fs::write(&appletsrc, layout).expect("the desktop layout");
+
+    let output = run_tweaks(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "1"),
+            ("KW_DESKTOPS", "3"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert_eq!(
+        std::fs::read_to_string(&appletsrc).expect("the layout"),
+        layout,
+        "a desktop with a count of its own is one this install did not create"
+    );
+    assert!(
+        output
+            .stdout
+            .contains("Not a first install - leaving Plasma panels alone."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_update_never_removes_panels() {
+    let fixture = Fixture::new("tweaks-panels-update");
+    let tools = services_tools(&fixture);
+
+    let appletsrc = fixture.path(".config/plasma-org.kde.plasma.desktop-appletsrc");
+    std::fs::create_dir_all(appletsrc.parent().expect("a parent")).expect("the config directory");
+    let layout = "[Containments][2]\nplugin=org.kde.plasma.panel\nformfactor=2\n";
+    std::fs::write(&appletsrc, layout).expect("the desktop layout");
+
+    let output = run_tweaks(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "0"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert_eq!(
+        std::fs::read_to_string(&appletsrc).expect("the layout"),
+        layout,
+        "an update must not delete a panel somebody recreated"
+    );
+}
+
+#[cfg(unix)]
 struct ConfigTools {
     path: PathBuf,
     calls: PathBuf,

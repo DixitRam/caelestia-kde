@@ -7,6 +7,7 @@ mod optional_apps;
 mod prereqs;
 mod services;
 mod submodules;
+mod system_tweaks;
 mod system_update;
 mod wallpapers;
 mod window_rules;
@@ -223,7 +224,7 @@ pub const STEPS: [Step; 17] = [
         name: "Apply system tweaks",
         id: "09-system-tweaks",
         phase: Phase::Finalize,
-        body: Body::Script("scripts/09-system-tweaks.sh"),
+        body: Body::Native(system_tweaks::run),
     },
     Step {
         name: "Create autostart entries",
