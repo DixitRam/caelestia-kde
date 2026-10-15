@@ -9,6 +9,15 @@ pub enum Distro {
 }
 
 impl Distro {
+    pub fn name(self) -> &'static str {
+        match self {
+            Distro::Arch => "arch",
+            Distro::Fedora => "fedora",
+            Distro::Debian => "debian",
+            Distro::Unknown => "unknown",
+        }
+    }
+
     pub fn from_id(text: &str) -> Self {
         match text.trim() {
             "arch" => Distro::Arch,

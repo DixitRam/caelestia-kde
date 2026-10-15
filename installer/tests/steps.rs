@@ -408,6 +408,110 @@ fn prerequisites_that_are_present_are_reported_as_present() {
 }
 
 #[cfg(unix)]
+const CURL_STUB: &str = r#"dest=""
+url=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o) shift; dest="$1" ;;
+        http*) url="$1" ;;
+    esac
+    shift
+done
+case "$url" in
+    *.sha256) exit 22 ;;
+esac
+[ -n "$dest" ] || exit 1
+printf 'appimage' > "$dest"
+exit 0"#;
+
+#[cfg(unix)]
+#[test]
+fn no_optional_component_asked_for_is_no_work() {
+    let fixture = Fixture::new("optional-none");
+    let output = fixture.step("11-optional-apps", &fixture.empty_path(), &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("Optional components done."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_todoist_download_that_fails_is_reported_and_skipped() {
+    let fixture = Fixture::new("optional-todoist-fail");
+    let path = stub_program(&fixture, "curl", "exit 1");
+
+    let output = fixture.step(
+        "11-optional-apps",
+        &path,
+        &[("INSTALL_TODOIST", "true")],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("Todoist download failed (network?). Skipping."),
+        "{}",
+        output.stdout
+    );
+    assert!(!fixture.path(".local/bin/todoist.AppImage").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_todoist_appimage_without_a_published_checksum_is_installed_with_a_warning() {
+    let fixture = Fixture::new("optional-todoist");
+    let path = stub_program(&fixture, "curl", CURL_STUB);
+
+    let output = fixture.step(
+        "11-optional-apps",
+        &path,
+        &[("INSTALL_TODOIST", "true")],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("Todoist publishes no checksum"),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        output.stdout.contains("Todoist installed to"),
+        "{}",
+        output.stdout
+    );
+
+    let installed = fixture.path(".local/bin/todoist.AppImage");
+    assert!(installed.is_file());
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(&installed).expect("the file").permissions().mode();
+    assert_eq!(mode & 0o111, 0o111, "the AppImage is made executable");
+}
+
+#[cfg(unix)]
+#[test]
+fn firefox_theming_without_a_profile_says_what_to_do() {
+    let fixture = Fixture::new("optional-firefox");
+    let output = fixture.step(
+        "11-optional-apps",
+        &fixture.empty_path(),
+        &[
+            ("INSTALL_FIREFOX_THEME", "true"),
+            ("BASE_DISTRO", "unknown"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("No Firefox profile directory yet. Launch Firefox once, then re-run."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
 #[test]
 fn a_failed_clone_leaves_the_library_as_it_was() {
     let fixture = Fixture::new("clone-fails");

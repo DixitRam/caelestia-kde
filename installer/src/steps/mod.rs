@@ -1,4 +1,5 @@
 mod backup;
+mod optional_apps;
 mod prereqs;
 mod system_update;
 mod wallpapers;
@@ -227,7 +228,7 @@ pub const STEPS: [Step; 17] = [
         name: "Install optional components",
         id: "11-optional-apps",
         phase: Phase::Finalize,
-        body: Body::Script("scripts/11-optional-apps.sh"),
+        body: Body::Native(optional_apps::run),
     },
 ];
 
