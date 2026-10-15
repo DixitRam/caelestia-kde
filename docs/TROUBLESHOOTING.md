@@ -758,6 +758,13 @@ If you chose not to log out:
 
 ### 8.2 Installer Exit Codes
 
+Steps run inside the installer binary where one is available, and fall back to the step
+scripts under `scripts/` where it is not. If the binary is missing from a checkout or an
+update, one is downloaded from the release once, checked against the published SHA-256,
+and cached in `${XDG_CACHE_HOME:-~/.cache}/caelestia/caelestia-install`. Set
+`CAELESTIA_NO_INSTALLER_FETCH=1` to keep a machine offline; the step scripts then run as
+they always have.
+
 `setup.sh` reads the installer's exit code. It does not scrape the installer's output,
 so the two cannot disagree about whether the install worked.
 
