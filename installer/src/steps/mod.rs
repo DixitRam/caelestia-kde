@@ -4,6 +4,7 @@ mod optional_apps;
 mod prereqs;
 mod system_update;
 mod wallpapers;
+mod window_rules;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -187,7 +188,7 @@ pub const STEPS: [Step; 17] = [
         name: "Apply window rules",
         id: "04a-window-rules",
         phase: Phase::Configure,
-        body: Body::Script("scripts/04a-window-rules.sh"),
+        body: Body::Native(window_rules::run),
     },
     Step {
         name: "Install SDDM theme",

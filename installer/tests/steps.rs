@@ -526,3 +526,439 @@ fn a_failed_clone_leaves_the_library_as_it_was() {
     );
     assert!(!pack.exists());
 }
+
+#[cfg(unix)]
+const CONFIG_TOOLS: &str = r##"
+import os
+import sys
+from pathlib import Path
+
+
+def arguments(argv):
+    values = {"file": "kwinrulesrc", "group": "", "key": ""}
+    positional = []
+    index = 0
+    while index < len(argv):
+        argument = argv[index]
+        if argument in ("--file", "--group", "--key") and index + 1 < len(argv):
+            values[argument[2:]] = argv[index + 1]
+            index += 2
+        else:
+            positional.append(argument)
+            index += 1
+    return values, positional
+
+
+def read(path):
+    sections = {}
+    current = None
+    if not path.is_file():
+        return sections
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = line[1:-1]
+            sections.setdefault(current, {})
+        elif current is not None and "=" in line:
+            key, _, value = line.partition("=")
+            sections[current][key.strip()] = value.strip()
+    return sections
+
+
+def write(path, sections):
+    lines = []
+    for name, entries in sections.items():
+        if not entries:
+            continue
+        lines.append("[%s]" % name)
+        for key, value in entries.items():
+            lines.append("%s=%s" % (key, value))
+        lines.append("")
+    path.write_text("\n".join(lines))
+
+
+def main():
+    mode = sys.argv[1]
+    values, positional = arguments(sys.argv[2:])
+    path = Path(values["file"])
+    if not path.is_absolute():
+        path = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / path
+    sections = read(path)
+
+    if mode == "get":
+        value = sections.get(values["group"], {}).get(values["key"])
+        if value is None:
+            return 1
+        print(value)
+        return 0
+
+    if mode == "delete":
+        entries = sections.get(values["group"])
+        if entries is not None:
+            entries.pop(values["key"], None)
+            if not entries:
+                del sections[values["group"]]
+        write(path, sections)
+        return 0
+
+    sections.setdefault(values["group"], {})[values["key"]] = positional[0]
+    write(path, sections)
+    return 0
+
+
+sys.exit(main())
+"##;
+
+#[cfg(unix)]
+struct WindowRules {
+    path: PathBuf,
+    config: PathBuf,
+    calls: PathBuf,
+}
+
+#[cfg(unix)]
+fn config_tools(fixture: &Fixture) -> WindowRules {
+    use std::os::unix::fs::PermissionsExt;
+
+    let config = fixture.path("config");
+    let bin = fixture.path("bin");
+    std::fs::create_dir_all(&config).expect("the config directory");
+    std::fs::create_dir_all(&bin).expect("a directory for the stubs");
+
+    let program = fixture.path("kwinrules.py");
+    std::fs::write(&program, CONFIG_TOOLS).expect("the config-tool program");
+    let calls = fixture.path("calls.log");
+    std::fs::write(&calls, "").expect("the call log");
+
+    let stub = |name: &str, body: String| {
+        let path = bin.join(name);
+        std::fs::write(&path, body).expect("a stub");
+        let mut permissions = std::fs::metadata(&path).expect("the stub").permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).expect("an executable stub");
+    };
+
+    stub(
+        "kreadconfig6",
+        "#!/bin/sh\nexec python3 \"$KW_RULES\" get \"$@\"\n".to_string(),
+    );
+    stub(
+        "kwriteconfig6",
+        "#!/bin/sh\nprintf '%s %s\\n' 'kwriteconfig6' \"$*\" >> \"$KW_CALLS\"\n\
+         if [ -n \"${KW_SILENT_REJECT:-}\" ]; then exit 0; fi\n\
+         case \"$*\" in *--delete*) exec python3 \"$KW_RULES\" delete \"$@\" ;; esac\n\
+         exec python3 \"$KW_RULES\" set \"$@\"\n"
+            .to_string(),
+    );
+    stub(
+        "qdbus6",
+        "#!/bin/sh\nprintf '%s %s\\n' 'qdbus6' \"$*\" >> \"$KW_CALLS\"\nexit 0\n".to_string(),
+    );
+
+    let system = std::env::var("PATH").unwrap_or_default();
+    let path = PathBuf::from(format!("{}:{system}", bin.display()));
+
+    WindowRules {
+        path,
+        config,
+        calls,
+    }
+}
+
+#[cfg(unix)]
+fn run_window_rules(fixture: &Fixture, tools: &WindowRules, extra: &[(&str, &str)]) -> Output {
+    let program = fixture.path("kwinrules.py");
+    let program = program.to_str().expect("a path");
+    let config = tools.config.to_str().expect("a path");
+    let calls = tools.calls.to_str().expect("a path");
+
+    let mut environment: Vec<(&str, &str)> = vec![
+        ("XDG_CONFIG_HOME", config),
+        ("KW_RULES", program),
+        ("KW_CALLS", calls),
+    ];
+    environment.extend_from_slice(extra);
+    fixture.step("04a-window-rules", &tools.path, &environment)
+}
+
+#[cfg(unix)]
+fn writer_calls(tools: &WindowRules) -> Vec<String> {
+    std::fs::read_to_string(&tools.calls)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.starts_with("kwriteconfig6 "))
+        .map(|line| line.trim_start_matches("kwriteconfig6 ").to_string())
+        .collect()
+}
+
+#[cfg(unix)]
+fn frozen_writes(opacity: &str, index: &str) -> Vec<String> {
+    let count = index.split(',').count();
+    [
+        "--file kwinrulesrc --group caelestia-opacity --key Description Caelestia: window opacity",
+        "--file kwinrulesrc --group caelestia-opacity --key types 33",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .chain([
+        format!("--file kwinrulesrc --group caelestia-opacity --key opacityinactive {opacity}"),
+        "--file kwinrulesrc --group caelestia-opacity --key opacityinactiverule 2".to_string(),
+        "--file kwinrulesrc --group caelestia-dialogs --key Description Caelestia: center dialogs"
+            .to_string(),
+        "--file kwinrulesrc --group caelestia-dialogs --key types 32".to_string(),
+        "--file kwinrulesrc --group caelestia-dialogs --key placement 5".to_string(),
+        "--file kwinrulesrc --group caelestia-dialogs --key placementrule 2".to_string(),
+        "--file kwinrulesrc --group caelestia-pip --key Description Caelestia: pin picture-in-picture"
+            .to_string(),
+        "--file kwinrulesrc --group caelestia-pip --key title Picture(-| )in(-| )[Pp]icture"
+            .to_string(),
+        "--file kwinrulesrc --group caelestia-pip --key titlematch 3".to_string(),
+        "--file kwinrulesrc --group caelestia-pip --key above true".to_string(),
+        "--file kwinrulesrc --group caelestia-pip --key aboverule 2".to_string(),
+        format!("--file kwinrulesrc --group General --key rules {index}"),
+        format!("--file kwinrulesrc --group General --key count {count}"),
+    ])
+    .collect()
+}
+
+#[cfg(unix)]
+const FRESH_INDEX: &str = "caelestia-opacity,caelestia-dialogs,caelestia-pip";
+
+#[cfg(unix)]
+#[test]
+fn a_fresh_run_writes_the_frozen_table_in_order() {
+    if !process_available("python3") {
+        return;
+    }
+    let fixture = Fixture::new("rules-fresh");
+    let tools = config_tools(&fixture);
+
+    let output = run_window_rules(&fixture, &tools, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert_eq!(
+        writer_calls(&tools),
+        frozen_writes("95", FRESH_INDEX),
+        "every key of the three groups, then the index"
+    );
+    assert!(
+        output.stdout.contains("Window rules applied."),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        output.stdout.contains("Rule index names 3 group(s)."),
+        "{}",
+        output.stdout
+    );
+
+    let written = std::fs::read_to_string(tools.config.join("kwinrulesrc")).expect("the file");
+    for pair in [
+        "opacityinactive=95",
+        "types=33",
+        "types=32",
+        "placement=5",
+        "title=Picture(-| )in(-| )[Pp]icture",
+        "above=true",
+        "aboverule=2",
+    ] {
+        assert!(written.contains(pair), "{pair} is missing from {written}");
+    }
+    assert_eq!(written.matches("[caelestia-").count(), 3, "{written}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_second_run_finds_nothing_to_do() {
+    if !process_available("python3") {
+        return;
+    }
+    let fixture = Fixture::new("rules-again");
+    let tools = config_tools(&fixture);
+
+    let _ = run_window_rules(&fixture, &tools, &[]);
+    std::fs::write(&tools.calls, "").expect("a fresh call log");
+    let output = run_window_rules(&fixture, &tools, &[]);
+
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(writer_calls(&tools).is_empty(), "nothing should be written");
+    assert!(
+        output.stdout.contains("Window rules already in place."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_user_rule_keeps_its_place_in_the_index() {
+    if !process_available("python3") {
+        return;
+    }
+    let fixture = Fixture::new("rules-user");
+    let tools = config_tools(&fixture);
+    std::fs::write(
+        tools.config.join("kwinrulesrc"),
+        "\
+[General]
+rules=user-rule
+count=1
+Order=user-rule
+
+[user-rule]
+Description=Keep this window put
+wmclass=keepme
+
+[$Version]
+update_info=kwinrules.upd:fix-rule-order
+",
+    )
+    .expect("the user's rules file");
+
+    let output = run_window_rules(&fixture, &tools, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let index = "user-rule,caelestia-opacity,caelestia-dialogs,caelestia-pip";
+    assert!(
+        writer_calls(&tools).contains(&format!(
+            "--file kwinrulesrc --group General --key rules {index}"
+        )),
+        "{:?}",
+        writer_calls(&tools)
+    );
+    let written = std::fs::read_to_string(tools.config.join("kwinrulesrc")).expect("the file");
+    assert!(
+        written.contains("wmclass=keepme"),
+        "the user's rule survives"
+    );
+    assert!(
+        written.contains("Order=user-rule"),
+        "their order key survives"
+    );
+    assert!(
+        !written.contains("$Version,"),
+        "the metadata group never enters the index: {written}"
+    );
+    assert!(
+        written.contains("rules=user-rule,caelestia-opacity,caelestia-dialogs,caelestia-pip"),
+        "{written}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_reload_comes_once_and_last() {
+    if !process_available("python3") {
+        return;
+    }
+    let fixture = Fixture::new("rules-reload");
+    let tools = config_tools(&fixture);
+
+    let _ = run_window_rules(&fixture, &tools, &[]);
+    let calls = std::fs::read_to_string(&tools.calls).expect("the call log");
+    let lines: Vec<&str> = calls.lines().collect();
+
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.starts_with("qdbus6 "))
+            .count(),
+        1,
+        "one reload, after every write: {calls}"
+    );
+    assert_eq!(
+        lines.last().map(|line| line.starts_with("qdbus6 ")),
+        Some(true),
+        "{calls}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_inactive_opacity_comes_from_the_environment() {
+    if !process_available("python3") {
+        return;
+    }
+    let fixture = Fixture::new("rules-opacity");
+    let tools = config_tools(&fixture);
+
+    let _ = run_window_rules(&fixture, &tools, &[("WINDOW_OPACITY", "80")]);
+    assert!(
+        writer_calls(&tools).contains(
+            &"--file kwinrulesrc --group caelestia-opacity --key opacityinactive 80".to_string()
+        ),
+        "{:?}",
+        writer_calls(&tools)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_silent_rejection_is_reported_as_failed() {
+    if !process_available("python3") {
+        return;
+    }
+    let fixture = Fixture::new("rules-rejected");
+    let tools = config_tools(&fixture);
+
+    let output = run_window_rules(&fixture, &tools, &[("KW_SILENT_REJECT", "1")]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("could not be written"),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        output.stdout.contains("Window rules not fully applied"),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_missing_writer_warns_instead_of_failing() {
+    let fixture = Fixture::new("rules-no-writer");
+    let bare = fixture.path("bare");
+    std::fs::create_dir_all(&bare).expect("a directory for the bare path");
+
+    let output = fixture.step("04a-window-rules", &bare, &[]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("kwriteconfig6 not found - skipping window rules."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_step_can_be_switched_off() {
+    if !process_available("python3") {
+        return;
+    }
+    let fixture = Fixture::new("rules-off");
+    let tools = config_tools(&fixture);
+
+    let output = run_window_rules(&fixture, &tools, &[("APPLY_WINDOW_RULES", "false")]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("Skipping window rules"),
+        "{}",
+        output.stdout
+    );
+    assert!(writer_calls(&tools).is_empty(), "and writes nothing");
+}
+
+#[cfg(unix)]
+fn process_available(program: &str) -> bool {
+    std::env::var("PATH")
+        .unwrap_or_default()
+        .split(':')
+        .any(|directory| {
+            !directory.is_empty() && std::path::Path::new(directory).join(program).is_file()
+        })
+}
