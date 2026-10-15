@@ -222,7 +222,7 @@ fn first_archive(directory: &Path) -> Option<PathBuf> {
     archives.into_iter().next()
 }
 
-fn timestamp() -> Option<String> {
+pub(crate) fn timestamp() -> Option<String> {
     let stamp = process::capture("date", &["+%Y%m%d_%H%M%S"])?;
     if stamp.is_empty() {
         return None;

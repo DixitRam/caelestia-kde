@@ -233,8 +233,10 @@ cmd_screenshot() {
 
 # Step scripts: /usr/share/caelestia for a package, the checkout otherwise. The layout
 # above already answered this; an earlier version searched four candidate directories.
+# What has to be there is the runner, not any one step: the steps that are still shell
+# are run from it, and the ones that are not need it to find the installer binary.
 has_step_scripts() {
-    [[ -f "$SCRIPTS_DIR/03-deploy-configs.sh" ]]
+    [[ -f "$SCRIPTS_DIR/lib/installer-bin.sh" ]]
 }
 
 # The user's half, from a package.
@@ -276,12 +278,8 @@ EOF
         10-autostart
     )
 
-    local have_runner=0
-    if [[ -f "$SCRIPTS_DIR/lib/installer-bin.sh" ]]; then
-        # shellcheck source=/dev/null
-        . "$SCRIPTS_DIR/lib/installer-bin.sh"
-        have_runner=1
-    fi
+    # shellcheck source=/dev/null
+    . "$SCRIPTS_DIR/lib/installer-bin.sh"
 
     export CAELESTIA_FRESH_INSTALL="${CAELESTIA_FRESH_INSTALL:-1}"
 
@@ -292,11 +290,7 @@ EOF
     for id in "${steps[@]}"; do
         printf '== %s\n' "$id"
         local status=0
-        if [[ "$have_runner" -eq 1 ]]; then
-            BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND=package caelestia_run_step "$id" || status=$?
-        else
-            BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND=package bash "$SCRIPTS_DIR/$id.sh" || status=$?
-        fi
+        BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND="$KIND" caelestia_run_step "$id" || status=$?
         if [[ "$status" -ne 0 ]]; then
             printf '[ERR] %s failed; nothing after it was run.\n' "$id" >&2
             return 1

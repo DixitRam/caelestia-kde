@@ -45,7 +45,7 @@ require_tools() {
 # serve. The rules themselves are checked separately, further down.
 REQUIRED_IN_CHECKOUT=(
     assets/org.quickshell.desktop
-    scripts/03-deploy-configs.sh
+    installer/src/steps/configs.rs
     scripts/lib/install-fs.sh
     src/bin/caelestia
     src/matugen

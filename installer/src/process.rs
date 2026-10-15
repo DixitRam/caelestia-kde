@@ -52,7 +52,11 @@ pub fn status_quietly(program: &str, args: &[&str], directory: Option<&Path>) ->
 }
 
 pub fn capture(program: &str, args: &[&str]) -> Option<String> {
-    let output = command(program, args, None)
+    capture_in(program, args, None)
+}
+
+pub fn capture_in(program: &str, args: &[&str], directory: Option<&Path>) -> Option<String> {
+    let output = command(program, args, directory)
         .stdout(Stdio::piped())
         .output()
         .ok()?;
@@ -134,5 +138,29 @@ mod tests {
     fn output_is_captured_for_a_call_that_succeeds() {
         let version = capture("cargo", &["--version"]).expect("cargo reports its version");
         assert!(version.starts_with("cargo "), "{version}");
+    }
+
+    #[test]
+    fn output_is_captured_from_the_directory_that_is_asked_for() {
+        let here = capture_in(
+            "cargo",
+            &["locate-project", "--message-format", "plain"],
+            Some(Path::new(".")),
+        )
+        .expect("the manifest is found from the crate root");
+        assert!(here.ends_with("Cargo.toml"), "{here}");
+        assert!(Path::new(&here).is_absolute(), "{here}");
+
+        let outside =
+            crate::tmp::TempDir::new("caelestia-process-test").expect("a temporary directory");
+        assert!(
+            capture_in(
+                "cargo",
+                &["locate-project", "--message-format", "plain"],
+                Some(outside.path())
+            )
+            .is_none(),
+            "a directory outside the crate has no manifest"
+        );
     }
 }

@@ -1537,3 +1537,427 @@ fn without_quickshell_the_step_refuses_to_configure_anything() {
             .exists()
     );
 }
+
+#[cfg(unix)]
+struct ConfigTools {
+    path: PathBuf,
+    calls: PathBuf,
+}
+
+#[cfg(unix)]
+fn dots_tools(fixture: &Fixture) -> ConfigTools {
+    let bin = fixture.path("bin");
+    let calls = fixture.path("calls.log");
+    std::fs::write(&calls, "").expect("the call log");
+
+    // `cksum` stands in for sha256sum: it is POSIX, and its digest is over the bytes, so
+    // it changes exactly when the file does.
+    stub_in(&bin, "sha256sum", "#!/bin/sh\nexec cksum \"$@\"\n");
+    stub_in(&bin, "id", "#!/bin/sh\nprintf 'tester\\n'\n");
+    stub_in(
+        &bin,
+        "getent",
+        "#!/bin/sh\nprintf 'tester:x:1000:1000::/home/tester:/bin/zsh\\n'\n",
+    );
+    stub_in(&bin, "date", "#!/bin/sh\nprintf '20240101_120000\\n'\n");
+    stub_in(
+        &bin,
+        "update-desktop-database",
+        "#!/bin/sh\nprintf 'update-desktop-database %s\\n' \"$*\" >> \"$KW_CALLS\"\nexit 0\n",
+    );
+
+    let system = std::env::var("PATH").unwrap_or_default();
+    ConfigTools {
+        path: PathBuf::from(format!("{}:{system}", bin.display())),
+        calls,
+    }
+}
+
+#[cfg(unix)]
+fn dots_bundle(fixture: &Fixture) -> PathBuf {
+    let bundle = fixture.path("bundle");
+    let dots = bundle.join("src/dots");
+    for (directory, file, contents) in [
+        ("btop", "btop.conf", "theme = \"caelestia\"\n"),
+        ("foot", "foot.ini", "[main]\n"),
+        ("kitty", "kitty.conf", "font_size 11\n"),
+    ] {
+        std::fs::create_dir_all(dots.join(directory)).expect("a config tree");
+        std::fs::write(dots.join(directory).join(file), contents).expect("a config file");
+    }
+    std::fs::write(dots.join("starship.toml"), "format = \"$all\"\n").expect("the prompt");
+
+    let fish = bundle.join("src/dots-extra/fish");
+    std::fs::create_dir_all(&fish).expect("an extra config tree");
+    std::fs::write(fish.join("config.fish"), "set -gx EDITOR nvim\n").expect("a config file");
+    let fastfetch = bundle.join("src/dots-extra/fastfetch");
+    std::fs::create_dir_all(&fastfetch).expect("an extra config tree");
+    std::fs::write(fastfetch.join("config.jsonc"), "{}\n").expect("a config file");
+
+    let bin = bundle.join("src/bin");
+    std::fs::create_dir_all(&bin).expect("a bridge directory");
+    std::fs::write(bin.join("caelestia-color"), "#!/bin/sh\n").expect("a bridge file");
+    std::fs::write(bin.join("helper.cpp"), "// c++\n").expect("a source file");
+    std::fs::write(bin.join("CMakeLists.txt"), "add_executable(x)\n").expect("a build file");
+
+    bundle
+}
+
+#[cfg(unix)]
+fn run_configs(fixture: &Fixture, tools: &ConfigTools, extra: &[(&str, &str)]) -> Output {
+    let calls = tools.calls.to_str().expect("a path");
+    let mut environment: Vec<(&str, &str)> = vec![("KW_CALLS", calls)];
+    environment.extend_from_slice(extra);
+    let bundle = fixture.path("bundle");
+    fixture.step_in("03-deploy-configs", &tools.path, &bundle, &environment)
+}
+
+#[cfg(unix)]
+#[test]
+fn a_source_install_deploys_the_configs_the_prompt_and_the_bridge_files() {
+    let fixture = Fixture::new("configs-source");
+    let tools = dots_tools(&fixture);
+    dots_bundle(&fixture);
+    std::fs::write(fixture.path(".zshrc"), b"export EDITOR=nvim\n").expect("the shell rc");
+
+    let backup = fixture.path("backup").to_string_lossy().to_string();
+    let output = run_configs(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "source"),
+            ("BACKUP_DIR", backup.as_str()),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    assert_eq!(
+        std::fs::read_to_string(fixture.path(".config/btop/btop.conf")).expect("the config"),
+        "theme = \"caelestia\"\n"
+    );
+    assert!(fixture.path(".config/kitty/kitty.conf").is_file());
+    assert_eq!(
+        std::fs::read_to_string(fixture.path(".config/starship.toml")).expect("the prompt"),
+        "format = \"$all\"\n"
+    );
+
+    assert!(fixture.path(".local/bin/caelestia-color").is_file());
+    assert!(
+        !fixture.path(".local/bin/helper.cpp").exists(),
+        "a compiled source file is not a bridge file"
+    );
+    assert!(
+        !fixture.path(".local/bin/CMakeLists.txt").exists(),
+        "and neither is a build file"
+    );
+
+    let shell = std::fs::read_to_string(fixture.path("backup/previous_shell.txt"));
+    assert_eq!(shell.expect("the recorded shell"), "/bin/zsh\n");
+
+    let states =
+        std::fs::read_to_string(fixture.path("backup/shellrc/zshrc.state")).expect("the zsh state");
+    assert_eq!(states, "present\n");
+    assert_eq!(
+        std::fs::read_to_string(fixture.path("backup/shellrc/fish_config.state"))
+            .expect("the fish state"),
+        "missing\n"
+    );
+
+    for name in ["btop", "kitty", "starship.toml"] {
+        let stamp = fixture
+            .path("cache/caelestia-kde/deployed")
+            .join(format!("{name}.sha256"));
+        assert!(stamp.is_file(), "{} is recorded", stamp.display());
+    }
+
+    assert!(
+        output.stdout.contains("Config deployment complete."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_config_the_user_edited_is_preserved_while_the_others_are_replaced() {
+    let fixture = Fixture::new("configs-modified");
+    let tools = dots_tools(&fixture);
+    let bundle = dots_bundle(&fixture);
+    let backup = fixture.path("backup").to_string_lossy().to_string();
+    let environment = [
+        ("CAELESTIA_INSTALL_KIND", "source"),
+        ("BACKUP_DIR", backup.as_str()),
+    ];
+
+    let first = run_configs(&fixture, &tools, &environment);
+    assert_eq!(first.code, Some(0), "{}", first.stderr);
+
+    std::fs::write(
+        fixture.path(".config/btop/btop.conf"),
+        "theme = \"material\"\n",
+    )
+    .expect("the user's own edit");
+    std::fs::write(
+        bundle.join("src/dots/foot/foot.ini"),
+        "[main]\nfont=monospace\n",
+    )
+    .expect("the new shipped config");
+
+    let second = run_configs(&fixture, &tools, &environment);
+    assert_eq!(second.code, Some(0), "{}", second.stderr);
+
+    assert_eq!(
+        std::fs::read_to_string(fixture.path(".config/btop/btop.conf")).expect("the config"),
+        "theme = \"material\"\n",
+        "an edited config is the user's"
+    );
+    assert!(
+        second
+            .stdout
+            .contains("Preserving locally modified config: btop"),
+        "{}",
+        second.stdout
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.path(".config/foot/foot.ini")).expect("the config"),
+        "[main]\nfont=monospace\n",
+        "an untouched config is updated"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_configs_the_user_had_are_backed_up_before_they_are_replaced() {
+    let fixture = Fixture::new("configs-backup");
+    let tools = dots_tools(&fixture);
+    dots_bundle(&fixture);
+    let backup = fixture.path("backup");
+    let backup_dir = backup.to_string_lossy().to_string();
+    let environment = [
+        ("CAELESTIA_INSTALL_KIND", "source"),
+        ("BACKUP_DIR", backup_dir.as_str()),
+    ];
+
+    std::fs::create_dir_all(fixture.path(".config/btop")).expect("the user's config tree");
+    std::fs::write(fixture.path(".config/btop/btop.conf"), b"theirs\n").expect("a config file");
+    std::fs::write(fixture.path(".config/konsolerc"), b"[Desktop Entry]\n").expect("the konsolerc");
+    std::fs::create_dir_all(fixture.path(".local/share/konsole")).expect("the konsole tree");
+    std::fs::write(
+        fixture.path(".local/share/konsole/Caelestia.profile"),
+        b"[General]\n",
+    )
+    .expect("a profile");
+
+    let output = run_configs(&fixture, &tools, &environment);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    assert_eq!(
+        std::fs::read_to_string(backup.join(".config/btop/btop.conf")).expect("the backup"),
+        "theirs\n"
+    );
+    assert!(backup.join(".config/konsolerc").is_file());
+    assert!(backup.join("local/konsole/Caelestia.profile").is_file());
+    assert_eq!(
+        std::fs::read_to_string(fixture.path(".config/btop/btop.conf")).expect("the config"),
+        "theme = \"caelestia\"\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn thunar_and_fish_follow_the_answers_they_were_given() {
+    let fixture = Fixture::new("configs-choices");
+    let tools = dots_tools(&fixture);
+    let bundle = dots_bundle(&fixture);
+    let thunar = bundle.join("src/dots/thunar");
+    std::fs::create_dir_all(&thunar).expect("the thunar tree");
+    std::fs::write(thunar.join("uca.xml"), "<actions/>\n").expect("an action file");
+    let backup = fixture.path("backup");
+    let backup_dir = backup.to_string_lossy().to_string();
+
+    let off = run_configs(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "source"),
+            ("BACKUP_DIR", backup_dir.as_str()),
+            ("INSTALL_THUNAR", "false"),
+            ("INSTALL_FISH", "false"),
+        ],
+    );
+    assert_eq!(off.code, Some(0), "{}", off.stderr);
+    assert!(!fixture.path(".config/thunar").exists());
+    assert!(!fixture.path(".config/fish").exists());
+    assert!(
+        fixture.path(".config/fastfetch/config.jsonc").is_file(),
+        "the other extra config is not the one that was declined"
+    );
+
+    let on = run_configs(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "source"),
+            ("BACKUP_DIR", backup_dir.as_str()),
+            ("INSTALL_THUNAR", "true"),
+            ("INSTALL_FISH", "true"),
+        ],
+    );
+    assert_eq!(on.code, Some(0), "{}", on.stderr);
+    assert_eq!(
+        std::fs::read_to_string(fixture.path(".config/thunar/uca.xml")).expect("the action file"),
+        "<actions/>\n"
+    );
+    assert!(fixture.path(".config/fish/config.fish").is_file());
+    assert!(
+        on.stdout
+            .contains("Missing optional Thunar file: thunar/thunar-volman.xml"),
+        "{}",
+        on.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_missing_dots_tree_names_the_step_that_fills_it() {
+    let fixture = Fixture::new("configs-empty-dots");
+    let tools = dots_tools(&fixture);
+    let bundle = fixture.path("bundle");
+    std::fs::create_dir_all(bundle.join("src/dots")).expect("an empty dots tree");
+    let backup = fixture.path("backup");
+    let backup_dir = backup.to_string_lossy().to_string();
+    let environment = [
+        ("CAELESTIA_INSTALL_KIND", "source"),
+        ("BACKUP_DIR", backup_dir.as_str()),
+    ];
+
+    let output = run_configs(&fixture, &tools, &environment);
+    assert_eq!(output.code, Some(1));
+    assert!(
+        output.stderr.contains("scripts/02a-submodules.sh"),
+        "{}",
+        output.stderr
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_packaged_install_without_dotfiles_says_the_package_owes_them() {
+    let fixture = Fixture::new("configs-packaged");
+    let tools = dots_tools(&fixture);
+    let bundle = fixture.path("bundle");
+    std::fs::create_dir_all(bundle.join("src/dots")).expect("an empty dots tree");
+    let backup = fixture.path("backup");
+    let backup_dir = backup.to_string_lossy().to_string();
+    let environment = [
+        ("CAELESTIA_INSTALL_KIND", "package"),
+        ("BACKUP_DIR", backup_dir.as_str()),
+    ];
+
+    let output = run_configs(&fixture, &tools, &environment);
+    assert_eq!(output.code, Some(1));
+    assert!(output.stderr.contains("reinstall it"), "{}", output.stderr);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_backup_directory_a_previous_step_recorded_is_the_one_that_is_used() {
+    let fixture = Fixture::new("configs-recorded");
+    let tools = dots_tools(&fixture);
+    dots_bundle(&fixture);
+
+    let recorded = fixture.path("bundle/backups/20231231_235959");
+    std::fs::create_dir_all(&recorded).expect("the recorded backup");
+    std::fs::create_dir_all(fixture.path("cache/caelestia-kde")).expect("the cache directory");
+    std::fs::write(
+        fixture.path("cache/caelestia-kde/backup-dir.txt"),
+        format!("{}\n", recorded.display()),
+    )
+    .expect("the record");
+
+    let output = run_configs(&fixture, &tools, &[("CAELESTIA_INSTALL_KIND", "source")]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        recorded.join("previous_shell.txt").is_file(),
+        "the recorded backup is where this run puts its files"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_recorded_backup_directory_outside_the_two_roots_is_ignored() {
+    let fixture = Fixture::new("configs-stale-record");
+    let tools = dots_tools(&fixture);
+    dots_bundle(&fixture);
+
+    let elsewhere = fixture.path("elsewhere/20230101_000000");
+    std::fs::create_dir_all(&elsewhere).expect("a directory that is not a backup");
+    std::fs::create_dir_all(fixture.path("cache/caelestia-kde")).expect("the cache directory");
+    std::fs::write(
+        fixture.path("cache/caelestia-kde/backup-dir.txt"),
+        format!("{}\n", elsewhere.display()),
+    )
+    .expect("the record");
+
+    let output = run_configs(&fixture, &tools, &[("CAELESTIA_INSTALL_KIND", "source")]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let fresh = fixture.path("bundle/backups/20240101_120000");
+    assert!(
+        fresh.join("previous_shell.txt").is_file(),
+        "a fresh backup is made beside the bundle instead"
+    );
+    assert!(
+        std::fs::read_dir(&elsewhere)
+            .expect("the directory")
+            .next()
+            .is_none(),
+        "and the directory the record named is left alone"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_prompt_the_user_edited_is_left_alone_and_backed_up() {
+    let fixture = Fixture::new("configs-starship");
+    let tools = dots_tools(&fixture);
+    let bundle = dots_bundle(&fixture);
+    let backup = fixture.path("backup");
+    let backup_dir = backup.to_string_lossy().to_string();
+    let environment = [
+        ("CAELESTIA_INSTALL_KIND", "source"),
+        ("BACKUP_DIR", backup_dir.as_str()),
+    ];
+
+    let first = run_configs(&fixture, &tools, &environment);
+    assert_eq!(first.code, Some(0), "{}", first.stderr);
+
+    std::fs::write(
+        fixture.path(".config/starship.toml"),
+        "format = \"$directory\"\n",
+    )
+    .expect("the user's own prompt");
+    std::fs::write(
+        bundle.join("src/dots/starship.toml"),
+        "format = \"$all$time\"\n",
+    )
+    .expect("the new shipped prompt");
+
+    let second = run_configs(&fixture, &tools, &environment);
+    assert_eq!(second.code, Some(0), "{}", second.stderr);
+    assert_eq!(
+        std::fs::read_to_string(fixture.path(".config/starship.toml")).expect("the prompt"),
+        "format = \"$directory\"\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(backup.join(".config/starship.toml")).expect("the backup"),
+        "format = \"$directory\"\n"
+    );
+    assert!(
+        second
+            .stdout
+            .contains("Preserving locally modified config: starship.toml"),
+        "{}",
+        second.stdout
+    );
+}

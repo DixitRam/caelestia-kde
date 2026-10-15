@@ -1,5 +1,6 @@
 mod autostart;
 mod backup;
+mod configs;
 mod kde_apps;
 mod kde_theme;
 mod optional_apps;
@@ -172,7 +173,7 @@ pub const STEPS: [Step; 17] = [
         name: "Deploy config files",
         id: "03-deploy-configs",
         phase: Phase::Configure,
-        body: Body::Script("scripts/03-deploy-configs.sh"),
+        body: Body::Native(configs::run),
     },
     Step {
         name: "Download wallpapers",

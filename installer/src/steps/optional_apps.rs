@@ -223,14 +223,3 @@ fn deploy(source: &Path, destination: &Path) {
         ),
     }
 }
-
-#[cfg(unix)]
-fn make_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-
-    if let Ok(metadata) = fs::metadata(path) {
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o755);
-        let _ = fs::set_permissions(path, permissions);
-    }
-}

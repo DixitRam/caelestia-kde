@@ -7,7 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLI="$REPO_ROOT/src/bin/caelestia"
 
-EXPECTED_STEPS=(03-deploy-configs.sh 03a-wallpapers.sh 04-deploy-kde.sh 04a-window-rules.sh 05-sddm-theme.sh 06-services.sh 08-build-shell.sh 09-system-tweaks.sh 10-autostart.sh)
+EXPECTED_STEPS=(03-deploy-configs 03a-wallpapers 04-deploy-kde 04a-window-rules 05-sddm-theme 06-services 08-build-shell 09-system-tweaks 10-autostart)
 
 DIR=""
 CALLS=""
@@ -18,15 +18,24 @@ stub_steps() {
     DIR="$(new_tmpdir)"
     DATA="$DIR/data"
     CALLS="$DIR/calls.log"
-    mkdir -p "$DATA/scripts"
+    mkdir -p "$DATA/scripts/lib"
     : > "$CALLS"
+    cp "$REPO_ROOT/scripts/lib/installer-bin.sh" "$DATA/scripts/lib/"
+
+    # The packaged half reaches every step through the installer binary, so the fixture
+    # stands in for it and records the id, the tree, and which install it was told it is.
+    cat > "$DATA/caelestia-install" <<EOF
+#!/bin/bash
+printf '%s|%s|%s\n' "\$2" "\$CAELESTIA_DATA_DIR" "\$CAELESTIA_INSTALL_KIND" >> "$CALLS"
+if [ '$failing' = "\$2" ]; then
+    exit 7
+fi
+exit 0
+EOF
+    chmod +x "$DATA/caelestia-install"
 
     for step in "${EXPECTED_STEPS[@]}"; do
-        {
-            printf 'printf "%%s|%%s|%%s\\n" "%s" "$BUNDLE_DIR" "$CAELESTIA_INSTALL_KIND" >> "%s"\n' "$step" "$CALLS"
-            [[ "$step" == "$failing" ]] && printf 'exit 3\n'
-            printf 'exit 0\n'
-        } > "$DATA/scripts/$step"
+        printf '#!/bin/bash\nexit 0\n' > "$DATA/scripts/$step.sh"
     done
 }
 
@@ -85,8 +94,8 @@ test_the_machine_steps_stay_out_of_a_packaged_install() {
     local calls
     calls="$(cat "$CALLS")"
     local absent
-    for absent in 00a-system-update.sh 01-ensure-prereqs.sh 02-all-packages.sh 02a-submodules.sh 07-kde-apps.sh 11-optional-apps.sh; do
-        assert_not_contains "$calls" "$absent" "$absent belongs to the package, not to the user's half"
+    for absent in 00a-system-update 01-ensure-prereqs 02-all-packages 02a-submodules 07-kde-apps 11-optional-apps; do
+        assert_not_contains "$calls" "$absent|" "$absent belongs to the package, not to the user's half"
     done
 }
 
@@ -149,7 +158,7 @@ test_shared_runtime_files_have_one_cmake_owner() {
         "the package must not ship a second, hand-maintained manifest"
     assert_not_contains "$pkgbuild" 'usr/share/caelestia/src/dots' \
         "the package must not re-declare CMake-owned data paths"
-    assert_not_contains "$pkgbuild" 'usr/share/caelestia/scripts/03-deploy-configs.sh' \
+    assert_not_contains "$pkgbuild" 'usr/share/caelestia/scripts/08-build-shell.sh' \
         "the package must not re-declare CMake-owned installer scripts"
     assert_not_contains "$pkgbuild" 'usr/share/sddm/themes/caelestia' \
         "the package must not re-declare the CMake-owned SDDM theme"
@@ -186,13 +195,13 @@ test_shared_runtime_files_have_one_cmake_owner() {
 }
 
 test_a_failing_step_stops_the_run() {
-    stub_steps "04-deploy-kde.sh"
+    stub_steps "04-deploy-kde"
     CAELESTIA_DATA_DIR="$DATA" CAELESTIA_INSTALL_KIND=package "$CLI" install > "$DIR/out.txt" 2>&1
     local status=$?
 
     assert_status 1 "$status" "a failing step should fail the run"
     assert_contains "$(cat "$DIR/out.txt")" "04-deploy-kde failed" "the failure should name the step"
-    assert_not_contains "$(cat "$CALLS")" "06-services.sh" "nothing after the failing step should run"
+    assert_not_contains "$(cat "$CALLS")" "06-services|" "nothing after the failing step should run"
 }
 
 test_every_packaged_step_failure_stops_before_the_next_step() {
@@ -206,10 +215,10 @@ test_every_packaged_step_failure_stops_before_the_next_step() {
         assert_status 1 "$status" "$failing should fail the packaged run"
 
         calls="$(cat "$CALLS")"
-        assert_contains "$calls" "$failing" "$failing should be reached before failure"
+        assert_contains "$calls" "$failing|" "$failing should be reached before failure"
         if (( index + 1 < ${#EXPECTED_STEPS[@]} )); then
             next="${EXPECTED_STEPS[$((index + 1))]}"
-            assert_not_contains "$calls" "$next" "a failure in $failing must stop before $next"
+            assert_not_contains "$calls" "$next|" "a failure in $failing must stop before $next"
         fi
     done
 }

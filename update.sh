@@ -128,7 +128,7 @@ run_core_step() {
 }
 
 if ! caelestia_installer_bin >/dev/null 2>&1; then
-    if [ ! -f "$BUNDLE_DIR/scripts/03-deploy-configs.sh" ] || [ ! -f "$BUNDLE_DIR/scripts/08-build-shell.sh" ]; then
+    if [ ! -f "$BUNDLE_DIR/scripts/08-build-shell.sh" ]; then
         die "Critical internal scripts are missing from $BUNDLE_DIR/scripts/"
     fi
 fi

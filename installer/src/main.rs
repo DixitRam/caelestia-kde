@@ -1,6 +1,7 @@
 mod app;
 mod bundle;
 mod cli;
+mod copy;
 mod distro;
 mod download;
 mod exit;

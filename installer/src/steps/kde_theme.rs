@@ -296,17 +296,6 @@ fn data_home() -> PathBuf {
         .unwrap_or_else(|| paths::home().join(".local").join("share"))
 }
 
-#[cfg(unix)]
-fn make_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-
-    if let Ok(metadata) = fs::metadata(path) {
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o755);
-        let _ = fs::set_permissions(path, permissions);
-    }
-}
-
 const CLIPHIST_RUNNER: &str = r#"#!/bin/bash
 set -uo pipefail
 

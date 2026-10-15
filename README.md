@@ -132,7 +132,7 @@ assets/        the logo and screenshots used by the docs
 - [Haidir](https://bitbucket.org/dirn-typo/yet-another-monochrome-icon-set) - icon set
 - [dim-ghub](https://github.com/dim-ghub/caelestia-shell) - v2.0.0 features
 - [dharmx](https://github.com/dharmx/walls) - default wallpapers
-  
+
 ## License
 
 GPL-3.0-or-later - see [LICENSE](LICENSE).
