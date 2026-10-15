@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import Caelestia.Config
 import qs.components
 import qs.services
+import qs.modules.bar
 import qs.modules.nexus
 
 ColumnLayout {
@@ -49,13 +50,7 @@ ColumnLayout {
     }
 
     function hideIndicator(): void {
-        const entries = GlobalConfig.bar.entries ? [...GlobalConfig.bar.entries] : [];
-        const idx = entries.findIndex(e => e.id === "updateIndicator");
-        if (idx >= 0)
-            entries[idx] = { id: "updateIndicator", enabled: false, zone: entries[idx].zone || "right" };
-        else
-            entries.push({ id: "updateIndicator", enabled: false, zone: "right" });
-        GlobalConfig.bar.entries = entries;
+        BarWidgets.setEnabled(GlobalConfig.bar, "updateIndicator", false);
         root.popouts.hasCurrent = false;
     }
 

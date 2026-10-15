@@ -1,25 +1,4 @@
 #!/usr/bin/env python3
-"""
-Caelestia upstream-sync tool.
-
-Keeps the vendored shell (shell/) in sync with the upstream shell repo
-(caelestia-dots/shell), tracked as the `upstream` git remote.
-
-The vendored shell is a fork, not a copy: roughly half its files are
-KDE-specific additions that must never be overwritten by a sync, and a
-large number of shared files have drifted. This tool therefore does NOT
-auto-merge the whole tree. It classifies the difference between shell/
-and upstream into buckets, and lets you bring down chosen upstream paths
-one at a time for adaptation.
-
-Commands:
-    fetch                 fetch upstream and refresh the mirror branch
-    report                classify shell/ vs upstream/main (the sync report)
-    bring PATH...         copy upstream paths into shell/ (then you adapt)
-    bring --force PATH... overwrite an existing shell/ file with upstream
-
-See docs/upstream-sync.md for the full process.
-"""
 
 import argparse
 import os

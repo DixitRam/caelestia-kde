@@ -1,5 +1,6 @@
 import ".."
 import QtQuick
+import Caelestia.Config
 import qs.components
 
 Item {
@@ -58,7 +59,7 @@ Item {
         opacity: 0.9
 
         SequentialAnimation on opacity {
-            running: root.breathingBorderOnly
+            running: root.breathingBorderOnly && Tokens.anim.enabled
             loops: Animation.Infinite
 
             NumberAnimation { from: 0.9; to: 0.3; duration: 1200; easing.type: Easing.InOutQuad }

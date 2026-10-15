@@ -26,15 +26,15 @@ Rectangle {
     color: fillColor
     border.color: borderColor
     border.width: targeted ? 4 : 2
-    radius: 4
+    radius: Tokens.rounding.extraSmall
 
     Behavior on color {
-        animation: ColorAnimation { duration: 200; easing.type: Easing.OutQuad }
+        animation: CAnim {}
     }
 
     visible: opacity > 0
     Behavior on opacity {
-        animation: NumberAnimation { duration: 200; easing.type: Easing.OutQuad }
+        animation: Anim { type: Anim.DefaultEffects }
     }
 
     x: clientDimensions.at[0]
@@ -52,13 +52,13 @@ Rectangle {
             topMargin: root.textPadding
             leftMargin: root.textPadding
         }
-        
+
         active: root.showLabel
         sourceComponent: Rectangle {
             property real verticalPadding: 5
             property real horizontalPadding: 10
 
-            radius: 10
+            radius: Tokens.rounding.small
             color: root.colBackground
             border.width: 1
             border.color: Colours.palette.m3outlineVariant

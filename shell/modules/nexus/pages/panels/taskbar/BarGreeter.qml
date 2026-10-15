@@ -10,6 +10,7 @@ import qs.components.controls
 import qs.components.filedialog
 import qs.services
 import qs.utils
+import qs.modules.bar
 import qs.modules.nexus.common
 
 PageBase {
@@ -66,56 +67,18 @@ PageBase {
         ToggleRow {
             first: true
             text: qsTr("Enable component")
-            checked: {
-                const entries = Config.bar.entries || [];
-                for (let i = 0; i < entries.length; i++) {
-                    if (entries[i].id === "greeter")
-                        return entries[i].enabled;
-                }
-                return false;
-            }
+            checked: BarWidgets.isEnabled(Config.bar, "greeter")
             // Custom reset: enabled state lives in bar.entries, default is true
             reset: ({
-                customGet: () => {
-                    const entries = GlobalConfig.bar.entries || [];
-                    for (let i = 0; i < entries.length; i++)
-                        if (entries[i].id === "greeter")
-                            return entries[i].enabled;
-                    return false;
-                },
+                customGet: () => BarWidgets.isEnabled(GlobalConfig.bar, "greeter"),
                 customDef: true,
                 customSet: v => {
-                    let newEntries = [...(GlobalConfig.bar.entries || [])];
-                    let found = false;
-                    for (let i = 0; i < newEntries.length; i++) {
-                        if (newEntries[i].id === "greeter") {
-                            newEntries[i].enabled = v;
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found)
-                        newEntries.push({ id: "greeter", enabled: v, zone: "left" });
-                    GlobalConfig.bar.entries = newEntries;
+                    BarWidgets.setEnabled(GlobalConfig.bar, "greeter", v);
                     GlobalConfig.save();
                 }
             })
             onToggled: {
-                let newEntries = [...(GlobalConfig.bar.entries || [])];
-                let found = false;
-                for (let i = 0; i < newEntries.length; i++) {
-                    if (newEntries[i].id === "greeter") {
-                        newEntries[i].enabled = checked;
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found) {
-                    newEntries.push({ id: "greeter", enabled: checked, zone: "left" });
-                }
-
-                GlobalConfig.bar.entries = newEntries;
+                BarWidgets.setEnabled(GlobalConfig.bar, "greeter", checked);
                 GlobalConfig.save();
             }
         }

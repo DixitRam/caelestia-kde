@@ -129,7 +129,9 @@ StyledRect {
                         required property int index
 
                         readonly property real cavaVal: (Audio.cava && Audio.cava.values && Audio.cava.values.length > index * 2) ? Audio.cava.values[index * 2] : 0
-                        readonly property real rawHeight: root.isPlaying ? Math.max(3, Math.min(18, 3 + cavaVal * 15)) : 3
+                        // Parked flat while animations are off: the bars are decoration, and
+                        // motion is their only channel.
+                        readonly property real rawHeight: root.isPlaying && Tokens.anim.enabled ? Math.max(3, Math.min(18, 3 + cavaVal * 15)) : 3
 
                         x: index * 5
                         width: 3
@@ -140,7 +142,10 @@ StyledRect {
 
                         Behavior on height {
                             NumberAnimation {
-                                duration: 50
+                                // Audio tracking: the bars follow the level, they are not
+                                // animating a state change, so this stays far shorter than
+                                // any transition token.
+                                duration: Tokens.anim.duration(50)
                                 easing.type: Easing.OutQuad
                             }
                         }

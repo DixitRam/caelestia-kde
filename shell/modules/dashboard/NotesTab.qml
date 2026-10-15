@@ -19,6 +19,8 @@ Item {
     property int selectedIndex: -1
     readonly property var selectedNote: root.selectedIndex >= 0 && root.selectedIndex < root.notes.length ? root.notes[root.selectedIndex] : null
 
+    property bool dashboardOpen: true
+
     // Managed media library: uploads are copied under notes/audio|images
     // so notes survive the original files being moved or deleted.
     readonly property string notesMediaDir: Paths.state + "/notes"
@@ -797,8 +799,12 @@ Item {
                     opacity: 0.4
 
                     SequentialAnimation on scale {
-                        loops: Animation.Infinite
-                        running: root.selectedNote === null
+                        loops: 3
+                        running: root.selectedNote === null && root.dashboardOpen && Tokens.anim.enabled
+
+                        // A condition change can stop this between breaths; the icon rests at
+                        // its own scale rather than wherever the sequence was cut off.
+                        onStopped: emptyIcon.scale = 1
 
                         NumberAnimation {
                             to: 1.06

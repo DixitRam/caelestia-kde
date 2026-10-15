@@ -15,7 +15,7 @@ import qs.modules.nexus.common
 
 PageBase {
     id: root
-    
+
     title: qsTr("Target windows")
     isSubPage: true
     scrollable: false
@@ -75,7 +75,7 @@ PageBase {
                     Layout.preferredHeight: 32
                     radius: Tokens.rounding.small
                     color: Colours.layer(Colours.palette.m3surfaceVariant, 2)
-                    
+
                     StyledTextField {
                         id: customInput
 
@@ -153,8 +153,8 @@ PageBase {
                 model: GlobalConfig.utilities.gameMode.autoEnableRegexes
                 clip: true
 
-                move: Transition { NumberAnimation { properties: "y"; duration: 200; easing.type: Easing.OutCubic } }
-                moveDisplaced: Transition { NumberAnimation { properties: "y"; duration: 200; easing.type: Easing.OutCubic } }
+                move: Transition { Anim { properties: "y"; type: Anim.FastSpatial } }
+                moveDisplaced: Transition { Anim { properties: "y"; type: Anim.FastSpatial } }
 
                 delegate: StyledRect {
                     id: delegateRect
@@ -206,7 +206,7 @@ PageBase {
 
                             StateLayer {
                                 anchors.fill: parent
-                                radius: 14
+                                radius: Tokens.rounding.full
                                 onClicked: {
                                     let list = Array.from(GlobalConfig.utilities.gameMode.autoEnableRegexes);
                                     list.splice(delegateRect.index, 1);

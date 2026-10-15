@@ -24,6 +24,7 @@ PageBase {
             first: true
             text: qsTr("Enabled")
             subtext: qsTr("Show the on-screen sliders")
+            reset: ({ node: GlobalConfig.osd, setting: "enabled" })
             checked: Config.osd.enabled
             onToggled: GlobalConfig.osd.enabled = checked
         }
@@ -31,6 +32,7 @@ PageBase {
         ToggleRow {
             text: qsTr("Volume")
             subtext: qsTr("Show the volume slider")
+            reset: ({ node: GlobalConfig.osd, setting: "enableVolume" })
             checked: Config.osd.enableVolume
             onToggled: GlobalConfig.osd.enableVolume = checked
         }
@@ -38,6 +40,7 @@ PageBase {
         ToggleRow {
             text: qsTr("Microphone")
             subtext: qsTr("Show the microphone slider")
+            reset: ({ node: GlobalConfig.osd, setting: "enableMicrophone" })
             checked: Config.osd.enableMicrophone
             onToggled: GlobalConfig.osd.enableMicrophone = checked
         }
@@ -46,6 +49,7 @@ PageBase {
             last: true
             text: qsTr("Brightness")
             subtext: qsTr("Show the brightness slider")
+            reset: ({ node: GlobalConfig.osd, setting: "enableBrightness" })
             checked: Config.osd.enableBrightness
             onToggled: GlobalConfig.osd.enableBrightness = checked
         }
@@ -58,6 +62,7 @@ PageBase {
             first: true
             label: qsTr("Depth")
             subtext: qsTr("Distance from the screen edge")
+            reset: ({ node: GlobalConfig.osd, setting: "hoverThickness" })
             value: Config.osd.hoverThickness
             from: 1
             to: 100
@@ -69,6 +74,7 @@ PageBase {
             last: true
             label: qsTr("Height")
             subtext: qsTr("Portion of the edge that responds")
+            reset: ({ node: GlobalConfig.osd, setting: "hoverWidth" })
             value: Config.osd.hoverWidth
             from: 10
             to: 100
@@ -85,6 +91,7 @@ PageBase {
             last: true
             label: qsTr("Hide delay")
             subtext: qsTr("Seconds before the slider hides")
+            reset: ({ node: GlobalConfig.osd, setting: "hideDelay" })
             value: Config.osd.hideDelay / 1000
             from: 1
             to: 10

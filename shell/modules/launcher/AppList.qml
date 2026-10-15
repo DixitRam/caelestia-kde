@@ -134,9 +134,9 @@ StyledListView {
             Emojis.reload();
         if (state === "clipboard")
             Clipboard.reload();
-            
+
         if (state !== "scheme" && state !== "variant") {
-            Colours.showPreview = false;
+            Colours.clearPreview();
         }
     }
 
@@ -148,7 +148,7 @@ StyledListView {
     }
 
     Component.onDestruction: {
-        Colours.showPreview = false;
+        Colours.clearPreview();
     }
 
     Timer {
@@ -160,8 +160,7 @@ StyledListView {
             if (!root.currentItem || !root.currentItem.modelData) return;
             if (root.state === "scheme") {
                 const schemeData = root.currentItem.modelData;
-                Colours.load(JSON.stringify({ name: schemeData.name, flavour: schemeData.flavour, variant: Colours.variant, mode: Colours.light ? "light" : "dark", colours: schemeData.colours }), true);
-                Colours.showPreview = true;
+                Colours.loadPreview(JSON.stringify({ name: schemeData.name, flavour: schemeData.flavour, variant: Colours.variant, mode: Colours.light ? "light" : "dark", colours: schemeData.colours }));
             } else if (root.state === "variant") {
                 const variantData = root.currentItem.modelData;
                 M3Variants.previewVariant(variantData.variant);

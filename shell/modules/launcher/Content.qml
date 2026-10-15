@@ -196,8 +196,6 @@ Item {
                 const currentItem = list.currentList?.currentItem;
                 if (currentItem) {
                     if (list.showWallpapers) {
-                        if (Colours.scheme === "dynamic" && currentItem.modelData.path !== Wallpapers.actualCurrent)
-                            Wallpapers.previewColourLock = true;
                         Wallpapers.setWallpaper(currentItem.modelData.path);
                         root.visibilities.launcher = false;
                     } else if (text.startsWith(GlobalConfig.launcher.actionPrefix)) {
@@ -342,10 +340,9 @@ Item {
             Connections {
                 function onLauncherChanged(): void {
                     if (root.visibilities.launcher) {
-                        if (Visibilities.launcherInitialSearch) {
-                            search.text = Visibilities.launcherInitialSearch;
-                            Visibilities.launcherInitialSearch = "";
-                        }
+                        // Every open decides the field: the requested prefix, or the app grid.
+                        search.text = Visibilities.launcherInitialSearch;
+                        Visibilities.launcherInitialSearch = "";
                         search.forceActiveFocus();
                     } else {
                         Windows.isSwitching = false;
@@ -360,6 +357,14 @@ Item {
                 }
 
                 target: root.visibilities
+            }
+
+            Connections {
+                function onClosed(): void {
+                    search.text = "";
+                }
+
+                target: root.panels.launcher
             }
 
             Connections {

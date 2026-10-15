@@ -12,12 +12,14 @@ import qs.modules.dashboard.dash as Dash
 Item {
     id: root
 
-    required property ShellScreen screen
-    required property Item wallpaper
-    required property real absX
-    required property real absY
+    property var frame: null
+    property var controller: null
+    property ShellScreen screen: controller?.screenData ?? null
+    property Item wallpaper: controller?.wallpaper ?? null
+    property real absX: (controller?.gridOrigin.x ?? 0) + (frame?.x ?? 0)
+    property real absY: (controller?.gridOrigin.y ?? 0) + (frame?.y ?? 0)
 
-    property real shapesScale: Config.background.desktopShapes.scale
+    property real shapesScale: frame ? Math.min(frame.width / 220, frame.height / 220) : 1
     readonly property bool autoHide: Config.background.desktopShapes.autoHide
     readonly property bool windowHidesShapes: Kwin.windowHidesDesktopWidgets(root.screen ? root.screen.name : "", Config.background.visualiser.hideOnAllMonitors)
     readonly property bool shouldHide: autoHide && windowHidesShapes
@@ -25,8 +27,8 @@ Item {
 
     implicitWidth: 220 * root.shapesScale
     implicitHeight: 220 * root.shapesScale
-    width: implicitWidth
-    height: implicitHeight
+    width: frame ? frame.width : implicitWidth
+    height: frame ? frame.height : implicitHeight
 
     opacity: (root.isPlaying && !root.shouldHide) ? 1 : 0
     visible: opacity > 0

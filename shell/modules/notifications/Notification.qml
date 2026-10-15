@@ -18,7 +18,6 @@ StyledRect {
     required property NotifData modelData
     readonly property bool hasImage: modelData.image.length > 0
     readonly property bool hasAppIcon: modelData.appIcon.length > 0
-    readonly property int bodyTextFormat: /[<*_`#\[\]]/.test(modelData.body) ? Text.MarkdownText : Text.PlainText
     readonly property int nonAnimHeight: summary.implicitHeight + (root.expanded ? Tokens.spacing.extraSmall * 2 + appName.height + body.height + actions.height + actions.anchors.topMargin : bodyPreview.height) + inner.anchors.margins * 2
     property bool expanded: Config.notifs.openExpanded
 
@@ -391,7 +390,10 @@ StyledRect {
                 anchors.rightMargin: Tokens.spacing.small
 
                 animate: true
-                text: bodyPreviewMetrics.elidedText
+                text: root.modelData.bodyPlain
+                textFormat: Text.PlainText
+                elide: Text.ElideRight
+                maximumLineCount: 1
                 color: Colours.palette.m3onSurfaceVariant
                 font: Tokens.font.body.small
 
@@ -404,15 +406,6 @@ StyledRect {
                 }
             }
 
-            TextMetrics {
-                id: bodyPreviewMetrics
-
-                text: root.modelData.bodyPlain
-                font: bodyPreview.font
-                elide: Text.ElideRight
-                elideWidth: bodyPreview.width
-            }
-
             StyledText {
                 id: body
 
@@ -422,8 +415,8 @@ StyledRect {
                 anchors.rightMargin: Tokens.spacing.small
 
                 animate: true
-                textFormat: root.bodyTextFormat
-                text: root.modelData.body
+                textFormat: Text.StyledText
+                text: root.modelData.bodyStyled
                 color: Colours.palette.m3onSurfaceVariant
                 font: Tokens.font.body.small
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere

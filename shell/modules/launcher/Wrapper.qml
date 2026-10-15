@@ -24,6 +24,12 @@ Item {
     property real offsetScale: shouldBeActive ? 0 : 1
     property bool keepAlive: false
 
+    signal closed()
+
+    onOffsetScaleChanged: {
+        if (offsetScale >= 1 && !shouldBeActive)
+            closed();
+    }
     onShouldBeActiveChanged: {
         if (shouldBeActive) {
             implicitHeight = Qt.binding(() => content.implicitHeight);

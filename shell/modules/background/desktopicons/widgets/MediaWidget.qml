@@ -60,6 +60,7 @@ Item {
                 source: root.artUrl
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
+                retainWhileLoading: true
                 sourceSize.width: width
                 sourceSize.height: height
             }
@@ -92,7 +93,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.topMargin: Tokens.spacing.small
                 implicitHeight: 4
-                radius: 2
+                radius: Tokens.rounding.full
                 color: Qt.alpha(Colours.palette.m3onSurface, 0.15)
 
                 StyledRect {
@@ -140,6 +141,7 @@ Item {
                     type: IconButton.Tonal
                     isRound: true
                     icon: root.player?.isPlaying ? "pause" : "play_arrow"
+                    animateIcon: true
                     disabled: !root.player?.canTogglePlaying
                     onClicked: root.player?.togglePlaying()
                 }

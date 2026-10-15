@@ -112,7 +112,7 @@ Item {
                         anchors.centerIn: parent
                         width: Math.min(parent.width, parent.height) - 2
                         height: width
-                        radius: width / 2
+                        radius: Tokens.rounding.full
                         color: day.isToday ? Colours.palette.m3primary : "transparent"
                     }
 

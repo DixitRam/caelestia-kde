@@ -430,6 +430,7 @@ void execute() {
   }
 
   setenv("CONFIRM_ARG", "--noconfirm", 1);
+  setenv("CAELESTIA_FRESH_INSTALL", "1", 1);
 
   // One shared install log: every step appends, and the live view tails it. It
   // carries every step's output, so it stays 0600 and never opens through a

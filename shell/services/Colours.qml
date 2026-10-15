@@ -35,6 +35,18 @@ Singleton {
     readonly property Transparency transparency: Transparency {}
     readonly property alias wallLuminance: analyser.luminance
 
+    /// The disabled state, in one place. A control that cannot be used dims its container
+    /// and its content to these two rather than deriving a pair of its own, so what
+    /// disabled looks like is one decision instead of one per control.
+    readonly property color disabledContainer: Qt.alpha(palette.m3onSurface, 0.1)
+    readonly property color disabledContent: Qt.alpha(palette.m3onSurface, 0.38)
+
+    /// True for a frame or so while a palette lands. CAnim lands every colour while it is
+    /// set; see holdColourTransitions.
+    property bool switchingTheme: false
+
+    signal schemeApplied
+
     function updatePaletteManager(): void {
         const p = root.palette;
         PaletteManager.update(
@@ -175,56 +187,64 @@ Singleton {
         return harmonizeWith(designColor, root.palette.m3primary);
     }
 
-    function load(data: string, isPreview: bool): void {
-        const raw = (data || "").trim();
-        if (raw === "") {
-            if (!isPreview)
-                scheduleSchemeReload();
+    function load(data: string): void {
+        const scheme = parseScheme(data);
+        if (!scheme) {
+            scheduleSchemeReload();
             return;
         }
 
-        const colours = isPreview ? preview : current;
+        root.scheme = (scheme.name || "").trim();
+        root.flavour = (scheme.flavour || "").trim();
+        root.variant = (scheme.variant || "").trim();
+        root.currentLight = scheme.mode === "light";
+
+        root.showPreview = false;
+
+        // Absent, null, and a value the range does not take all mean the same thing here:
+        // what is in effect is the palette the engine produced. 0 is a real setting (a grey
+        // palette), so this cannot lean on falsiness either.
+        const intensity = Number(scheme.intensity ?? NaN);
+        root.intensity = Number.isFinite(intensity) ? Math.min(root.maxIntensity, Math.max(0, intensity)) : 1.0;
+
+        applyColours(root.current, scheme.colours);
+
+        root.schemeLoaded = true;
+        root.schemeRetryCount = 0;
+
+        root.schemeApplied();
+    }
+
+    function loadPreview(data: string): void {
+        const scheme = parseScheme(data);
+        if (scheme)
+            applyPreview(scheme);
+    }
+
+    function applyPreview(scheme: var): void {
+        root.previewScheme = (scheme.name || "").trim();
+        root.previewFlavour = (scheme.flavour || "").trim();
+        root.previewVariant = (scheme.variant || "").trim();
+        root.previewLight = scheme.mode === "light";
+
+        applyColours(root.preview, scheme.colours);
+
+        root.showPreview = true;
+    }
+
+    function parseScheme(data: string): var {
+        const raw = (data || "").trim();
+        if (raw === "")
+            return null;
+
         let scheme = null;
         try {
             scheme = JSON.parse(raw);
         } catch (e) {
-            if (!isPreview)
-                scheduleSchemeReload();
-            return;
+            return null;
         }
 
-        if (!scheme || !scheme.colours) {
-            if (!isPreview)
-                scheduleSchemeReload();
-            return;
-        }
-
-        if (!isPreview) {
-            root.scheme = (scheme.name || "").trim();
-            root.flavour = (scheme.flavour || "").trim();
-            root.variant = (scheme.variant || "").trim();
-            root.currentLight = scheme.mode === "light";
-
-            root.showPreview = false;
-
-            // Absent, null, and a value the range does not take all mean the same thing here:
-            // what is in effect is the palette the engine produced. 0 is a real setting (a grey
-            // palette), so this cannot lean on falsiness either.
-            const intensity = Number(scheme.intensity ?? NaN);
-            root.intensity = Number.isFinite(intensity) ? Math.min(root.maxIntensity, Math.max(0, intensity)) : 1.0;
-        } else {
-            root.previewScheme = (scheme.name || "").trim();
-            root.previewFlavour = (scheme.flavour || "").trim();
-            root.previewVariant = (scheme.variant || "").trim();
-            root.previewLight = scheme.mode === "light";
-        }
-
-        applyColours(colours, scheme.colours);
-
-        if (!isPreview) {
-            root.schemeLoaded = true;
-            root.schemeRetryCount = 0;
-        }
+        return scheme && scheme.colours ? scheme : null;
     }
 
     function scheduleSchemeReload(): void {
@@ -239,6 +259,7 @@ Singleton {
     /// Fold a scheme's `colours` into a palette. A file leaves the leading `#` off and names a
     /// terminal role plainly, so the role a palette holds is not the key the file uses.
     function applyColours(palette: M3Palette, colours: var): void {
+        holdColourTransitions();
         for (const [role, colour] of Object.entries(colours)) {
             const propName = role.startsWith("term") ? role : `m3${role}`;
             if (palette.hasOwnProperty(propName))
@@ -246,15 +267,17 @@ Singleton {
         }
     }
 
+    /// Hold every colour transition still while a palette replaces the old one, so the
+    /// shell switches rather than cross-fading a few hundred colours at once. CAnim reads
+    /// `switchingTheme`; the release is queued once the writes have landed.
+    function holdColourTransitions(): void {
+        root.switchingTheme = true;
+        Qt.callLater(() => (root.switchingTheme = false));
+    }
+
     function previewNamed(name: string, flavour: string, colours: var, light: bool): void {
-        if (!colours)
-            return;
-        root.previewScheme = name;
-        root.previewFlavour = flavour;
-        root.previewVariant = root.variant;
-        root.previewLight = light;
-        applyColours(root.preview, colours);
-        root.showPreview = true;
+        if (colours)
+            applyPreview({ name, flavour, variant: root.variant, mode: light ? "light" : "dark", colours });
     }
 
     function clearPreview(): void {
@@ -321,7 +344,7 @@ Singleton {
         path: `${Paths.state}/scheme.json`
         watchChanges: true
         onFileChanged: reload()
-        onLoaded: root.load(text(), false)
+        onLoaded: root.load(text())
     }
 
     Connections {
@@ -394,8 +417,6 @@ Singleton {
     onLightChanged: Qt.callLater(updatePaletteManager)
 
     onShowPreviewChanged: Qt.callLater(updatePaletteManager)
-
-
 
     Timer {
         id: cooldownTimer

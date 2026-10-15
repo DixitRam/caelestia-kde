@@ -413,9 +413,10 @@ Some KDE versions (6.1 vs 6.2) may use slightly different config keys.
 
 ### 5.3 Wrong Number of Virtual Desktops
 
-The installer configures exactly **5 desktops**. If you had a different count before:
-- Re-run `scripts/09-system-tweaks.sh` to re-apply
-- The uninstaller resets desktop count to `1`
+The installer configures **5 desktops** when it runs, and only then: a system update never touches the count. A count you chose yourself — anything other than KWin's default of `1` — is left alone even on an install.
+
+- To apply the 5 desktops again, set the count back to `1` (or remove `Number` from the `[Desktops]` group) and run the installer: `bash scripts/setup.sh`, or `caelestia install` on a packaged install
+- The uninstaller resets the desktop count to `1`
 
 ### 5.4 Keyboard Shortcut Conflicts
 
@@ -558,6 +559,53 @@ sudo /usr/share/sddm/themes/caelestia/scripts/sync.sh   # SDDM
 
 Both greeters read their configuration when they start, so a change is visible at
 the next logout rather than immediately.
+
+**After switching display managers:**
+
+The step above picks its branch when it runs, so switching the machine over leaves
+the greeter it is no longer using configured. Which manager the machine boots is read
+from `/etc/systemd/system/display-manager.service` first, so the two units still being
+enabled does not send it down the wrong branch. Switch the services over, re-run the
+step, and reboot:
+
+```bash
+sudo systemctl disable plasmalogin.service    # the manager being switched away from
+sudo systemctl enable sddm.service
+caelestia login-screen                        # configure the manager that boots now
+```
+
+`caelestia login-screen` runs the same step the installer runs, for the display
+manager the machine boots. It installs the theme in the variant that is already
+there, so an install made with `SDDM_THEME_VARIANT=mini` stays on mini.
+
+**The login screen hangs, or the greeter crash-loops:**
+
+SDDM 0.21 and newer run the greeter binary the theme asks for: `QtVersion=6` in the
+theme's `metadata.desktop` runs `sddm-greeter-qt6`, and any other value - the key
+being absent included - runs the Qt 5 greeter. Arch and CachyOS build that greeter
+into the `sddm` package with `qt5-declarative` only an optional dependency, so it
+dies on `libQt5Quick.so.5: cannot open shared object file` with exit code 127, and
+SDDM respawns it instead of drawing a login screen. Caelestia's theme is Qt 6, and
+the installer selects it only after checking that the greeter it asks for exists;
+when that check fails the theme is installed but left unselected, and the output
+names the greeter that is missing.
+
+```bash
+# What the theme asks for, and whether that greeter is installed
+grep -rn '^QtVersion' /usr/share/sddm/themes/*/metadata.desktop
+command -v sddm-greeter-qt6
+
+# What the greeter last said (the theme it was told to load, and why it stopped)
+journalctl -b -u sddm --no-pager | tail -n 40
+```
+
+A machine that is already stuck on the crashing greeter comes back from a TTY
+(`Ctrl+Alt+F3`) or by booting with `systemd.unit=multi-user.target`. Stop SDDM, make
+the theme and the greeter agree, then start it again. A theme that asks for Qt 6 needs
+`sddm-greeter-qt6`, which an SDDM older than 0.21 does not have: upgrade it, or select
+a theme that matches the greeter in `[Theme] Current`. Installing `qt5-declarative` is
+the other way out on Arch and CachyOS: it makes the Qt 5 greeter work for the Qt 5
+themes that ask for it, which is what that optional dependency is for.
 
 ### 7.7 Installer Window Rules
 

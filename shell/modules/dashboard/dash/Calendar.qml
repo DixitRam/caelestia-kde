@@ -18,18 +18,20 @@ CustomMouseArea {
     property date currentDate: screenState.dashboardDate
     readonly property int currMonth: currentDate.getMonth()
     readonly property int currYear: currentDate.getFullYear()
-    readonly property int nonAnimCurrMonth: screenState.dashboardDate.getMonth()
-    readonly property int nonAnimCurrYear: screenState.dashboardDate.getFullYear()
 
-    readonly property int animDirection: screenState.dashboardDate > currentDate ? -1 : 1
-    property real animTranslate
-    property real animOpacity: 1
+    function shiftMonth(delta: int): void {
+        root.screenState.dashboardDate = new Date(root.currYear, root.currMonth + delta, 1);
+    }
+
+    function goToToday(): void {
+        root.screenState.dashboardDate = new Date();
+    }
 
     function onWheel(event: WheelEvent): void {
         if (event.angleDelta.y > 0)
-            screenState.dashboardDate = new Date(nonAnimCurrYear, nonAnimCurrMonth - 1, 1);
+            shiftMonth(-1);
         else if (event.angleDelta.y < 0)
-            screenState.dashboardDate = new Date(nonAnimCurrYear, nonAnimCurrMonth + 1, 1);
+            shiftMonth(1);
     }
 
     anchors.left: parent.left
@@ -37,53 +39,12 @@ CustomMouseArea {
     implicitHeight: inner.implicitHeight + inner.anchors.margins * 2
 
     acceptedButtons: Qt.MiddleButton
-    onClicked: root.screenState.dashboardDate = new Date()
+    onClicked: root.goToToday()
 
-    Anim {
-        id: trOutAnim
+    CalendarMonthSlide {
+        id: monthSlide
 
-        running: false
-        target: root
-        property: "animTranslate"
-        to: root.Tokens.padding.extraLarge * root.animDirection
-        type: Anim.FastSpatial
-    }
-
-    Behavior on currentDate {
-        SequentialAnimation {
-            ParallelAnimation {
-                ScriptAction {
-                    script: Qt.callLater(() => trOutAnim.start())
-                }
-                Anim {
-                    target: root
-                    property: "animOpacity"
-                    to: 0
-                    type: Anim.FastEffects
-                }
-            }
-            ScriptAction {
-                script: {
-                    trOutAnim.complete();
-                    root.animTranslate = root.Tokens.padding.extraLarge * -root.animDirection;
-                }
-            }
-            PropertyAction {}
-            ParallelAnimation {
-                Anim {
-                    target: root
-                    property: "animTranslate"
-                    to: 0
-                    type: Anim.DefaultSpatial
-                }
-                Anim {
-                    target: root
-                    property: "animOpacity"
-                    to: 1
-                    type: Anim.DefaultEffects
-                }
-            }
-        }
+        shownDate: root.currentDate
     }
 
     ColumnLayout {
@@ -105,7 +66,7 @@ CustomMouseArea {
                 type: IconButton.Text
                 font: Tokens.font.icon.builders.small.weight(Font.Bold).build()
                 padding: Tokens.padding.small
-                onClicked: root.screenState.dashboardDate = new Date(root.nonAnimCurrYear, root.nonAnimCurrMonth - 1, 1)
+                onClicked: root.shiftMonth(-1)
             }
 
             Item {
@@ -120,9 +81,9 @@ CustomMouseArea {
                     radius: pressed ? Tokens.rounding.small : height / 2
                     disabled: {
                         const now = new Date();
-                        return root.nonAnimCurrMonth === now.getMonth() && root.nonAnimCurrYear === now.getFullYear();
+                        return root.currMonth === now.getMonth() && root.currYear === now.getFullYear();
                     }
-                    onClicked: root.screenState.dashboardDate = new Date()
+                    onClicked: root.goToToday()
 
                     Behavior on radius {
                         Anim {
@@ -134,9 +95,9 @@ CustomMouseArea {
                 StyledText {
                     id: monthYearDisplay
 
-                    opacity: root.animOpacity
+                    opacity: monthSlide.animOpacity
                     transform: Translate {
-                        x: root.animTranslate
+                        x: monthSlide.animTranslate
                     }
 
                     anchors.centerIn: parent
@@ -152,7 +113,7 @@ CustomMouseArea {
                 type: IconButton.Text
                 font: Tokens.font.icon.builders.small.weight(Font.Bold).build()
                 padding: Tokens.padding.small
-                onClicked: root.screenState.dashboardDate = new Date(root.nonAnimCurrYear, root.nonAnimCurrMonth + 1, 1)
+                onClicked: root.shiftMonth(1)
             }
         }
 
@@ -177,9 +138,9 @@ CustomMouseArea {
             Layout.fillWidth: true
             implicitHeight: grid.implicitHeight
 
-            opacity: root.animOpacity
+            opacity: monthSlide.animOpacity
             transform: Translate {
-                x: root.animTranslate
+                x: monthSlide.animTranslate
             }
 
             MonthGrid {

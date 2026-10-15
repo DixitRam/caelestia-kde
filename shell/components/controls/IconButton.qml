@@ -9,6 +9,9 @@ ButtonBase {
 
     property alias icon: label.text
     readonly property alias label: label
+    // Opt-in: a glyph that swaps on an infrequent state change (play to pause) grows in
+    // instead of snapping, the same cross-fade the bar's status icons use.
+    property alias animateIcon: label.animate
 
     font: Tokens.font.icon.medium
     padding: type === IconButton.Text ? Tokens.padding.extraSmall / 2 : Tokens.padding.small

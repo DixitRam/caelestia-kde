@@ -63,16 +63,16 @@ Singleton {
     function updateItems(): void {
         const activeAddress = Kwin.activeWindow ? Kwin.activeWindow.address : "";
         const winList = (Kwin.windowList || []).filter(w => !(w.class && w.class.toLowerCase().includes("xwaylandvideobridge")));
-        
+
         let currentItems = root.items.slice();
-        
+
         currentItems = currentItems.filter(item => {
             for (let i = 0; i < winList.length; i++) {
                 if (winList[i].address === item.address) return true;
             }
             return false;
         });
-        
+
         const formatClient = (client) => {
             return {
                 address: client.address,
@@ -106,7 +106,7 @@ Singleton {
                 currentItems.push(formatClient(client));
             }
         }
-        
+
         if (activeAddress) {
             for (let i = 0; i < currentItems.length; i++) {
                 if (currentItems[i].address === activeAddress) {
@@ -131,7 +131,7 @@ Singleton {
         if (GlobalConfig.tabSwitch && !GlobalConfig.tabSwitch.showMinimized) {
             currentItems = currentItems.filter(item => !item.minimized);
         }
-        
+
         items = currentItems;
 
         if (root.selectedIndex >= currentItems.length)

@@ -43,6 +43,9 @@ ButtonBase {
         id: row
 
         anchors.centerIn: parent
+        // A centred row cannot carry asymmetric padding, so the 2px the icon side
+        // gives up against the text side is applied as an offset.
+        anchors.horizontalCenterOffset: root.icon ? -1 : 0
         spacing: Tokens.spacing.small
 
         MaterialIcon {

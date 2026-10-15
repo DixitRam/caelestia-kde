@@ -83,7 +83,7 @@ MouseArea {
     parent: {
         let node = root.attachTo;
         let interactionsNode = null;
-        
+
         while (node && node.parent) {
             if (node.utilitiesShortcutActive !== undefined) {
                 interactionsNode = node;
@@ -217,7 +217,7 @@ MouseArea {
                 yScale: root.revealHorizontal ? 1 : menu.animScale
                 origin.y: root.thisSideY === Menu.Bottom ? menu.implicitHeight : 0
             }
-            
+
             radius: parent.radius
             color: root.transparentBackground
                 ? Qt.alpha(Colours.palette.m3surfaceContainerLow, 0)
@@ -233,6 +233,7 @@ MouseArea {
                 contentWidth: width
                 contentHeight: column.implicitHeight
                 clip: true
+                boundsBehavior: Flickable.StopAtBounds
 
                 interactive: contentHeight > height
 

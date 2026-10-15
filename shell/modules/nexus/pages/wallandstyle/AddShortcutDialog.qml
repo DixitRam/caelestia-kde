@@ -8,6 +8,7 @@ import Caelestia.Config
 import qs.components.controls as Controls
 import qs.components.effects
 import qs.services
+import qs.modules.nexus.common
 
 Popup {
     id: root
@@ -27,13 +28,9 @@ Popup {
     x: targetItem && parent ? Math.min(parent.width - width - 16, Math.max(16, targetItem.mapToItem(parent, targetItem.width - width, targetItem.height + 8).x)) : (parent ? Math.round((parent.width - width) / 2) : 0)
     y: targetItem && parent ? Math.min(parent.height - height - 16, Math.max(16, targetItem.mapToItem(parent, 0, targetItem.height + 8).y)) : (parent ? Math.round((parent.height - height) / 2) : 0)
 
-    enter: Transition {
-        NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: Tokens.anim.durations.small }
-        NumberAnimation { property: "scale"; from: 0.9; to: 1.0; duration: Tokens.anim.durations.small; easing.type: Easing.OutCubic }
-    }
-    exit: Transition {
-        NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: Tokens.anim.durations.small }
-        NumberAnimation { property: "scale"; from: 1.0; to: 0.9; duration: Tokens.anim.durations.small; easing.type: Easing.InCubic }
+    enter: DialogTransition { }
+    exit: DialogTransition {
+        exiting: true
     }
 
     background: Item {
@@ -47,7 +44,7 @@ Popup {
 
             anchors.fill: parent
             color: Colours.palette.m3surfaceContainerHigh
-            radius: 16
+            radius: Tokens.rounding.large
             border.width: 1
             border.color: Colours.palette.m3outlineVariant
         }
@@ -90,7 +87,7 @@ Popup {
         RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: 8
-            
+
             Controls.TextButton {
                 text: qsTr("Cancel")
                 onClicked: root.close()

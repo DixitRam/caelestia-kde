@@ -56,7 +56,7 @@ if (pauseOnAllDisplays) {
         }
     }
 }
-        
+
         } catch (e) {
         }
 

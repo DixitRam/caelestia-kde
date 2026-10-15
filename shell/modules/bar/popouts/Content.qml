@@ -33,6 +33,7 @@ Item {
         anchors.margins: root.contentMargin
 
         clip: true
+        boundsBehavior: Flickable.StopAtBounds
         contentWidth: width
         contentHeight: Math.max(height, content.implicitHeight)
 

@@ -113,7 +113,7 @@ ListView {
                     }
                 }
                 PauseAnimation {
-                    duration: 180 * Tokens.anim.durations.scale
+                    duration: Tokens.anim.duration(180)
                 }
                 PropertyAction {
                     target: charShape

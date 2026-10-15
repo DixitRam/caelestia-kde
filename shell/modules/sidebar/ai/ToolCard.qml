@@ -75,7 +75,7 @@ StyledRect {
 
                     // A running subagent breathes so it reads as busy.
                     SequentialAnimation on opacity {
-                        running: toolCard.isAgent && !toolCard.tool.done
+                        running: toolCard.isAgent && !toolCard.tool.done && Tokens.anim.enabled
                         loops: Animation.Infinite
                         onRunningChanged: if (!running) parent.opacity = 1
 
@@ -106,7 +106,7 @@ StyledRect {
                     font: Tokens.font.icon.small
                     rotation: toolCard.expanded ? 180 : 0
 
-                    Behavior on rotation { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+                    Behavior on rotation { Anim { type: Anim.FastEffects } }
                 }
             }
 

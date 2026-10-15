@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Caelestia.Config
 import qs.components.controls
 import qs.utils
+import qs.modules.bar
 import qs.modules.nexus.common
 
 PageBase {
@@ -40,59 +41,14 @@ PageBase {
             Layout.fillWidth: true
             first: true
             text: qsTr("Enable component")
-            checked: {
-                for (let i = 0; i < Config.bar.entries.length; i++) {
-                    if (Config.bar.entries[i].id === "dock")
-                        return Config.bar.entries[i].enabled;
-                }
-                return false;
-            }
+            checked: BarWidgets.isEnabled(Config.bar, "dock")
             // Custom reset: enabled state lives in bar.entries, default is true
             reset: ({
-                customGet: () => {
-                    const entries = GlobalConfig.bar.entries || [];
-                    for (let i = 0; i < entries.length; i++)
-                        if (entries[i].id === "dock")
-                            return entries[i].enabled;
-                    return false;
-                },
+                customGet: () => BarWidgets.isEnabled(GlobalConfig.bar, "dock"),
                 customDef: true,
-                customSet: v => {
-                    let newEntries = [...(GlobalConfig.bar.entries || [])];
-                    let found = false;
-                    for (let i = 0; i < newEntries.length; i++) {
-                        if (newEntries[i].id === "dock") {
-                            newEntries[i].enabled = v;
-                            if (!newEntries[i].zone)
-                                newEntries[i].zone = "middle";
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found)
-                        newEntries.push({ id: "dock", enabled: v, zone: "middle" });
-                    GlobalConfig.bar.entries = newEntries;
-                }
+                customSet: v => BarWidgets.setEnabled(GlobalConfig.bar, "dock", v)
             })
-            onToggled: {
-                let newEntries = [...GlobalConfig.bar.entries];
-                let found = false;
-                for (let i = 0; i < newEntries.length; i++) {
-                    if (newEntries[i].id === "dock") {
-                        newEntries[i].enabled = checked;
-                        if (!newEntries[i].zone)
-                            newEntries[i].zone = "middle";
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found) {
-                    newEntries.push({ id: "dock", enabled: checked, zone: "middle" });
-                }
-
-                GlobalConfig.bar.entries = newEntries;
-            }
+            onToggled: BarWidgets.setEnabled(GlobalConfig.bar, "dock", checked)
         }
 
         StepperRow {

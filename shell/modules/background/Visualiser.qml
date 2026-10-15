@@ -91,7 +91,7 @@ Item {
                     }
                 }
                 FrameAnimation {
-                    running: root.opacity > 0 && !bars.settled && (Audio.cava?.values?.length ?? 0) > 0
+                    running: root.opacity > 0 && !bars.settled && (Audio.cava?.values?.length ?? 0) > 0 && Tokens.anim.enabled
                     onTriggered: bars.advance(frameTime)
                 }
             }

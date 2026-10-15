@@ -161,6 +161,12 @@ Controls.Menu {
     transparentBackground: true
     revealHorizontal: true
 
+    // Every entry has to be reachable without scrolling, so the menu grows to its content.
+    // The window is the only real limit: past that the entries would be off-screen rather
+    // than a short flick away, and the menu flips above the cursor when it will not fit
+    // below. The floor keeps the old clamp if the window is not measured yet.
+    maxHeight: Math.max(320, root.height > 0 ? root.height - Tokens.padding.large : 560)
+
     rightClickReposition: true
     onRightClickedAt: (x, y) => ContextMenuStore.openDesktopContextMenu(x, y, root.screenName)
 

@@ -38,13 +38,9 @@ Item {
         x: parent ? Math.round((parent.width - width) / 2) : 0
         y: parent ? Math.round((parent.height - height) / 2) : 0
 
-        enter: Transition {
-            NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: Tokens.anim.durations.small }
-            NumberAnimation { property: "scale"; from: 0.9; to: 1.0; duration: Tokens.anim.durations.small; easing.type: Easing.OutCubic }
-        }
-        exit: Transition {
-            NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: Tokens.anim.durations.small }
-            NumberAnimation { property: "scale"; from: 1.0; to: 0.9; duration: Tokens.anim.durations.small; easing.type: Easing.InCubic }
+        enter: DialogTransition { }
+        exit: DialogTransition {
+            exiting: true
         }
 
         background: Item {

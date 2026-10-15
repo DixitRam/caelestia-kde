@@ -145,7 +145,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: root.currentDotRadius * 4
                 height: width
-                radius: width / 2
+                radius: Tokens.rounding.full
                 color: Colours.palette.m3primary
                 opacity: 0.15
             }
@@ -156,7 +156,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: root.currentDotRadius * 3
                 height: width
-                radius: width / 2
+                radius: Tokens.rounding.full
                 color: Colours.palette.m3primary
                 opacity: 0.22
             }

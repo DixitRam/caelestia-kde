@@ -101,7 +101,7 @@ ColumnLayout {
                             height: parent.height * (UPower.displayDevice.isLaptopBattery ? UPower.displayDevice.percentage : 0)
 
                             Behavior on height {
-                                NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
+                                Anim { type: Anim.FastSpatial }
                             }
 
                             Rectangle {
@@ -135,7 +135,7 @@ ColumnLayout {
                                     return 1.0;
                                 }
 
-                                Behavior on opacity { NumberAnimation { duration: 300 } }
+                                Behavior on opacity { Anim { type: Anim.SlowEffects } }
 
                                 Rectangle {
                                     width: 140 * root.scaleOffset; height: 140 * root.scaleOffset
@@ -149,7 +149,7 @@ ColumnLayout {
                                         loops: Animation.Infinite
                                         from: 0; to: 360
                                         duration: 4000
-                                        running: waveLayer.opacity > 0
+                                        running: waveLayer.opacity > 0 && Tokens.anim.enabled
                                     }
                                 }
                             }

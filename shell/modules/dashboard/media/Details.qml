@@ -135,6 +135,7 @@ ColumnLayout {
             id: playPauseBtn
 
             icon: Players.active?.isPlaying ? "pause" : "play_arrow"
+            animateIcon: true
             isRound: true
             shapeMorph: true
             fillWidth: true

@@ -398,8 +398,8 @@ Item {
 
                 target: listView
                 property: bar.isHorizontal ? "contentX" : "contentY"
-                duration: 180
-                easing.type: Easing.OutCubic
+                duration: Tokens.anim.durations.expressiveFastSpatial
+                easing: Tokens.anim.expressiveFastSpatial
 
                 onRunningChanged: {
                     if (!running) {
@@ -425,17 +425,17 @@ Item {
                 onHeightChanged: root.clampScroll()
 
                 add: Transition {
-                    NumberAnimation { property: "scale"; from: 0; to: 1; duration: 250; easing.type: Easing.OutBack }
+                    Anim { property: "scale"; from: 0.9; to: 1; type: Anim.FastSpatial }
                 }
                 remove: Transition {
-                    NumberAnimation { property: "scale"; from: 1; to: 0; duration: 250; easing.type: Easing.InBack }
+                    Anim { property: "scale"; from: 1; to: 0.9; type: Anim.FastEffects }
                 }
 
                 move: Transition {
-                    NumberAnimation { properties: "x,y"; duration: 250; easing.type: Easing.OutCubic }
+                    Anim { properties: "x,y"; type: Anim.FastSpatial }
                 }
                 moveDisplaced: Transition {
-                    NumberAnimation { properties: "x,y"; duration: 250; easing.type: Easing.OutCubic }
+                    Anim { properties: "x,y"; type: Anim.FastSpatial }
                 }
 
                 model: DelegateModel {
@@ -579,7 +579,7 @@ Item {
 
                         onClicked: mouse => {
                             if (mouse.button === Qt.LeftButton) {
-                                if (modelData.isPinned) {
+                                if (modelData.isPinned && Tokens.anim.enabled) {
                                     bounceAnim.start();
                                 }
 
@@ -659,8 +659,8 @@ Item {
                         SequentialAnimation {
                             id: bounceAnim
 
-                            NumberAnimation { target: delegateItem; property: "scale"; to: 0.7; duration: 100; easing.type: Easing.OutQuad }
-                            NumberAnimation { target: delegateItem; property: "scale"; to: 1.0; duration: 400; easing.type: Easing.OutElastic }
+                            NumberAnimation { target: delegateItem; property: "scale"; to: 0.96; duration: Tokens.anim.durations.expressiveFastSpatial; easing: Tokens.anim.expressiveFastSpatial }
+                            NumberAnimation { target: delegateItem; property: "scale"; to: 1; duration: Tokens.anim.durations.expressiveFastSpatial; easing: Tokens.anim.expressiveFastSpatial }
                         }
                     }
 
@@ -748,15 +748,19 @@ Item {
                         height: 2
                         width: contentWidth
 
+                        add: Transition {
+                            Anim { property: "opacity"; from: 0; to: 1; type: Anim.FastEffects }
+                            Anim { property: "scale"; from: 0.9; to: 1; type: Anim.FastSpatial }
+                        }
                         remove: Transition {
-                            NumberAnimation { property: "scale"; from: 1; to: 0; duration: 250; easing.type: Easing.InBack }
-                            NumberAnimation { property: "y"; from: 0; to: -15; duration: 250; easing.type: Easing.InBack }
+                            Anim { property: "opacity"; from: 1; to: 0; type: Anim.FastEffects }
+                            Anim { property: "y"; from: 0; to: -15; type: Anim.FastEffects }
                         }
                         addDisplaced: Transition {
-                            NumberAnimation { properties: "x,y"; duration: 250; easing.type: Easing.OutCubic }
+                            Anim { properties: "x,y"; type: Anim.FastSpatial }
                         }
                         removeDisplaced: Transition {
-                            NumberAnimation { properties: "x,y"; duration: 250; easing.type: Easing.OutCubic }
+                            Anim { properties: "x,y"; type: Anim.FastSpatial }
                         }
 
                         model: {
@@ -776,18 +780,11 @@ Item {
 
                                 color: delegateItem.isActive ? Colours.palette.m3primary : Colours.palette.m3onSurface
 
-                                scale: 0
-                                y: -15
-                                Component.onCompleted: {
-                                    scale = 1;
-                                    y = 0;
-                                }
-
-                                Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-                                Behavior on height { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-                                Behavior on color { ColorAnimation { duration: 250 } }
-                                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-                                Behavior on y { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                                Behavior on width { Anim { type: Anim.DefaultSpatial } }
+                                Behavior on height { Anim { type: Anim.DefaultSpatial } }
+                                Behavior on color { CAnim {} }
+                                Behavior on scale { Anim { type: Anim.FastSpatial } }
+                                Behavior on y { Anim { type: Anim.FastSpatial } }
                             }
                         }
                 }

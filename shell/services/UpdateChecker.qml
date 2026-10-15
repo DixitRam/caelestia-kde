@@ -53,7 +53,7 @@ Singleton {
         devCommitOffset = 0;
         hasMoreCommits = false;
         checkClaudeCodeUpdate();
-        
+
         let bashCmd = `
     CURRENT_BRANCH="$1"
     LOCAL_COMMIT="$(cat \"$HOME/.config/quickshell/caelestia/.current_commit\" 2>/dev/null || true)"
@@ -489,7 +489,7 @@ fi
                     let parsedCommitCount = 0;
                     let parsedHasMore = false;
                     root.availableBranches = ["main", "dev"];
-                    
+
                     for (let i = 0; i < lines.length; i++) {
                         const line = lines[i].trim();
                         if (line === "") continue;

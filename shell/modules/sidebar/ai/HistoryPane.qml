@@ -202,7 +202,7 @@ Item {
             rebuild();
     }
 
-    Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.InOutQuad } }
+    Behavior on opacity { Anim { type: Anim.DefaultEffects } }
 
     Connections {
         function onRevisionChanged(): void {
@@ -622,7 +622,7 @@ Item {
         opacity: root.undo ? 1 : 0
         visible: opacity > 0
 
-        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        Behavior on opacity { Anim { type: Anim.DefaultEffects } }
 
         RowLayout {
             id: undoLayout
@@ -645,7 +645,7 @@ Item {
             StyledRect {
                 Layout.preferredWidth: undoText.implicitWidth + Tokens.padding.large * 2
                 Layout.preferredHeight: 28
-                radius: 14
+                radius: Tokens.rounding.full
 
                 StateLayer {
                     radius: 14
@@ -704,7 +704,7 @@ Item {
 
             Layout.preferredWidth: historyActions.buttonWidth
             Layout.preferredHeight: 32
-            radius: 16
+            radius: Tokens.rounding.full
             visible: historyActions.clearableCount > 0
             color: "transparent"
             border.width: 1
@@ -758,7 +758,7 @@ Item {
             StateLayer {
                 id: clearLayer
 
-                radius: 16
+                radius: Tokens.rounding.full
             }
 
             RowLayout {
@@ -796,7 +796,7 @@ Item {
 
             Layout.preferredWidth: historyActions.buttonWidth
             Layout.preferredHeight: 32
-            radius: 16
+            radius: Tokens.rounding.full
             color: Colours.palette.m3primaryContainer
 
             StateLayer {

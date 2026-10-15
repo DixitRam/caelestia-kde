@@ -19,8 +19,8 @@ Slider {
     property bool interactionOnMove: true
     readonly property bool dragging: mouse.pressed
 
-    property color fgColour: enabled ? Colours.palette.m3primary : Qt.alpha(Colours.palette.m3onSurface, 0.38)
-    property color bgColour: enabled ? Colours.palette.m3secondaryContainer : Qt.alpha(Colours.palette.m3onSurface, 0.1)
+    property color fgColour: enabled ? Colours.palette.m3primary : Colours.disabledContent
+    property color bgColour: enabled ? Colours.palette.m3secondaryContainer : Colours.disabledContainer
 
     property real pos: visualPosition
     property real filledWidth
@@ -129,7 +129,7 @@ Slider {
 
                 Anim on waveProgress {
                     running: true
-                    paused: !root.animateWave
+                    paused: !root.animateWave || !Tokens.anim.enabled
                     from: 0
                     to: 1
                     duration: root.waveDuration

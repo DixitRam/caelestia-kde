@@ -102,15 +102,15 @@ Item {
     ParallelAnimation {
         id: popInAnim
 
-        NumberAnimation { target: root; property: "scale"; from: 0.8; to: 1.0; duration: 300; easing.type: Easing.OutBack }
-        NumberAnimation { target: root; property: "opacity"; from: 0.0; to: 1.0; duration: 200; easing.type: Easing.OutQuad }
+        Anim { target: root; property: "scale"; from: 0.8; to: 1; type: Anim.FastSpatial }
+        Anim { target: root; property: "opacity"; from: 0.0; to: 1.0; type: Anim.DefaultEffects }
     }
 
     SequentialAnimation {
         id: popDoneAnim
 
-        NumberAnimation { target: root; property: "scale"; from: 1.0; to: 1.02; duration: 100; easing.type: Easing.OutQuad }
-        NumberAnimation { target: root; property: "scale"; from: 1.02; to: 1.0; duration: 150; easing.type: Easing.OutSine }
+        Anim { target: root; property: "scale"; from: 1.0; to: 1.02; type: Anim.FastEffects }
+        Anim { target: root; property: "scale"; from: 1.02; to: 1.0; type: Anim.FastEffects }
     }
 
     StyledRect {
@@ -165,7 +165,7 @@ Item {
                         font: Tokens.font.icon.small
                         rotation: root.thoughtExpanded ? 180 : 0
 
-                        Behavior on rotation { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+                        Behavior on rotation { Anim { type: Anim.FastEffects } }
                     }
                 }
                 MouseArea {
@@ -182,7 +182,7 @@ Item {
                 height: root.thoughtExpanded ? thoughtContent.implicitHeight : 0
                 clip: true
 
-                Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
+                Behavior on height { Anim { type: Anim.FastSpatial } }
 
                 TextEdit {
                     id: thoughtContent
@@ -212,7 +212,7 @@ Item {
                     Behavior on opacity {
                         SequentialAnimation {
                             PauseAnimation { duration: root.thoughtExpanded ? 100 : 0 }
-                            NumberAnimation { duration: 150; easing.type: Easing.InOutQuad }
+                            Anim { type: Anim.FastEffects }
                         }
                     }
                 }

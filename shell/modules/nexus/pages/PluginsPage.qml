@@ -38,16 +38,16 @@ PageBase {
         let s = iconString.toLowerCase();
         let isImg = s.endsWith(".png") || s.endsWith(".jpg") || s.endsWith(".jpeg") || s.endsWith(".gif") || s.endsWith(".svg");
         if (!isImg) return "";
-        
+
         if (iconString.indexOf("http://") === 0 || iconString.indexOf("https://") === 0 || iconString.indexOf("file://") === 0) return iconString;
         if (iconString.indexOf("/") === 0) return "file://" + iconString;
-        
+
         if (isStorePlugin) {
             return "https://raw.githubusercontent.com/ladybug-me/caelestia-kde-plugins/" + root.storeBranch + "/" + basePath + "/" + iconString;
         }
         return "file://" + basePath + "/" + iconString;
     }
-    
+
     function resolveIconText(iconString) {
         if (!iconString || iconString === "default") return "extension";
         let s = iconString.toLowerCase();
@@ -241,7 +241,7 @@ PageBase {
                                     PluginLoader.setPluginEnabled(bundledDelegate.id || bundledDelegate.name, !bundledDelegate.enabled);
                                 }
                             }
-                            
+
                             IconButton {
                                 icon: "settings"
                                 type: IconButton.Tonal

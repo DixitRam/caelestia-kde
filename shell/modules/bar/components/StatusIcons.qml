@@ -135,7 +135,7 @@ StyledRect {
             Anim {
                 duration: root.isDragging ? Tokens.anim.durations.expressiveFastSpatial : 0
                 properties: "x,y"
-                type: Anim.FastSpatial
+                easing: Tokens.anim.expressiveFastSpatial
             }
         }
 
@@ -449,13 +449,18 @@ StyledRect {
 
                     required property BluetoothDevice modelData
 
+                    // Neither connected nor gone: connecting or disconnecting. The dimmed
+                    // icon carries that state on its own, so the pulse below is
+                    // reinforcement rather than the only thing saying it.
+                    readonly property bool pending: modelData?.state !== BluetoothDeviceState.Connected // qmllint disable unresolved-type
+
                     animate: true
                     text: Icons.getBluetoothIcon(modelData?.icon)
-                    color: root.colour
+                    color: device.pending ? Qt.alpha(root.colour, 0.5) : root.colour
                     fill: 1
 
                     SequentialAnimation on opacity {
-                        running: device.modelData?.state !== BluetoothDeviceState.Connected // qmllint disable unresolved-type
+                        running: device.pending && Tokens.anim.enabled
                         alwaysRunToEnd: true
                         loops: Animation.Infinite
 

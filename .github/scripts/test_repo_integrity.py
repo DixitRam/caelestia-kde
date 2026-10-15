@@ -7,6 +7,7 @@ Validates cross-cutting concerns:
   - version.env is the single source of truth; the CMake build derives from it
   - Submodules are properly initialized
   - Workflow files are valid YAML
+  - The offline-only dead proxy stays scoped to build steps, not whole jobs
   - No duplicate script step names in Runner.cpp
   - Git-tracked docs/ files referenced in .github/CONTRIBUTING.md exist
 """
@@ -117,6 +118,24 @@ class BashHelperTestSuite(unittest.TestCase):
             result.returncode,
             0,
             "bash helper suite failed:\n" + (result.stdout or "") + (result.stderr or ""),
+        )
+
+    def test_every_test_file_hands_its_tests_to_the_runner(self) -> None:
+        """A test file that never calls run_tests exits 0 and reads as a pass.
+
+        run-tests.sh only executes the file, so test_* functions nobody invokes
+        assert nothing while the suite stays green. Two guard suites did exactly
+        that - and were passing a path where assert_contains wanted file
+        contents, so they could not have passed had they run either.
+        """
+        silent = [
+            path.name
+            for path in sorted((ROOT / "tests").glob("test_*.sh"))
+            if "run_tests" not in path.read_text(encoding="utf-8")
+        ]
+        self.assertFalse(
+            silent,
+            "test files that would pass without asserting anything: " + ", ".join(silent),
         )
 
 
@@ -289,12 +308,10 @@ class ShellSurfaceTests(unittest.TestCase):
         page = (
             ROOT / "shell" / "modules" / "nexus" / "pages" / "panels" / "taskbar" / "BarComponents.qml"
         ).read_text(encoding="utf-8")
-        mirrored = re.search(r'\{ id: "github", enabled: (\w+)', page)
-        self.assertIsNotNone(mirrored, "the Nexus defaults must still list a github entry")
-        self.assertEqual(
-            mirrored.group(1),
-            "false",
-            "the Nexus defaults must match the compiled default, or resetting re-enables it",
+        self.assertIn(
+            "BarWidgets.resetToDefaults(GlobalConfig.bar)",
+            page,
+            "the editor must reset from the compiled defaults rather than from a copy of them",
         )
 
     def test_settings_search_waits_for_a_pause_in_typing(self) -> None:
@@ -930,6 +947,34 @@ class WorkflowYamlTests(unittest.TestCase):
                         yaml.safe_load(f)
                 except yaml.YAMLError as e:
                     self.fail(f"Invalid YAML in {wf_file.name}: {e}")
+
+    def test_dead_proxy_is_not_set_at_job_scope(self) -> None:
+        """The offline-only proxy must stay on build steps, never on a whole job.
+
+        Steps use http://127.0.0.1:9 to prove a build needs no network. Set at
+        job scope it also reaches actions/checkout, which then cannot fetch the
+        repository and fails with ECONNREFUSED.
+        """
+        workflows_dir = ROOT / ".github" / "workflows"
+        if not workflows_dir.is_dir():
+            return
+
+        dead_proxy = "http://127.0.0.1:9"
+        for wf_file in sorted(workflows_dir.glob("*.yml")):
+            with self.subTest(file=wf_file.name):
+                doc = yaml.safe_load(wf_file.read_text(encoding="utf-8")) or {}
+                for job_name, job in (doc.get("jobs") or {}).items():
+                    if not isinstance(job, dict):
+                        continue
+                    offenders = [
+                        key for key, value in (job.get("env") or {}).items()
+                        if str(value) == dead_proxy
+                    ]
+                    self.assertFalse(
+                        offenders,
+                        f"{wf_file.name}: job '{job_name}' sets {offenders} at job scope; "
+                        "move them onto the offline build step so checkout keeps its network",
+                    )
 
 
 class DocsReferenceTests(unittest.TestCase):

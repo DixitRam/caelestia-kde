@@ -254,7 +254,7 @@ Item {
             property: "maskRadius"
             from: 0
             to: mediaItem.maxRadius
-            duration: 1800
+            duration: Tokens.anim.duration(1800)
             easing.type: Easing.OutCubic
         }
     }

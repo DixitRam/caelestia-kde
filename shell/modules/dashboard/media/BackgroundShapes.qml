@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import M3Shapes
+import Caelestia.Config
 import qs.components
 import qs.services
 
@@ -38,7 +39,7 @@ Item {
     }
 
     FrameAnimation {
-        running: root.visible && root.width > 0 && root.height > 0 && (Players.active?.isPlaying ?? false)
+        running: root.visible && root.width > 0 && root.height > 0 && (Players.active?.isPlaying ?? false) && Tokens.anim.enabled
         onTriggered: {
             const dt = frameTime;
             for (let i = 0; i < shapes.count; i++) {

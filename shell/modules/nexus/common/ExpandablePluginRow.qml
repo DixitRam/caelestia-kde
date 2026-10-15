@@ -47,7 +47,7 @@ StyledRect {
     }
 
     implicitHeight: contentColumn.implicitHeight + Tokens.padding.large * 2
-    
+
     radius: Tokens.rounding.large
     color: Colours.layer(Colours.palette.m3surfaceContainerHigh, root.isExpanded ? 3 : 1)
 
@@ -91,7 +91,7 @@ StyledRect {
                 Layout.preferredWidth: 48
                 radius: Tokens.rounding.full
                 color: Colours.palette.m3secondaryContainer
-                
+
                 AnimatedImage {
                     id: pluginIconImage
 
@@ -100,7 +100,7 @@ StyledRect {
                     visible: root.iconImageUrl !== ""
                     fillMode: Image.PreserveAspectCrop
                     playing: true
-                    
+
                     opacity: status === Image.Ready ? 1 : 0
 
                     Behavior on opacity { Anim { type: Anim.DefaultEffects } }
@@ -124,24 +124,24 @@ StyledRect {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Tokens.spacing.extraSmall
-                    
+
                     StyledText {
                         text: root.titleText
                         font: Tokens.font.body.medium
                         color: Colours.palette.m3onSurface
                         elide: Text.ElideRight
                     }
-                    
+
                     RowLayout {
                         spacing: Tokens.spacing.medium
-                        
+
                         StyledRect {
                             color: Qt.lighter(Colours.palette.m3surfaceVariant, 1.5)
                             radius: Tokens.rounding.small
                             implicitWidth: versionBadge.implicitWidth + Tokens.padding.small * 2
                             implicitHeight: versionBadge.implicitHeight + Tokens.padding.extraSmall
                             Layout.alignment: Qt.AlignVCenter
-                            
+
                             StyledText {
                                 id: versionBadge
 
@@ -165,17 +165,17 @@ StyledRect {
 
                             SequentialAnimation on opacity {
                                 loops: Animation.Infinite
-                                running: root.isUpdateAvailable && !root.updateBusy
+                                running: root.isUpdateAvailable && !root.updateBusy && Tokens.anim.enabled
 
                                 Anim {
-                                    type: Anim.SlowEffects
                                     duration: Tokens.anim.durations.extraLarge
+                                    easing: Tokens.anim.expressiveSlowEffects
                                     from: 1
                                     to: 0.55
                                 }
                                 Anim {
-                                    type: Anim.SlowEffects
                                     duration: Tokens.anim.durations.extraLarge
+                                    easing: Tokens.anim.expressiveSlowEffects
                                     from: 0.55
                                     to: 1
                                 }
@@ -262,7 +262,7 @@ StyledRect {
 
             spacing: Tokens.spacing.large
             visible: root.isExpanded
-            
+
             Item {
                 id: mediaItem
                 Layout.fillWidth: true
@@ -329,7 +329,7 @@ StyledRect {
                     audioOutput: aOut
                     source: root.isVideo(root.mediaUrl) ? root.mediaUrl : ""
                     loops: MediaPlayer.Infinite
-                    
+
                     onSourceChanged: {
                         if (root.isVideo(root.mediaUrl) && root.isExpanded) play()
                         else pause()

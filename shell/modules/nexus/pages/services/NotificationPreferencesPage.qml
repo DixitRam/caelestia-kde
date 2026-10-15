@@ -103,6 +103,7 @@ PageBase {
         ToggleRow {
             text: qsTr("Expire automatically")
             subtext: qsTr("Dismiss notifications after their timeout")
+            reset: ({ node: GlobalConfig.notifs, setting: "expire" })
             checked: GlobalConfig.notifs.expire
             onToggled: GlobalConfig.notifs.expire = checked
         }
@@ -110,13 +111,26 @@ PageBase {
         ToggleRow {
             text: qsTr("Open expanded")
             subtext: qsTr("Show notifications expanded by default")
+            reset: ({ node: GlobalConfig.notifs, setting: "openExpanded" })
             checked: GlobalConfig.notifs.openExpanded
             onToggled: GlobalConfig.notifs.openExpanded = checked
+        }
+
+        ToggleRow {
+            text: qsTr("Do not disturb while sharing")
+            subtext: qsTr("Mute notifications while the screen is being shared or recorded")
+            checked: GlobalConfig.utilities.toasts.dndWhileStreaming
+            reset: ({
+                node: GlobalConfig.utilities.toasts,
+                setting: "dndWhileStreaming"
+            })
+            onToggled: GlobalConfig.utilities.toasts.dndWhileStreaming = checked
         }
 
         StepperRow {
             label: qsTr("Default timeout")
             subtext: qsTr("Seconds before a notification dismisses")
+            reset: ({ node: GlobalConfig.notifs, setting: "defaultExpireTimeout" })
             value: GlobalConfig.notifs.defaultExpireTimeout / 1000
             from: 1
             to: 60
@@ -127,6 +141,7 @@ PageBase {
         StepperRow {
             label: qsTr("Group preview count")
             subtext: qsTr("Notifications shown before a group collapses")
+            reset: ({ node: GlobalConfig.notifs, setting: "groupPreviewNum" })
             value: GlobalConfig.notifs.groupPreviewNum
             from: 1
             to: 10
@@ -137,6 +152,7 @@ PageBase {
         StepperRow {
             label: qsTr("Max popup notifications")
             subtext: qsTr("Only the newest popups are shown; the rest stay in the sidebar")
+            reset: ({ node: GlobalConfig.notifs, setting: "maxPopups" })
             value: GlobalConfig.notifs.maxPopups
             from: 0
             to: 30
@@ -148,6 +164,7 @@ PageBase {
             last: true
             label: qsTr("Max stored notifications")
             subtext: qsTr("Older notifications are dropped when the limit is reached")
+            reset: ({ node: GlobalConfig.notifs, setting: "maxNotifs" })
             value: GlobalConfig.notifs.maxNotifs
             from: 20
             to: 2000
@@ -163,6 +180,7 @@ PageBase {
             first: true
             text: qsTr("Click to activate")
             subtext: qsTr("Activate the notification action on click")
+            reset: ({ node: GlobalConfig.notifs, setting: "actionOnClick" })
             checked: GlobalConfig.notifs.actionOnClick
             onToggled: GlobalConfig.notifs.actionOnClick = checked
         }
@@ -170,6 +188,7 @@ PageBase {
         StepperRow {
             label: qsTr("Expand threshold")
             subtext: qsTr("Hover pixels before a docked notification expands")
+            reset: ({ node: GlobalConfig.notifs, setting: "expandThreshold" })
             value: GlobalConfig.notifs.expandThreshold
             from: 5
             to: 100
@@ -180,6 +199,7 @@ PageBase {
         StepperRow {
             label: qsTr("Fullscreen timeout")
             subtext: qsTr("Milliseconds a notification stays over a fullscreen app")
+            reset: ({ node: GlobalConfig.notifs, setting: "fullscreenExpireTimeout" })
             value: GlobalConfig.notifs.fullscreenExpireTimeout / 1000
             from: 1
             to: 30

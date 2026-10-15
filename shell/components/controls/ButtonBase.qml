@@ -37,12 +37,10 @@ StyledRect {
     property color inactiveColour
     property color activeOnColour
     property color inactiveOnColour
-    property color disabledColour: Qt.alpha(Colours.palette.m3onSurface, 0.1)
-    property color disabledOnColour: Qt.alpha(Colours.palette.m3onSurface, 0.38)
 
     property bool internalChecked
     property real shapeMorphExpansion: shapeMorph && pressed ? 24 : 0
-    readonly property color onColour: disabled ? disabledOnColour : internalChecked ? activeOnColour : inactiveOnColour
+    readonly property color onColour: disabled ? Colours.disabledContent : internalChecked ? activeOnColour : inactiveOnColour
 
     property real pressedRadius: Tokens.rounding.small
     property real checkedRadius: Tokens.rounding.medium
@@ -61,7 +59,7 @@ StyledRect {
             return (implicitHeight || height) / 2 * Math.min(1, Tokens.rounding.scale);
         return defaultRadius;
     }
-    color: type === ButtonBase.Text ? Qt.alpha(inactiveColour, 0) : disabled ? disabledColour : internalChecked ? activeColour : inactiveColour
+    color: type === ButtonBase.Text ? Qt.alpha(inactiveColour, 0) : disabled ? Colours.disabledContainer : internalChecked ? activeColour : inactiveColour
 
     required implicitWidth
     required implicitHeight

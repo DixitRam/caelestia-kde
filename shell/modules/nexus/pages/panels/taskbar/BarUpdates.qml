@@ -2,19 +2,13 @@ pragma ComponentBehavior: Bound
 
 import QtQuick.Layouts
 import Caelestia.Config
+import qs.modules.bar
 import qs.modules.nexus.common
 
 PageBase {
     id: root
 
-    readonly property bool indicatorEnabled: {
-        const entries = GlobalConfig.bar.entries || [];
-        for (let i = 0; i < entries.length; i++) {
-            if (entries[i].id === "updateIndicator" && entries[i].enabled)
-                return true;
-        }
-        return false;
-    }
+    readonly property bool indicatorEnabled: BarWidgets.isEnabled(GlobalConfig.bar, "updateIndicator")
 
     title: qsTr("Updates")
     isSubPage: true
@@ -34,25 +28,9 @@ PageBase {
             reset: ({
                 customGet: () => root.indicatorEnabled,
                 customDef: true,
-                customSet: v => {
-                    const entries = GlobalConfig.bar.entries ? [...GlobalConfig.bar.entries] : [];
-                    const idx = entries.findIndex(e => e.id === "updateIndicator");
-                    if (idx >= 0)
-                        entries[idx] = { id: "updateIndicator", enabled: v, zone: entries[idx].zone || "right" };
-                    else
-                        entries.push({ id: "updateIndicator", enabled: v, zone: "right" });
-                    GlobalConfig.bar.entries = entries;
-                }
+                customSet: v => BarWidgets.setEnabled(GlobalConfig.bar, "updateIndicator", v)
             })
-            onToggled: {
-                const entries = GlobalConfig.bar.entries ? [...GlobalConfig.bar.entries] : [];
-                const idx = entries.findIndex(e => e.id === "updateIndicator");
-                if (idx >= 0)
-                    entries[idx] = { id: "updateIndicator", enabled: checked, zone: entries[idx].zone || "right" };
-                else
-                    entries.push({ id: "updateIndicator", enabled: checked, zone: "right" });
-                GlobalConfig.bar.entries = entries;
-            }
+            onToggled: BarWidgets.setEnabled(GlobalConfig.bar, "updateIndicator", checked)
         }
 
         ToggleRow {

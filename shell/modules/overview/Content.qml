@@ -65,11 +65,11 @@ Item {
         }
 
         Behavior on opacity {
-            NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
+            Anim { type: Anim.DefaultEffects }
         }
         Rectangle {
             anchors.fill: parent
-            color: Qt.rgba(0, 0, 0, 0.5)
+            color: Qt.alpha(Colours.palette.m3scrim, 0.5)
 
             HoverHandler { }
             WheelHandler { }
@@ -84,8 +84,8 @@ Item {
             width: Math.min(parent.width * 0.8, 900)
             height: Math.min(parent.height * 0.8, 600)
 
-            Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-            Behavior on height { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+            Behavior on width { Anim { type: Anim.FastSpatial } }
+            Behavior on height { Anim { type: Anim.FastSpatial } }
             TapHandler { }
             WInfo.WindowInfo {
                 id: winInfoItem

@@ -3,22 +3,25 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Effects
 import QtQuick.Shapes
+import Caelestia.Config
 import qs.components
 import qs.services
 
 Item {
     id: root
 
-    property real blurAmount: skipIntroAnimation ? 0.0 : 1.0
-    property bool skipIntroAnimation: false
+    property real blurAmount: introSkipped ? 0.0 : 1.0
+    // The intro is a long one-shot sequence, so the animations switch skips it whole and
+    // the shell shows the finished logo instead.
+    property bool introSkipped: !Tokens.anim.enabled
 
-    property real star1Opacity: skipIntroAnimation ? 1.0 : 0.0
-    property real star2Opacity: skipIntroAnimation ? 1.0 : 0.0
-    property real star3Opacity: skipIntroAnimation ? 1.0 : 0.0
+    property real star1Opacity: introSkipped ? 1.0 : 0.0
+    property real star2Opacity: introSkipped ? 1.0 : 0.0
+    property real star3Opacity: introSkipped ? 1.0 : 0.0
 
-    property real star1Scale: skipIntroAnimation ? 1.0 : 0.0
-    property real star2Scale: skipIntroAnimation ? 1.0 : 0.0
-    property real star3Scale: skipIntroAnimation ? 1.0 : 0.0
+    property real star1Scale: introSkipped ? 1.0 : 0.0
+    property real star2Scale: introSkipped ? 1.0 : 0.0
+    property real star3Scale: introSkipped ? 1.0 : 0.0
 
     readonly property alias topShape: topShape
     readonly property alias bottomShape: bottomShape
@@ -29,6 +32,13 @@ Item {
     readonly property bool onScreen: Window.window ? Window.window.visible : false
 
     signal animationCompleted
+
+    function restStars(): void {
+        for (const star of [star1, star2, star3]) {
+            star.y = 0;
+            star.scale = 1;
+        }
+    }
 
     implicitWidth: 128
     implicitHeight: 90.38
@@ -46,8 +56,8 @@ Item {
         implicitHeight: designHeight
 
         transformOrigin: Item.Center
-        scale: root.skipIntroAnimation ? 1.0 : 0.0
-        opacity: root.skipIntroAnimation ? 1.0 : 0.0
+        scale: root.introSkipped ? 1.0 : 0.0
+        opacity: root.introSkipped ? 1.0 : 0.0
         rotation: 0.0
 
         layer.enabled: root.blurAmount > 0
@@ -163,7 +173,7 @@ Item {
     }
 
     SequentialAnimation {
-        running: root.onScreen && !root.skipIntroAnimation
+        running: root.onScreen && !root.introSkipped
         onFinished: root.animationCompleted()
 
         ParallelAnimation {
@@ -233,9 +243,8 @@ Item {
                     property: "scale"
                     from: 0.96
                     to: 1.0
-                    duration: 250
-                    easing.type: Easing.OutBack
-                    easing.overshoot: 1.05
+                    duration: Tokens.anim.durations.expressiveFastSpatial
+                    easing: Tokens.anim.expressiveFastSpatial
                 }
             }
 
@@ -371,8 +380,10 @@ Item {
     }
 
     SequentialAnimation {
-        running: root.onScreen
+        running: root.onScreen && !root.introSkipped
         loops: Animation.Infinite
+
+        onStopped: root.restStars()
 
         PauseAnimation {
             duration: 2500

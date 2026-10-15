@@ -39,7 +39,7 @@ Item {
         anchors.rightMargin: (root.width - root.controller.iconSize) / 2 - width / 3
         implicitWidth: Math.max(height, countText.implicitWidth + Tokens.padding.small * 2)
         implicitHeight: countText.implicitHeight + Tokens.padding.small
-        radius: height / 2
+        radius: Tokens.rounding.full
         color: Colours.palette.m3primary
 
         StyledText {

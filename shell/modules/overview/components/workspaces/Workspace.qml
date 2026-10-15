@@ -144,7 +144,7 @@ StyledRect {
             id: closeBtn
 
             anchors.fill: parent
-            radius: parent.width / 2
+            radius: Tokens.rounding.full
             onClicked: {
                 const wId = Kwin.workspaces[root.ws - 1].id;
                 if (wId)
@@ -183,11 +183,10 @@ StyledRect {
 
         anchors.fill: parent
         onEntered: drag => {
+            //console.log("DROP AREA ENTERED:", drag.source ? drag.source.clientAddress : "null");
             if (!drag.source || drag.source.clientAddress === undefined)
                 return;
             if (!("dropTargetScale" in drag.source))
-                return;
-            if (drag.source.wsId === root.ws)
                 return;
             windowDropArea.hovering = drag.source;
             drag.source.dropTargetScale = Math.min(width / Math.max(1, drag.source.width), height / Math.max(1, drag.source.height)) * 0.85;
@@ -206,13 +205,19 @@ StyledRect {
         }
     }
     GridLayout {
+        id: gridLayout
+
         readonly property int count: repeater.count
+        readonly property int effectiveCount: {
+            if (windowDropArea.hovering === null) return count;
+            return windowDropArea.hovering.wsId !== root.ws ? count + 1 : count;
+        }
 
         anchors.fill: parent
         anchors.margins: Tokens.padding.medium
         rowSpacing: Tokens.padding.small
         columnSpacing: Tokens.padding.small
-        columns: count <= 2 ? Math.max(1, count) : Math.ceil(count / 2)
+        columns: effectiveCount <= 2 ? Math.max(1, effectiveCount) : Math.ceil(effectiveCount / 2)
 
         Repeater {
             id: repeater
@@ -244,6 +249,7 @@ StyledRect {
                 readonly property string clientAddress: modelData.address || ""
                 readonly property int wsId: root.ws
                 property bool expanded: false
+                property real dropTargetScale: 0
                 readonly property real liftedBy: dragHandler.active ? iconDelegate.dragStartY - iconDelegate.y : 0
                 readonly property real windowAspect: {
                     const w = modelData.width, h = modelData.height;
@@ -271,10 +277,10 @@ StyledRect {
                 color: Colours.tPalette.m3surfaceContainerHigh
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.rowSpan: (repeater.count >= 3 && repeater.count % 2 !== 0 && index === 0) ? 2 : 1
-                scale: closing ? 0.0 : 1.0
+                Layout.rowSpan: (gridLayout.effectiveCount >= 3 && gridLayout.effectiveCount % 2 !== 0 && index === 0) ? 2 : 1
+                scale: closing ? 0.0 : (dragHandler.active && dropTargetScale > 0 ? dropTargetScale : 1.0)
                 opacity: closing ? 0.0 : 1.0
-                
+                visible: !(windowDropArea.hovering !== null && !dragHandler.active && windowDropArea.hovering.clientAddress === iconDelegate.clientAddress)
 
                 Drag.active: dragHandler.active
                 Drag.source: iconDelegate
@@ -314,11 +320,20 @@ StyledRect {
                         Visibilities.streamClaim = "";
                 }
 
-                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-                Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-                Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                Behavior on scale { Anim { type: Anim.FastSpatial } }
+                Behavior on opacity { Anim { type: Anim.DefaultEffects } }
+                Behavior on width { Anim { type: Anim.FastSpatial } }
+                Behavior on height { Anim { type: Anim.FastSpatial } }
+                Behavior on x {
+                    enabled: !dragHandler.active
 
+                    Anim { type: Anim.FastSpatial }
+                }
+                Behavior on y {
+                    enabled: !dragHandler.active
+
+                    Anim { type: Anim.FastSpatial }
+                }
 
                 DragHandler {
                     id: dragHandler
@@ -328,7 +343,7 @@ StyledRect {
                             let tl = iconDelegate;
                             while (tl.parent) tl = tl.parent;
                             iconDelegate.topLevel = tl;
-                            
+
                             if (tl) {
                                 const p = iconDelegate.mapToItem(tl, 0, 0);
                                 iconDelegate.dragStartX = p.x;
@@ -356,7 +371,7 @@ StyledRect {
                         if (root.active) {
                             if (modelData.address) {
                                 Kwin.focusWindow(modelData.address);
-                                
+
                                 let p = parent;
                                 while (p) {
                                     if (p.requestClose) {
@@ -372,6 +387,21 @@ StyledRect {
                     }
                 }
             }
+        }
+        StyledRect {
+            id: dropPlaceholder
+
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.rowSpan: (gridLayout.effectiveCount >= 3 && gridLayout.effectiveCount % 2 !== 0 && repeater.count === 0) ? 2 : 1
+            color: "transparent"
+            border.color: Colours.palette.m3outlineVariant
+            border.width: 2
+            radius: Tokens.rounding.small
+            visible: windowDropArea.hovering !== null
+
+            Behavior on width { Anim { type: Anim.FastSpatial } }
+            Behavior on height { Anim { type: Anim.FastSpatial } }
         }
     }
 }

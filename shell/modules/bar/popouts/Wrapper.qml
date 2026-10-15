@@ -179,7 +179,7 @@ Item {
 
                 SequentialAnimation {
                     Anim {
-                        type: Anim.DefaultEffects
+                        type: Anim.FastEffects
                         property: "opacity"
                     }
                     PropertyAction {

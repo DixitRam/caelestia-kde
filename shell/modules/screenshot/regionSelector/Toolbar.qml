@@ -24,7 +24,7 @@ Item {
         color: root.colBackground
         implicitHeight: 56
         implicitWidth: toolbarLayout.implicitWidth + root.padding * 2
-        radius: height / 2
+        radius: Tokens.rounding.full
 
         RowLayout {
             id: toolbarLayout

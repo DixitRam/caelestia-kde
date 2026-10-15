@@ -148,6 +148,19 @@ Singleton {
             return active ? active[prop] ?? qsTr("Invalid property") : qsTr("No active player");
         }
 
+        function status(): string {
+            const active = root.active;
+            if (!active)
+                return JSON.stringify({ title: "", artist: "", artUrl: "", status: "Stopped" });
+
+            return JSON.stringify({
+                title: active.trackTitle ?? "",
+                artist: active.trackArtist ?? "",
+                artUrl: root.getArtUrl(active),
+                status: active.isPlaying ? "Playing" : "Paused"
+            });
+        }
+
         function list(): string {
             return root.list.map(p => root.getIdentity(p)).join("\n");
         }

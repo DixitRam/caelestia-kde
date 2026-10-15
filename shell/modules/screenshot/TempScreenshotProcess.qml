@@ -17,5 +17,7 @@ Process {
 
     readonly property string _safePath: screenshotPath.split("'").join("'\\''")
 
-    command: ["bash", "-c", `mkdir -p '${_safeDir}' && spectacle -b -n -m -o '${_safePath}'`]
+    property int timeoutSeconds: 15
+
+    command: ["bash", "-c", `mkdir -p '${_safeDir}' && exec timeout --kill-after=5 ${timeoutSeconds} spectacle -b -n -m -o '${_safePath}'`]
 }

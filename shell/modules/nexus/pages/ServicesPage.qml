@@ -98,6 +98,7 @@ PageBase {
             first: true
             label: qsTr("Media refresh")
             subtext: qsTr("How often the media position updates (ms)")
+            reset: ({ node: GlobalConfig.dashboard, setting: "mediaUpdateInterval" })
             value: GlobalConfig.dashboard.mediaUpdateInterval
             from: 100
             to: 2000
@@ -108,6 +109,7 @@ PageBase {
         StepperRow {
             label: qsTr("System stats refresh")
             subtext: qsTr("CPU, memory and GPU update interval (seconds)")
+            reset: ({ node: GlobalConfig.dashboard, setting: "resourceUpdateInterval" })
             value: GlobalConfig.dashboard.resourceUpdateInterval / 1000
             from: 0.5
             to: 10
@@ -119,6 +121,7 @@ PageBase {
             last: true
             label: qsTr("Wi-Fi rescan")
             subtext: qsTr("How often available networks are rescanned (seconds)")
+            reset: ({ node: GlobalConfig.nexus, setting: "networkRescanInterval" })
             value: GlobalConfig.nexus.networkRescanInterval / 1000
             from: 5
             to: 120
@@ -158,6 +161,7 @@ PageBase {
             first: true
             label: qsTr("Volume step")
             subtext: qsTr("Amount the volume changes per scroll (%)")
+            reset: ({ node: GlobalConfig.services, setting: "audioIncrement" })
             value: Math.round(GlobalConfig.services.audioIncrement * 100)
             from: 1
             to: 50
@@ -168,6 +172,7 @@ PageBase {
         StepperRow {
             label: qsTr("Brightness step")
             subtext: qsTr("Amount the brightness changes per scroll (%)")
+            reset: ({ node: GlobalConfig.services, setting: "brightnessIncrement" })
             value: Math.round(GlobalConfig.services.brightnessIncrement * 100)
             from: 1
             to: 50
@@ -179,6 +184,7 @@ PageBase {
             last: true
             label: qsTr("Max volume")
             subtext: qsTr("Upper limit for output volume (%)")
+            reset: ({ node: GlobalConfig.services, setting: "maxVolume" })
             value: Math.round(GlobalConfig.services.maxVolume * 100)
             from: 50
             to: 200
@@ -201,6 +207,7 @@ PageBase {
         StepperRow {
             label: qsTr("Visualiser bars")
             subtext: qsTr("Number of bars in the audio visualisers")
+            reset: ({ node: GlobalConfig.services, setting: "visualiserBars" })
             value: GlobalConfig.services.visualiserBars
             from: 10
             to: 120

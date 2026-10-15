@@ -314,7 +314,7 @@ Item {
             StyledRect {
                 Layout.fillWidth: true
                 implicitHeight: 4
-                radius: 2
+                radius: Tokens.rounding.full
                 color: Qt.alpha(Colours.palette.m3onSurface, 0.15)
 
                 StyledRect {

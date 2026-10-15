@@ -1414,7 +1414,7 @@ Item {
         inAgentLoop = true;
         currentThoughtText = "";
         isThoughtExpanded = false;
-        
+
         if (isSystemToolResult) {
             if (toolName === "web_search" || toolName === "read_webpage") {
                 currentActionText = "Reading results...";
@@ -1461,7 +1461,7 @@ Item {
             xhr.open("POST", ollamaUrl + "/api/chat", true);
             xhr.setRequestHeader("Content-Type", "application/json");
         }
-        
+
         var processedTextLength = 0;
         var accumulatedThoughtText = "";
         var accumulatedContentText = "";
@@ -1477,9 +1477,9 @@ Item {
                     var currentText = xhr.responseText;
                     var unparsed = currentText.substring(processedTextLength);
                     var lines = unparsed.split('\n');
-                    
+
                     var linesToProcess = (xhr.readyState === XMLHttpRequest.DONE) ? lines.length : lines.length - 1;
-                    
+
                     for (var i = 0; i < linesToProcess; i++) {
                         var rawLine = lines[i];
                         var line = rawLine.trim();
@@ -1594,14 +1594,14 @@ Item {
                         listView.positionViewAtEnd();
                     }
                 }
-                
+
                 if (xhr.readyState === XMLHttpRequest.DONE) {
                     if (root.currentRequest === xhr)
                         root.currentRequest = null;
                     if (xhr.status === 200) {
                         root.rateLimitRetries = 0;
                         chatStore.update(reply.chatId, reply.msgId, { "isFinished": true });
-                        
+
                         var enableTools = GlobalConfig.ai.enableCelestialMode;
                         var textToolCalls = enableTools ? AiToolCalls.parseTextToolCalls(rawAccumulatedContentText) : [];
 
@@ -1754,7 +1754,7 @@ Item {
         if (enableTools) {
             sysPrompt += AiToolCalls.toolsPrompt();
         }
-        
+
         var requestBody;
         if (useAnthropic) {
             var claudeMessages = [];
@@ -1887,9 +1887,9 @@ Item {
                      radius: Tokens.rounding.full
                      color: Colours.palette.m3primary
                      x: isHistoryTab ? historyTab.x : chatTab.x
-                     
-                     Behavior on x { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-                     Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+
+                     Behavior on x { Anim { type: Anim.FastEffects } }
+                     Behavior on width { Anim { type: Anim.FastEffects } }
                  }
 
                  Row {
@@ -1902,9 +1902,9 @@ Item {
 
                          height: parent.height
                          width: !isHistoryTab ? 40 : chatContent.implicitWidth + Tokens.padding.medium * 2
-                         
 
-                         Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+
+                         Behavior on width { Anim { type: Anim.FastEffects } }
 
                          StateLayer {
                              radius: Tokens.rounding.full
@@ -1938,9 +1938,9 @@ Item {
 
                          height: parent.height
                          width: isHistoryTab ? 40 : historyContent.implicitWidth + Tokens.padding.medium * 2
-                         
 
-                         Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+
+                         Behavior on width { Anim { type: Anim.FastEffects } }
 
                          StateLayer {
                              radius: Tokens.rounding.full
@@ -2225,7 +2225,7 @@ Item {
              }
 
          }
-         
+
          Item {
              id: contentStack
 
@@ -2240,7 +2240,7 @@ Item {
                  opacity: !isHistoryTab ? 1 : 0
                  visible: opacity > 0
 
-                 Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.InOutQuad } }
+                 Behavior on opacity { Anim { type: Anim.DefaultEffects } }
 
                  VerticalFadeFlickable {
                      id: listView
@@ -2326,7 +2326,7 @@ Item {
                              height: shown ? bubbleBg.height + Tokens.spacing.medium : 0
                              visible: opacity > 0
                              opacity: shown ? 1 : 0
-                             
+
                              Behavior on height { Anim { type: Anim.DefaultSpatial } }
                              Behavior on opacity { Anim { type: Anim.DefaultSpatial } }
 
@@ -2350,10 +2350,10 @@ Item {
                                      anchors.fill: parent
                                      anchors.margins: Tokens.padding.medium
                                      spacing: Tokens.spacing.small
-                                     
+
                                      Row {
                                          spacing: Tokens.spacing.small
-                                         
+
                                          LoadingIndicator {
                                              visible: !root.isClaudeCode
                                              width: 20
@@ -2391,20 +2391,20 @@ Item {
                                                  onTriggered: starGlyph.frame = (starGlyph.frame + 1) % starGlyph.frames.length
                                              }
                                          }
-                                         
+
                                          Item {
                                              width: mainText.implicitWidth
                                              height: mainText.implicitHeight
 
-                                             Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
-                                             
+                                             Behavior on width { Anim { type: Anim.FastSpatial } }
+
                                              StyledText {
                                                  id: mainText
 
                                                  text: displayedText
                                                  color: Colours.palette.m3onSurfaceVariant
                                                  font: Tokens.font.body.small
-                                                 
+
                                                  property string displayedText: root.currentActionText
 
                                                  property string nextText: ""
@@ -2427,19 +2427,19 @@ Item {
                                                      id: switchAnim
 
                                                      ParallelAnimation {
-                                                         NumberAnimation { target: textTrans; property: "y"; to: -8; duration: 150; easing.type: Easing.InCubic }
-                                                         NumberAnimation { target: mainText; property: "opacity"; to: 0.0; duration: 150; easing.type: Easing.InCubic }
+                                                         Anim { target: textTrans; property: "y"; to: -8; type: Anim.FastEffects }
+                                                         Anim { target: mainText; property: "opacity"; to: 0.0; type: Anim.FastEffects }
                                                      }
                                                      PropertyAction { target: mainText; property: "displayedText"; value: mainText.nextText }
                                                      PropertyAction { target: textTrans; property: "y"; value: 8 }
                                                      ParallelAnimation {
-                                                         NumberAnimation { target: textTrans; property: "y"; to: 0; duration: 400; easing.type: Easing.OutBack; easing.overshoot: 1.5 }
-                                                         NumberAnimation { target: mainText; property: "opacity"; to: 1.0; duration: 250; easing.type: Easing.OutQuad }
+                                                         Anim { target: textTrans; property: "y"; to: 0; type: Anim.FastSpatial }
+                                                         Anim { target: mainText; property: "opacity"; to: 1.0; type: Anim.DefaultEffects }
                                                      }
                                                  }
 
                                                  SequentialAnimation {
-                                                     running: isThinking && !switchAnim.running
+                                                     running: isThinking && !switchAnim.running && Tokens.anim.enabled
                                                      loops: Animation.Infinite
 
                                                      NumberAnimation { target: mainText; property: "opacity"; from: 1.0; to: 0.4; duration: 800; easing.type: Easing.InOutSine }
@@ -2447,13 +2447,13 @@ Item {
                                                  }
                                              }
                                          }
-                                         
+
                                          Item {
                                              visible: root.currentThoughtText !== ""
                                              width: Tokens.spacing.medium
                                              height: 1
                                          }
-                                         
+
                                          Item {
                                              visible: root.currentThoughtText !== ""
                                              width: thoughtRowFooter.implicitWidth
@@ -2470,7 +2470,7 @@ Item {
                                                      font: Tokens.font.icon.small
                                                      rotation: root.isThoughtExpanded ? 180 : 0
 
-                                                     Behavior on rotation { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+                                                     Behavior on rotation { Anim { type: Anim.FastEffects } }
                                                  }
                                              }
                                              MouseArea {
@@ -2500,8 +2500,8 @@ Item {
                                          width: root.isThoughtExpanded ? footerThoughtContent.width : 0
                                          height: root.isThoughtExpanded ? footerThoughtContent.implicitHeight : 0
                                          clip: true
-                                         
-                                         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
+
+                                         Behavior on height { Anim { type: Anim.FastSpatial } }
 
                                          TextEdit {
                                              id: footerThoughtContent
@@ -2517,11 +2517,11 @@ Item {
                                              selectionColor: Colours.palette.m3primary
                                              selectedTextColor: Colours.palette.m3onPrimary
                                              opacity: root.isThoughtExpanded ? 1.0 : 0.0
-                                             
+
                                              Behavior on opacity {
                                                  SequentialAnimation {
                                                      PauseAnimation { duration: root.isThoughtExpanded ? 100 : 0 }
-                                                     NumberAnimation { duration: 150; easing.type: Easing.InOutQuad }
+                                                     Anim { type: Anim.FastEffects }
                                                  }
                                              }
                                          }
@@ -2537,7 +2537,7 @@ Item {
                      opacity: chatStore.messages.count === 0 && !isTyping && !isThinking ? 1.0 : 0.0
                      visible: opacity > 0
 
-                     Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.InOutQuad } }
+                     Behavior on opacity { Anim { type: Anim.DefaultEffects } }
 
                      spacing: Tokens.spacing.large
 
@@ -2603,13 +2603,13 @@ Item {
                      opacity: (!listView.atYEnd && chatStore.messages.count > 0) ? 1.0 : 0.0
                      visible: opacity > 0
 
-                     Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
+                     Behavior on opacity { Anim { type: Anim.DefaultEffects } }
 
                      StyledRect {
                          id: scrollBtnBg
 
                          anchors.fill: parent
-                         radius: 18
+                         radius: Tokens.rounding.largeIncreased
                          color: Colours.tPalette.m3surfaceContainerHigh
                      }
 
@@ -2804,12 +2804,12 @@ Item {
                      z: 10
                      implicitHeight: Math.max(48, inputArea.implicitHeight + Tokens.padding.medium * 2)
                      color: Colours.tPalette.m3surfaceContainer
-                     radius: 24
+                     radius: Tokens.rounding.extraLarge
 
                      StyledClippingRect {
                          z: -1
                          anchors.fill: parent
-                         radius: 24
+                         radius: Tokens.rounding.extraLarge
 
                          ShaderEffectSource {
                              id: inputBlurSource
@@ -2832,7 +2832,7 @@ Item {
                          id: inputStateLayer
 
                          anchors.fill: parent
-                         radius: 24
+                         radius: Tokens.rounding.extraLarge
                          hoverEnabled: false
                          cursorShape: Qt.IBeamCursor
                          onClicked: inputArea.forceActiveFocus()
@@ -2860,7 +2860,7 @@ Item {
                              id: inputScroll
                              Layout.fillWidth: true
                              Layout.fillHeight: true
-                             
+
                              TextArea {
                                  id: inputArea
 
@@ -2957,7 +2957,7 @@ Item {
                                  shape: root.isTyping ? MaterialShape.Cookie4Sided : (root.canSend ? MaterialShape.Arrow : MaterialShape.Circle)
                                  scale: (!root.canSend && !root.isTyping) ? 1 : sendMouse.pressed ? 0.6 : sendMouse.containsMouse ? 0.8 : 0.7
                                  rotation: 0
-                                 
+
                                  Behavior on scale { Anim { type: Anim.FastSpatial } }
                                  Behavior on color { CAnim {} }
 

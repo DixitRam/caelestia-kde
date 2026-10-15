@@ -13,6 +13,7 @@ import Caelestia.Services
 import qs.components
 import qs.services
 import qs.utils
+import qs.modules.bar
 
 Item {
     id: root
@@ -36,20 +37,9 @@ Item {
     readonly property real middleZoneSize: isHorizontal ? middleLayout.implicitWidth : middleLayout.implicitHeight
     readonly property real rightZoneSize: isHorizontal ? rightLayout.implicitWidth : rightLayout.implicitHeight
 
-    property var leftEntries: {
-        let entries = Config.bar.entries || [];
-        return entries.filter(e => e.enabled && (!e.zone || e.zone === "left") && e.id !== "spacer");
-    }
-
-    property var middleEntries: {
-        let entries = Config.bar.entries || [];
-        return entries.filter(e => e.enabled && e.zone === "middle" && e.id !== "spacer");
-    }
-
-    property var rightEntries: {
-        let entries = Config.bar.entries || [];
-        return entries.filter(e => e.enabled && e.zone === "right" && e.id !== "spacer");
-    }
+    property var leftEntries: BarWidgets.zoneEntries(Config.bar.entries, "left")
+    property var middleEntries: BarWidgets.zoneEntries(Config.bar.entries, "middle")
+    property var rightEntries: BarWidgets.zoneEntries(Config.bar.entries, "right")
 
     function resetHover(): void {
         if (currentHoveredItem) {

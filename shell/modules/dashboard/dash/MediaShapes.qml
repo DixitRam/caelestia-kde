@@ -132,7 +132,8 @@ Item {
     FrameAnimation {
         id: frameAnim
 
-        running: root.visible && root.active
+        // The whole visualiser is decoration: no frames, no spin, no swell.
+        running: root.visible && root.active && Tokens.anim.enabled
 
         onTriggered: {
             const dt = Math.min(frameTime, 0.05);
@@ -181,7 +182,7 @@ Item {
 
     Connections {
         function onBeat(bpm: real): void {
-            if (!root.active || !root.visible)
+            if (!root.active || !root.visible || !Tokens.anim.enabled)
                 return;
             root.beatPulse = Math.max(root.beatPulse, 0.6);
         }
@@ -195,7 +196,7 @@ Item {
         anchors.centerIn: parent
         implicitSize: Math.min(parent.width, parent.height) * 0.82
         shape: MaterialShape.Circle
-        animationDuration: 320
+        animationDuration: Tokens.anim.duration(320)
         rotation: root.baseRotation
         scale: {
             const breath = 1.0 + Math.sin(root.breathPhase) * 0.035;

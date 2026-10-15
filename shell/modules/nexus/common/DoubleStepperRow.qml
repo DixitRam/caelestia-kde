@@ -21,7 +21,7 @@ ConnectedRect {
     property real scaleFrom: 0
     property real scaleTo: 99
     property real scaleStepSize: 1
-    
+
     property real fontValue
     property real fontFrom: 0
     property real fontTo: 99

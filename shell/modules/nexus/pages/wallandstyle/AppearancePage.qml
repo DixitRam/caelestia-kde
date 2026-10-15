@@ -197,26 +197,6 @@ PageBase {
                 onMoved: v => GlobalConfig.appearance.transparency.layers = v
                 Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
             }
-            ToggleRow {
-                reset: ({ node: GlobalConfig.appearance, setting: "ambientColor" })
-                text: qsTr("Ambient color mode")
-                subtext: Colours.light ? qsTr("Ambient glow is unavailable in light mode") : qsTr("Ambient light glow in window info panel")
-                checked: GlobalConfig.appearance.ambientColor
-                enabled: !Colours.light
-                onToggled: GlobalConfig.appearance.ambientColor = checked
-                Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
-                Layout.fillWidth: true
-            }
-            SliderRow {
-                reset: ({ node: GlobalConfig.appearance, setting: "ambientOpacity" })
-                roomyHeader: true
-                label: qsTr("Ambient glow opacity")
-                valueLabel: Math.round(value * 100) + "%"
-                value: GlobalConfig.appearance.ambientOpacity
-                enabled: GlobalConfig.appearance.ambientColor && !Colours.light
-                onMoved: v => GlobalConfig.appearance.ambientOpacity = v
-                Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
-            }
             Process {
                 id: bbdxCheck
 
@@ -336,7 +316,6 @@ PageBase {
 
             StepperRow {
                 reset: ({ node: GlobalConfig.appearance.anim.durations, setting: "scale" })
-                last: true
                 Layout.fillWidth: true
                 label: qsTr("Animation speed scale")
                 value: GlobalConfig.appearance.anim.durations.scale
@@ -344,6 +323,16 @@ PageBase {
                 to: 4
                 stepSize: 0.05
                 onMoved: v => GlobalConfig.appearance.anim.durations.scale = v
+            }
+
+            ToggleRow {
+                reset: ({ node: GlobalConfig.appearance.anim, setting: "enabled" })
+                last: true
+                Layout.fillWidth: true
+                text: qsTr("Animations")
+                subtext: qsTr("Toggle animations on/off")
+                checked: GlobalConfig.appearance.anim.enabled
+                onToggled: GlobalConfig.appearance.anim.enabled = checked
             }
         }
 

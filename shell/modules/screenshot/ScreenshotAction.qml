@@ -44,7 +44,7 @@ Singleton {
         const uploadAndGetUrl = (filePath) => {
             return `curl -sF files[]=@'${escapeShellStr(filePath)}' ${root.fileUploadApiEndpoint} | jq -r '.files[0].url'`
         }
-        
+
         const rawSaveDir = saveDir;
 
         switch (action) {

@@ -301,37 +301,34 @@ ColumnLayout {
             }
 
             add: Transition {
-                NumberAnimation {
-                    properties: "opacity"
+                Anim {
+                    property: "opacity"
                     from: 0
                     to: 1
-                    duration: 140
+                    type: Anim.FastEffects
                 }
-                NumberAnimation {
-                    properties: "y"
-                    duration: 180
-                    easing.type: Easing.OutCubic
+                Anim {
+                    property: "y"
+                    type: Anim.FastSpatial
                 }
             }
             remove: Transition {
-                NumberAnimation {
-                    properties: "opacity"
+                Anim {
+                    property: "opacity"
                     to: 0
-                    duration: 100
+                    type: Anim.FastEffects
                 }
             }
             move: Transition {
-                NumberAnimation {
-                    properties: "y"
-                    duration: 180
-                    easing.type: Easing.OutCubic
+                Anim {
+                    property: "y"
+                    type: Anim.FastSpatial
                 }
             }
             displaced: Transition {
-                NumberAnimation {
-                    properties: "y"
-                    duration: 180
-                    easing.type: Easing.OutCubic
+                Anim {
+                    property: "y"
+                    type: Anim.FastSpatial
                 }
             }
 

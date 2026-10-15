@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import Caelestia.Config
 import qs.components
 import qs.components.controls
+import qs.services
 import qs.utils
 import qs.modules.nexus.common
 
@@ -204,12 +205,31 @@ PageBase {
             onToggled: GlobalConfig.overview.disableWallpaperBlur = checked
         }
         ToggleRow {
-            last: true
             text: qsTr("Enable overview blur")
             subtext: qsTr("Enable QuickShell-based blur effect on overview wallpaper")
             reset: ({ node: GlobalConfig.overview, setting: "enableOverviewBlur" })
             checked: GlobalConfig.overview.enableOverviewBlur
             onToggled: GlobalConfig.overview.enableOverviewBlur = checked
+        }
+        ToggleRow {
+            text: qsTr("Ambient color mode")
+            subtext: Colours.light ? qsTr("Ambient glow is unavailable in light mode") : qsTr("Ambient light glow in window info panel")
+            reset: ({ node: GlobalConfig.overview, setting: "ambientColor" })
+            checked: GlobalConfig.overview.ambientColor
+            enabled: !Colours.light
+            onToggled: GlobalConfig.overview.ambientColor = checked
+        }
+        StepperRow {
+            last: true
+            label: qsTr("Ambient glow opacity")
+            reset: ({ node: GlobalConfig.overview, setting: "ambientOpacity" })
+            value: GlobalConfig.overview.ambientOpacity
+            from: 0
+            to: 1
+            stepSize: 0.05
+            enabled: GlobalConfig.overview.ambientColor && !Colours.light
+            opacity: enabled ? 1 : 0.5
+            onMoved: v => GlobalConfig.overview.ambientOpacity = v
         }
         SectionHeader {
             text: qsTr("Animations")

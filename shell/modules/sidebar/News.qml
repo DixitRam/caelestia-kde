@@ -13,7 +13,7 @@ Item {
 
     property bool isFetching: false
     property string errorMessage: ""
-    
+
     readonly property color cBgHigh: Colours.tPalette.m3surfaceContainerHigh
     readonly property color cBgHighest: Colours.tPalette.m3surfaceContainerHighest
     readonly property color cOnSurface: Colours.palette.m3onSurface
@@ -44,7 +44,7 @@ Item {
         if (isFetching) return;
         isFetching = true;
         errorMessage = "";
-        
+
         var feedUrl = "https://archlinux.org/feeds/news/";
         if (_distroId === "") {
             var proc = newsFeedUrl();
@@ -96,28 +96,28 @@ Item {
 
     function parseNews(xmlString) {
         newsModel.clear();
-        
+
         var itemRegex = /<item>([\s\S]*?)<\/item>/g;
         var titleRegex = /<title>(.*?)<\/title>/;
         var linkRegex = /<link>(.*?)<\/link>/;
         var dateRegex = /<pubDate>(.*?)<\/pubDate>/;
-        
+
         var match;
         while ((match = itemRegex.exec(xmlString)) !== null) {
             var itemContent = match[1];
-            
+
             var titleMatch = titleRegex.exec(itemContent);
             var linkMatch = linkRegex.exec(itemContent);
             var dateMatch = dateRegex.exec(itemContent);
-            
+
             if (titleMatch && linkMatch && dateMatch) {
                 var title = titleMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#039;/g, "'");
                 var dateStr = dateMatch[1];
-                
+
                 var dateObj = new Date(dateStr);
                 var formattedDate = dateObj.toLocaleDateString();
                 if (formattedDate === "Invalid Date") formattedDate = dateStr;
-                
+
                 newsModel.append({
                     "title": title,
                     "link": linkMatch[1],
@@ -125,7 +125,7 @@ Item {
                 });
             }
         }
-        
+
         if (newsModel.count === 0) {
             errorMessage = qsTr("No news articles found.");
         }
@@ -150,7 +150,7 @@ Item {
                 font: Tokens.font.title.medium
                 color: root.cOnSurface
             }
-            
+
             IconButton {
                 icon: "refresh"
                 onClicked: fetchNews()
@@ -186,7 +186,7 @@ Item {
             spacing: Tokens.spacing.small
             clip: true
             visible: !root.isFetching || newsModel.count > 0
-            
+
             ScrollBar.vertical: StyledScrollBar { flickable: newsListView }
 
             delegate: StyledRect {
@@ -199,7 +199,7 @@ Item {
                 width: ListView.view.width
                 implicitHeight: col.implicitHeight + Tokens.padding.medium * 2
                 radius: Tokens.rounding.medium
-                
+
                 color: root.cBgHigh
 
                 StateLayer {

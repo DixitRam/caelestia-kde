@@ -518,6 +518,7 @@ exit $status`]
             first: true
             last: !GlobalConfig.ai.enableOllama
             text: qsTr("Ollama")
+            reset: ({ node: GlobalConfig.ai, setting: "enableOllama" })
             checked: GlobalConfig.ai.enableOllama
             onToggled: GlobalConfig.ai.enableOllama = checked
         }
@@ -553,6 +554,7 @@ exit $status`]
             first: true
             text: qsTr("Claude Code")
             subtext: qsTr("Uses the Claude CLI and your Claude login")
+            reset: ({ node: GlobalConfig.ai, setting: "enableClaudeCode" })
             checked: GlobalConfig.ai.enableClaudeCode
             onToggled: GlobalConfig.ai.enableClaudeCode = checked
         }
@@ -561,6 +563,7 @@ exit $status`]
             visible: GlobalConfig.ai.enableClaudeCode
             text: qsTr("Let the CLI run its own tools")
             subtext: qsTr("Off by default; the assistant's own tools do not need it")
+            reset: ({ node: GlobalConfig.ai, setting: "claudeCodeSkipPermissions" })
             checked: GlobalConfig.ai.claudeCodeSkipPermissions
             onToggled: GlobalConfig.ai.claudeCodeSkipPermissions = checked
         }
@@ -569,6 +572,7 @@ exit $status`]
             last: true
             text: qsTr("Claude API")
             subtext: qsTr("Pay-per-token API with an Anthropic key")
+            reset: ({ node: GlobalConfig.ai, setting: "enableClaude" })
             checked: GlobalConfig.ai.enableClaude
             onToggled: GlobalConfig.ai.enableClaude = checked
         }
@@ -581,6 +585,7 @@ exit $status`]
             first: true
             text: qsTr("OpenAI (ChatGPT)")
             subtext: qsTr("Pay-per-token API with an OpenAI key")
+            reset: ({ node: GlobalConfig.ai, setting: "enableOpenai" })
             checked: GlobalConfig.ai.enableOpenai
             onToggled: GlobalConfig.ai.enableOpenai = checked
         }
@@ -588,6 +593,7 @@ exit $status`]
         ToggleRow {
             text: qsTr("Gemini")
             subtext: qsTr("Google's OpenAI-compatible endpoint")
+            reset: ({ node: GlobalConfig.ai, setting: "enableGemini" })
             checked: GlobalConfig.ai.enableGemini
             onToggled: GlobalConfig.ai.enableGemini = checked
         }
@@ -595,6 +601,7 @@ exit $status`]
         ToggleRow {
             text: qsTr("OpenRouter")
             subtext: qsTr("One key for models from multiple vendors")
+            reset: ({ node: GlobalConfig.ai, setting: "enableOpenrouter" })
             checked: GlobalConfig.ai.enableOpenrouter
             onToggled: GlobalConfig.ai.enableOpenrouter = checked
         }
@@ -602,6 +609,7 @@ exit $status`]
         ToggleRow {
             text: qsTr("opencode Zen")
             subtext: qsTr("Curated coding models, pay as you go")
+            reset: ({ node: GlobalConfig.ai, setting: "enableOpencode" })
             checked: GlobalConfig.ai.enableOpencode
             onToggled: GlobalConfig.ai.enableOpencode = checked
         }
@@ -610,6 +618,7 @@ exit $status`]
             last: true
             text: qsTr("opencode Go")
             subtext: qsTr("Monthly subscription; shares Zen's key")
+            reset: ({ node: GlobalConfig.ai, setting: "enableOpencodeGo" })
             checked: GlobalConfig.ai.enableOpencodeGo
             onToggled: GlobalConfig.ai.enableOpencodeGo = checked
         }
@@ -821,6 +830,7 @@ exit $status`]
             last: true
             text: qsTr("Save chat history")
             subtext: qsTr("Keep conversations between sessions; the sidebar's clear button removes what was already saved")
+            reset: ({ node: GlobalConfig.ai, setting: "saveChatHistory" })
             checked: GlobalConfig.ai.saveChatHistory
             onToggled: GlobalConfig.ai.saveChatHistory = checked
         }

@@ -72,6 +72,7 @@ PageBase {
             last: true
             text: qsTr("Start automatically")
             subtext: qsTr("Turn Quick Share on when the shell starts")
+            reset: ({ node: GlobalConfig.services, setting: "quickShareAutoStart" })
             checked: Config.services.quickShareAutoStart
             onToggled: GlobalConfig.services.quickShareAutoStart = checked
         }

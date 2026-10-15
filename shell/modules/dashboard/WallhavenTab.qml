@@ -264,6 +264,10 @@ Item {
 
                             radius: Tokens.rounding.large
                             color: Colours.layer(Colours.palette.m3surfaceContainerHigh, 1)
+                            // A 1px edge so the thumbnail does not dissolve into the grid
+                            // cell behind it. Pure black or white, never a tinted neutral.
+                            border.width: 1
+                            border.color: Colours.light ? Qt.rgba(0, 0, 0, 0.1) : Qt.rgba(1, 1, 1, 0.1)
 
                             StateLayer {
                                 onClicked: root.selectWallpaper(index)
@@ -316,7 +320,7 @@ Item {
         anchors.fill: parent
         anchors.margins: Tokens.padding.large
         opacity: root.detailPanelOpen ? 1 : 0
-        scale: root.detailPanelOpen ? 1 : 0.95
+        scale: root.detailPanelOpen ? 1 : 0.96
         clip: true
         enabled: root.detailPanelOpen
 

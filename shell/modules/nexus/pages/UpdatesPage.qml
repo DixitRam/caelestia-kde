@@ -13,6 +13,7 @@ import qs.components.containers
 import qs.components.controls
 import qs.services
 import qs.utils
+import qs.modules.bar
 import qs.modules.nexus
 import qs.modules.nexus.common
 
@@ -314,7 +315,7 @@ PageBase {
                         RotationAnimation {
                             target: secondaryActionButton.iconLabel
                             property: "rotation"
-                            running: secondaryActionButton.isChecking
+                            running: secondaryActionButton.isChecking && Tokens.anim.enabled
                             loops: Animation.Infinite
                             from: 0
                             to: 360
@@ -349,39 +350,8 @@ PageBase {
             visible: !root.branchDataLoading
             text: qsTr("Show Update Indicator")
             subtext: qsTr("Show a notification icon in the taskbar when updates are available")
-            checked: {
-                const entries = GlobalConfig.bar.entries;
-                for (let i = 0; i < entries.length; i++) {
-                    if (entries[i].id === "updateIndicator") return entries[i].enabled;
-                }
-                return false;
-            }
-            onToggled: {
-                let entries = GlobalConfig.bar.entries;
-                let found = false;
-                for (let i = 0; i < entries.length; i++) {
-                    if (entries[i].id === "updateIndicator") {
-                        let entry = Object.assign({}, entries[i]);
-                        entry.enabled = checked;
-                        entries[i] = entry;
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found && checked) {
-                    let insertIdx = entries.length;
-                    for (let i = 0; i < entries.length; i++) {
-                        if (entries[i].id === "github" || entries[i].id === "clock") {
-                            insertIdx = i;
-                            break;
-                        } else if (entries[i].id === "tray") {
-                            insertIdx = i + 1;
-                        }
-                    }
-                    entries.splice(insertIdx, 0, { id: "updateIndicator", enabled: true, zone: "right" });
-                }
-                GlobalConfig.bar.entries = entries;
-            }
+            checked: BarWidgets.isEnabled(GlobalConfig.bar, "updateIndicator")
+            onToggled: BarWidgets.setEnabled(GlobalConfig.bar, "updateIndicator", checked)
         }
 
         NavRow {

@@ -54,7 +54,6 @@ Item {
 
                     anchors.fill: parent
                     fillMode: VideoOutput.Stretch
-                    layer.enabled: true
                 }
 
                 AudioOutput {

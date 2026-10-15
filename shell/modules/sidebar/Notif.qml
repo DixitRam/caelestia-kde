@@ -88,7 +88,7 @@ StyledRect {
         anchors.leftMargin: Tokens.spacing.small
 
         sourceComponent: StyledText {
-            text: String(root.modelData?.bodyPlain ?? "").replace(/\n+/g, " ")
+            text: root.modelData?.bodyPlain ?? ""
             color: root.modelData?.urgency === "critical" ? Colours.palette.m3secondary : Colours.palette.m3outline
             elide: Text.ElideRight
         }
@@ -134,10 +134,10 @@ StyledRect {
             id: bodyText
 
             Layout.fillWidth: true
-            textFormat: Text.MarkdownText
-            text: String(root.modelData?.body ?? "").replace(/(.)\n(?!\n)/g, "$1\n\n") || qsTr("No body here! :/")
+            textFormat: Text.StyledText
+            text: root.modelData?.bodyStyled || qsTr("No body here! :/")
             color: root.modelData?.urgency === "critical" ? Colours.palette.m3secondary : Colours.palette.m3outline
-            wrapMode: Text.WordWrap
+            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
 
             onLinkActivated: link => {
                 Qt.openUrlExternally(link);

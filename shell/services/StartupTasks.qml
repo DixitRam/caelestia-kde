@@ -16,12 +16,12 @@ Item {
             STATE_FILE="$HOME/.local/share/caelestia/state/startup_tasks.txt"
             mkdir -p "$(dirname "$STATE_FILE")"
             touch "$STATE_FILE"
-            
+
             TASKS_DIR="$1"
             SCRIPTS_DIR="$2"
             export SCRIPTS_DIR
             MODIFIED=false
-            
+
             TASKS=(
                 "01-magic-lamp"
                 "02-krohnkite-setup"
@@ -30,7 +30,7 @@ Item {
                 "05-matugen"
                 "06-kde-desktop-mode"
             )
-            
+
             for script_name in "\${TASKS[@]}"; do
                 script="$TASKS_DIR/$script_name.sh"
                 if [[ -f "$script" ]]; then
@@ -43,7 +43,7 @@ Item {
                     fi
                 fi
             done
-            
+
             if [[ "$MODIFIED" == "true" ]]; then
                 qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
             fi

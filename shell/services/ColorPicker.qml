@@ -19,7 +19,7 @@ Item {
             "/ColorPicker",
             "org.kde.kwin.ColorPicker.pick"
         ]
-        
+
         stdout: StdioCollector {
             id: outCollector
 
@@ -31,9 +31,9 @@ Item {
                     if (decimalColor === 0) return;
                     let hex = (decimalColor & 0x00FFFFFF).toString(16).padStart(6, '0');
                     let colorCode = "#" + hex.toUpperCase();
-                    
+
                     Quickshell.execDetached(["bash", "-c", `echo -n '${colorCode}' | wl-copy`]);
-                    
+
                     Quickshell.execDetached(["notify-send", "Color Picker", `Color ${colorCode} copied to clipboard!`]);
                 }
             }

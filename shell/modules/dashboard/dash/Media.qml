@@ -172,6 +172,7 @@ Item {
         IconButton {
             fillWidth: true
             icon: Players.active?.isPlaying ? "pause" : "play_arrow"
+            animateIcon: true
             isRound: true
             shapeMorph: true
             checked: Players.active?.isPlaying ?? false

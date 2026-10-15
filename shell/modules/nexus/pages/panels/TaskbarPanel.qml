@@ -262,7 +262,7 @@ PageBase {
 
         ToggleRow {
             text: qsTr("Volume")
-            subtext: qsTr("Scroll on the top half of the bar to adjust volume")
+            subtext: qsTr("Scroll on the left half of a horizontal bar (top half if vertical) to adjust volume")
             reset: ({ node: GlobalConfig.bar.scrollActions, setting: "volume" })
             checked: GlobalConfig.bar.scrollActions.volume
             onToggled: GlobalConfig.bar.scrollActions.volume = checked
@@ -271,7 +271,7 @@ PageBase {
         ToggleRow {
             last: true
             text: qsTr("Brightness")
-            subtext: qsTr("Scroll on the bottom half of the bar to adjust brightness")
+            subtext: qsTr("Scroll on the right half of a horizontal bar (bottom half if vertical) to adjust brightness")
             reset: ({ node: GlobalConfig.bar.scrollActions, setting: "brightness" })
             checked: GlobalConfig.bar.scrollActions.brightness
             onToggled: GlobalConfig.bar.scrollActions.brightness = checked

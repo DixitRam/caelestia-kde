@@ -19,6 +19,10 @@ NumberAnimation {
         SlowEffects
     }
 
+    // Names one token and sets both halves of it. A caller that wants a duration or an
+    // easing the tokens do not name sets both itself and leaves `type` alone: writing
+    // only one of them replaces that half and leaves the other coming from here, which is
+    // how a spatial duration ends up on an effects curve, or the reverse.
     property int type: Anim.DefaultSpatial
 
     duration: {

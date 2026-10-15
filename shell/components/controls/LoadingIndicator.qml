@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import M3Shapes
+import Caelestia.Config
 import qs.components
 import qs.services
 
@@ -19,6 +20,9 @@ MaterialShape {
     property bool containsIcon
 
     property bool animated: true
+    // Hidden indicators (an unshown tab, a closed panel) keep their animations
+    // stopped; a running animation keeps its window rendering every frame.
+    readonly property bool running: animated && visible
     property int morphAnimRotation: 60
     property real morphScale: 0.14
     property alias rotateAnimDuration: rotateAnim.duration
@@ -61,7 +65,7 @@ MaterialShape {
     }
 
     FrameAnimation {
-        running: root.animated && !root.springSettled
+        running: root.running && !root.springSettled && Tokens.anim.enabled
         onTriggered: {
             const t = timer.elapsed();
 
@@ -80,7 +84,7 @@ MaterialShape {
         interval: 650
         repeat: true
         triggeredOnStart: true
-        running: root.animated
+        running: root.running
         onTriggered: {
             root.beginBatchUpdate();
             root.fromShape = root.toShape;
@@ -102,7 +106,7 @@ MaterialShape {
     RotationAnimation on cRotation {
         id: rotateAnim
 
-        running: root.animated
+        running: root.running && Tokens.anim.enabled
         from: 0
         to: 360
         easing.type: Easing.Linear

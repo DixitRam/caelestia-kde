@@ -12,19 +12,19 @@ import qs.utils
 
 Item {
     id: root
-    
+
     property color activeColor: DinoGameBackend.isInverted ? Colours.palette.m3inverseOnSurface : Colours.palette.m3onSurface
     property color bgColor: DinoGameBackend.isInverted ? Colours.palette.m3inverseSurface : "transparent"
 
-    Behavior on activeColor { CAnim { duration: 500 } }
-    Behavior on bgColor { CAnim { duration: 500 } }
-    
+    Behavior on activeColor { CAnim {} }
+    Behavior on bgColor { CAnim {} }
+
     property bool isPlaying: DinoGameBackend.isPlaying
 
     property bool isGameOver: DinoGameBackend.isGameOver
 
     property bool _previousDnd: false
-    
+
     implicitWidth: Math.max(250, parent.width * 0.8)
 
     implicitHeight: 200
@@ -32,11 +32,11 @@ Item {
     clip: true
 
     focus: true
-    
+
     onWidthChanged: DinoGameBackend.width = width
 
     Component.onCompleted: DinoGameBackend.width = width
-    
+
     Connections {
         target: DinoGameBackend
 
@@ -49,13 +49,13 @@ Item {
             if (!_previousDnd) Notifs.dnd = false;
         }
     }
-    
+
     Component.onDestruction: {
         if (isPlaying && !_previousDnd) {
             Notifs.dnd = false;
         }
     }
-    
+
     Shortcut {
         sequence: "Space"
         onActivated: {
@@ -70,17 +70,17 @@ Item {
             DinoGameBackend.jump();
         }
     }
-    
+
     Keys.onDownPressed: (event) => {
         if (event.isAutoRepeat) return;
         if (root.isPlaying) DinoGameBackend.isDucking = true;
     }
-    
+
     Keys.onReleased: (event) => {
         if (event.isAutoRepeat) return;
         if (event.key === Qt.Key_Down) DinoGameBackend.isDucking = false;
     }
-    
+
     MouseArea {
         anchors.fill: parent
         hoverEnabled: true
@@ -88,13 +88,13 @@ Item {
             DinoGameBackend.jump()
         }
     }
-    
+
     Rectangle {
         anchors.fill: parent
         color: root.bgColor
         z: -1
     }
-    
+
     Item {
         visible: root.isPlaying || root.isGameOver
         width: parent.width
@@ -102,28 +102,28 @@ Item {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 10
         clip: true
-        
+
         Image {
             x: -DinoGameBackend.groundX
             width: 2400
             height: 24
             source: Paths.absolutePath("root:/assets/dino_ground.png")
             fillMode: Image.PreserveAspectFit
-            
+
             layer.enabled: true
             layer.effect: Colouriser {
                 colorizationColor: root.activeColor
                 brightness: 1
             }
         }
-        
+
         Image {
             x: 2400 - DinoGameBackend.groundX
             width: 2400
             height: 24
             source: Paths.absolutePath("root:/assets/dino_ground.png")
             fillMode: Image.PreserveAspectFit
-            
+
             layer.enabled: true
             layer.effect: Colouriser {
                 colorizationColor: root.activeColor
@@ -131,12 +131,12 @@ Item {
             }
         }
     }
-    
+
     ColumnLayout {
         anchors.centerIn: parent
         visible: !root.isPlaying && !root.isGameOver
         spacing: Tokens.spacing.extraLarge
-        
+
         Item {
             Layout.alignment: Qt.AlignHCenter
             width: 250
@@ -203,7 +203,7 @@ Item {
                             brightness: 1
                         }
                     }
-                    
+
                     Image {
                         x: 40
                         y: 40
@@ -245,7 +245,7 @@ Item {
                 }
             }
         }
-        
+
         StyledText {
             Layout.alignment: Qt.AlignHCenter
             text: qsTr("All up to date!")
@@ -253,11 +253,11 @@ Item {
             font: Tokens.font.headline.builders.small.width(90).build()
         }
     }
-    
+
     Item {
         anchors.fill: parent
         visible: root.isPlaying || root.isGameOver
-        
+
         Repeater {
             model: DinoGameBackend.clouds
 
@@ -268,7 +268,7 @@ Item {
                 height: 27
                 source: Paths.absolutePath("root:/assets/dino_cloud.png")
                 fillMode: Image.PreserveAspectFit
-                
+
                 layer.enabled: true
                 layer.effect: Colouriser {
                     colorizationColor: root.activeColor
@@ -276,7 +276,7 @@ Item {
                 }
             }
         }
-        
+
         Image {
             id: dino
 
@@ -291,14 +291,14 @@ Item {
             }
             x: 30
             y: parent.height - 30 - height + DinoGameBackend.dinoY
-            
+
             layer.enabled: !GlobalConfig.general.caelestiaMode
             layer.effect: Colouriser {
                 colorizationColor: root.activeColor
                 sourceColor: "white"
             }
         }
-        
+
         StyledText {
             text: "HI " + ("00000" + Math.floor(DinoGameBackend.highScore)).slice(-5) + "  " + ("00000" + Math.floor(DinoGameBackend.score)).slice(-5)
             anchors.top: parent.top
@@ -308,7 +308,7 @@ Item {
             color: root.activeColor
             Component.onCompleted: font.features = {"tnum": 1}
         }
-        
+
         Repeater {
             model: DinoGameBackend.obstacles
 
@@ -321,7 +321,7 @@ Item {
                 }
                 x: modelData.x
                 y: parent.height - 30 - height - (modelData.yOffset || 0)
-                
+
                 layer.enabled: true
                 layer.effect: Colouriser {
                     colorizationColor: root.activeColor
@@ -330,7 +330,7 @@ Item {
             }
         }
     }
-    
+
     StyledText {
         visible: root.isGameOver && Math.floor(DinoGameBackend.score) < 99999
         text: qsTr("G A M E   O V E R\nClick to restart")
@@ -340,7 +340,7 @@ Item {
         font: Tokens.font.title.large
         color: root.activeColor
     }
-    
+
     StyledText {
         visible: root.isGameOver && Math.floor(DinoGameBackend.score) >= 99999
         text: qsTr("Y O U   W I N !\nNow go touch grass")

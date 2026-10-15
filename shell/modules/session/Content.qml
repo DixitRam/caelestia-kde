@@ -80,7 +80,7 @@ Column {
             opacity: GlobalConfig.general.caelestiaMode ? 1 : 0
 
             Behavior on opacity { Anim { type: Anim.Standard } }
-            
+
             layer.enabled: true
 
             layer.effect: Colouriser {
@@ -100,7 +100,7 @@ Column {
             opacity: GlobalConfig.general.caelestiaMode ? 1 : 0
 
             Behavior on opacity { Anim { type: Anim.Standard } }
-            
+
             layer.enabled: true
 
             layer.effect: Colouriser {

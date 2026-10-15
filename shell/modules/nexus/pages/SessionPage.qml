@@ -37,6 +37,7 @@ PageBase {
             Layout.fillWidth: true
             text: qsTr("Enabled")
             subtext: qsTr("Show the session (power) menu")
+            reset: ({ node: GlobalConfig.session, setting: "enabled" })
             checked: Config.session.enabled
             onToggled: GlobalConfig.session.enabled = checked
         }
@@ -45,6 +46,7 @@ PageBase {
             Layout.fillWidth: true
             text: qsTr("Vim keybinds")
             subtext: qsTr("Navigate the session menu with hjkl")
+            reset: ({ node: GlobalConfig.session, setting: "vimKeybinds" })
             checked: Config.session.vimKeybinds
             onToggled: GlobalConfig.session.vimKeybinds = checked
         }
@@ -53,6 +55,7 @@ PageBase {
             last: true
             label: qsTr("Drag threshold")
             subtext: qsTr("Pixels to drag before the menu moves")
+            reset: ({ node: GlobalConfig.session, setting: "dragThreshold" })
             value: Config.session.dragThreshold
             from: 10
             to: 200

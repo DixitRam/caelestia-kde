@@ -1,5 +1,5 @@
 import QtQuick
-import Caelestia as Backend
+import Caelestia.Services as Backend
 
 QtObject {
     readonly property var kwin: Backend.KWinActiveWindowBridge

@@ -15,7 +15,7 @@ import qs.services
 
 Variants {
     model: Screens.screens
-    
+
     PanelWindow {
         id: root
 
@@ -24,7 +24,7 @@ Variants {
         screen: modelData
 
         property bool active: false
-        
+
         Connections {
             target: Visibilities.getForActive()
 
@@ -32,7 +32,7 @@ Variants {
                 root.active = Visibilities.getForActive().screenshot;
             }
         }
-        
+
         onActiveChanged: {
             if (!active) visible = false;
             else visible = true;
@@ -61,12 +61,12 @@ Variants {
             color: Colours.palette.m3scrim
             opacity: root.active ? 0.3 : 0
             anchors.fill: parent
-            
+
             MouseArea {
                 anchors.fill: parent
                 onClicked: Visibilities.getForActive().screenshot = false
             }
-            
+
             Behavior on opacity {
                 Anim {
                     type: Anim.DefaultEffects
@@ -136,7 +136,7 @@ Variants {
                             Launch.exec(["spectacle", "-R", "r"]);
                         }
                     }
-                    
+
                     BigRecorderButton {
                         materialSymbol: "capture"
                         name: qsTr("Record screen")
@@ -152,7 +152,7 @@ Variants {
                     type: ButtonBase.Tonal
                     icon: "animated_images"
                     text: qsTr("Open recordings folder")
-                    
+
                     inactiveColour: Colours.palette.m3surfaceContainerHigh
                     activeColour: Colours.palette.m3surfaceContainerHighest
                     inactiveOnColour: Colours.palette.m3onSurface
@@ -171,10 +171,10 @@ Variants {
 
             required property string materialSymbol
             required property string name
-            
+
             type: ButtonBase.Tonal
             isRound: true
-            
+
             inactiveColour: Colours.palette.m3surfaceContainerHigh
             activeColour: Colours.palette.m3surfaceContainerHighest
             inactiveOnColour: Colours.palette.m3onSurface
