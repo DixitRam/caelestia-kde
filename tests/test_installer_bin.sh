@@ -14,9 +14,6 @@ seed_bundle() {
     printf 'VERSION=v2.5.1\n' > "$dir/.github/version.env"
 }
 
-# The stub answers both requests the resolver makes: the artifact, then the
-# checksum published beside it. It records what it handed out so the sidecar
-# describes those very bytes, and it can be told to refuse or to lie.
 stub_curl() {
     local dir="$1" behaviour="$2"
     mkdir -p "$dir"
@@ -61,7 +58,7 @@ resolver() {
 }
 
 cache_path() {
-    printf '%s\n' "$1/.cache/caelestia/caelestia-install"
+    printf '%s\n' "$1/.cache/caelestia/caelestia-install-v0.1.0"
 }
 
 test_a_binary_in_the_bundle_wins() {
@@ -145,20 +142,79 @@ test_fetching_can_be_switched_off() {
     assert_file_missing "$(cache_path "$dir/home")"
 }
 
-test_a_step_script_runs_when_no_binary_can_be_found() {
+test_a_cached_binary_from_another_version_is_not_used() {
+    local dir bundle out stale
+    dir="$(new_tmpdir)"
+    bundle="$dir/bundle"
+    seed_bundle "$bundle"
+    mkdir -p "$dir/home/.cache/caelestia"
+    stub_curl "$dir/bin" ok
+
+    stale="$dir/home/.cache/caelestia/caelestia-install-v0.0.9"
+    printf '#!/bin/sh\nexit 0\n' > "$stale"
+    chmod +x "$stale"
+
+    out="$(resolver "$bundle" "$dir/home" "$dir/bin:$PATH" caelestia_installer_bin)"
+    assert_eq "$(cache_path "$dir/home")" "$out" "the declared version is fetched, not the stale copy"
+    assert_file_missing "$stale" "and the superseded copy is retired"
+}
+
+test_a_cached_binary_of_the_declared_version_is_reused() {
+    local dir bundle out cached
+    dir="$(new_tmpdir)"
+    bundle="$dir/bundle"
+    seed_bundle "$bundle"
+    mkdir -p "$dir/home/.cache/caelestia"
+
+    cached="$(cache_path "$dir/home")"
+    printf '#!/bin/sh\nexit 0\n' > "$cached"
+    chmod +x "$cached"
+
+    out="$(resolver "$bundle" "$dir/home" "$PATH" caelestia_installer_bin)"
+    assert_eq "$cached" "$out" "a cache of this very version is used as it is"
+}
+
+test_a_binary_elsewhere_on_the_path_does_not_win() {
     local dir bundle out
     dir="$(new_tmpdir)"
     bundle="$dir/bundle"
     seed_bundle "$bundle"
-    mkdir -p "$dir/home"
-    printf '#!/usr/bin/env bash\nprintf "ran %%s\\n" "$1"\n' > "$bundle/scripts/02a-submodules.sh"
-    chmod +x "$bundle/scripts/02a-submodules.sh"
+    mkdir -p "$dir/home" "$dir/bin"
+    printf '#!/bin/sh\nexit 0\n' > "$dir/bin/caelestia-install"
+    chmod +x "$dir/bin/caelestia-install"
 
-    out="$(CAELESTIA_NO_INSTALLER_FETCH=1 resolver "$bundle" "$dir/home" "$PATH" 'caelestia_run_step 02a-submodules')"
-    assert_contains "$out" "ran " "the shipped script is the fallback"
+    out="$(CAELESTIA_NO_INSTALLER_FETCH=1 resolver "$bundle" "$dir/home" "$dir/bin:$PATH" caelestia_installer_bin)"
+    assert_eq "" "$out" "an unversioned guess from the path is not run"
 }
 
-test_a_step_with_neither_binary_nor_script_says_so() {
+test_a_copy_in_the_users_own_bin_does_not_win() {
+    local dir bundle out
+    dir="$(new_tmpdir)"
+    bundle="$dir/bundle"
+    seed_bundle "$bundle"
+    mkdir -p "$dir/home/.local/bin"
+    printf '#!/bin/sh\nexit 0\n' > "$dir/home/.local/bin/caelestia-install"
+    chmod +x "$dir/home/.local/bin/caelestia-install"
+
+    out="$(CAELESTIA_NO_INSTALLER_FETCH=1 resolver "$bundle" "$dir/home" "$PATH" caelestia_installer_bin)"
+    assert_eq "" "$out" "the user's own bin directory is not searched"
+}
+
+test_the_named_override_is_honoured() {
+    local dir bundle out override
+    dir="$(new_tmpdir)"
+    bundle="$dir/bundle"
+    seed_bundle "$bundle"
+    mkdir -p "$dir/home"
+    override="$dir/mine"
+    printf '#!/bin/sh\nexit 0\n' > "$override"
+    chmod +x "$override"
+
+    out="$(CAELESTIA_INSTALL_BIN="$override" resolver "$bundle" "$dir/home" "$PATH" caelestia_installer_bin)"
+    assert_eq "$override" "$out" "CAELESTIA_INSTALL_BIN names the binary to run"
+}
+
+test_a_step_with_no_binary_to_run_it_says_so() {
     local dir bundle status
     dir="$(new_tmpdir)"
     bundle="$dir/bundle"
@@ -167,7 +223,7 @@ test_a_step_with_neither_binary_nor_script_says_so() {
 
     CAELESTIA_NO_INSTALLER_FETCH=1 resolver "$bundle" "$dir/home" "$PATH" 'caelestia_run_step 09-system-tweaks' > "$dir/out" 2>&1
     status=$?
-    assert_status 127 "$status" "a missing step is reported as unrunnable"
+    assert_status 127 "$status" "a step with nothing to run is reported as unrunnable"
     assert_file_contains "$dir/home/stderr" "cannot run the 09-system-tweaks step" "the message names the step"
 }
 

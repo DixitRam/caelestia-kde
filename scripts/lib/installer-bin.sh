@@ -2,34 +2,64 @@
 if [[ -z "${CAELESTIA_INSTALLER_BIN_SOURCED:-}" ]]; then
 CAELESTIA_INSTALLER_BIN_SOURCED=1
 
+caelestia_bundle_dir() {
+    local bundle="${BUNDLE_DIR:-}"
+    if [[ -z "$bundle" ]]; then
+        bundle="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd)" || return 1
+    fi
+    [[ -n "$bundle" ]] || return 1
+    printf '%s\n' "$bundle"
+}
+
+caelestia_installer_version() {
+    local bundle version
+    bundle="$(caelestia_bundle_dir)" || return 1
+    version="$(tr -d '[:space:]' < "$bundle/installer/data/tui.version" 2>/dev/null || true)"
+    [[ -n "$version" ]] || return 1
+    printf '%s\n' "$version"
+}
+
+caelestia_release_tag() {
+    local bundle tag
+    bundle="$(caelestia_bundle_dir)" || return 1
+    tag="$(sed -nE 's/^[[:space:]]*VERSION=//p' "$bundle/.github/version.env" 2>/dev/null | tr -d '[:space:]')"
+    [[ -n "$tag" ]] || return 1
+    printf '%s\n' "$tag"
+}
+
 caelestia_installer_url() {
-    local arch bundle tag version
+    local arch version tag
     arch="$(uname -m)"
     case "$arch" in
         x86_64 | aarch64) ;;
         *) return 1 ;;
     esac
 
-    bundle="${BUNDLE_DIR:-}"
-    if [[ -z "$bundle" ]]; then
-        bundle="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd)" || return 1
-    fi
-
-    version="$(tr -d '[:space:]' < "$bundle/installer/data/tui.version" 2>/dev/null || true)"
-    tag="$(sed -nE 's/^[[:space:]]*VERSION=//p' "$bundle/.github/version.env" 2>/dev/null | tr -d '[:space:]')"
-    [[ -n "$version" && -n "$tag" ]] || return 1
+    version="$(caelestia_installer_version)" || return 1
+    tag="$(caelestia_release_tag)" || return 1
 
     printf 'https://github.com/ladybug-me/caelestia-kde/releases/download/%s/caelestia-install-%s-v%s\n' \
         "$tag" "$arch" "$version"
 }
 
 caelestia_cached_installer() {
-    printf '%s\n' "${XDG_CACHE_HOME:-${HOME:-}/.cache}/caelestia/caelestia-install"
+    local version
+    version="$(caelestia_installer_version)" || return 1
+    printf '%s\n' "${XDG_CACHE_HOME:-${HOME:-}/.cache}/caelestia/caelestia-install-v${version}"
+}
+
+caelestia_prune_cached_installers() {
+    local keep="$1" stale
+    for stale in "$(dirname -- "$keep")"/caelestia-install-v*; do
+        [[ -e "$stale" ]] || continue
+        [[ "$stale" == "$keep" ]] && continue
+        rm -f "$stale"
+    done
 }
 
 caelestia_fetch_installer() {
     local bin url sidecar expected actual
-    bin="$(caelestia_cached_installer)"
+    bin="$(caelestia_cached_installer)" || return 1
     if [[ -x "$bin" ]]; then
         printf '%s\n' "$bin"
         return 0
@@ -56,13 +86,14 @@ caelestia_fetch_installer() {
 
     actual="$(sha256sum "$bin.part" | cut -d' ' -f1)"
     if [[ -z "$expected" || "$expected" != "$actual" ]]; then
-        printf '[ERR]   the downloaded installer failed its checksum; keeping the step scripts\n' >&2
+        printf '[ERR]   the downloaded installer failed its checksum\n' >&2
         rm -f "$bin.part"
         return 1
     fi
 
     chmod +x "$bin.part" || { rm -f "$bin.part"; return 1; }
     mv -f "$bin.part" "$bin" || { rm -f "$bin.part"; return 1; }
+    caelestia_prune_cached_installers "$bin"
     printf '%s\n' "$bin"
 }
 
@@ -72,13 +103,8 @@ caelestia_installer_bin() {
         return 0
     fi
 
-    local bundle="${BUNDLE_DIR:-}"
-    if [[ -z "$bundle" ]]; then
-        bundle="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd)" || bundle=""
-    fi
-
-    local candidate
-    if [[ -n "$bundle" ]]; then
+    local bundle candidate
+    if bundle="$(caelestia_bundle_dir)"; then
         for candidate in \
             "$bundle/caelestia-install" \
             "$bundle/installer/target/release/caelestia-install" \
@@ -90,60 +116,37 @@ caelestia_installer_bin() {
         done
     fi
 
-    candidate="$(command -v caelestia-install 2>/dev/null || true)"
-    if [[ -n "$candidate" && -x "$candidate" ]]; then
-        printf '%s\n' "$candidate"
-        return 0
-    fi
-
     for candidate in \
-        "${HOME:-}/.local/bin/caelestia-install" \
         /usr/bin/caelestia-install \
         /usr/lib/caelestia/caelestia-install; do
-        if [[ -n "$candidate" && -x "$candidate" ]]; then
+        if [[ -x "$candidate" ]]; then
             printf '%s\n' "$candidate"
             return 0
         fi
     done
 
-    # A packaged install ships the step scripts but not the installer, so the
-    # published binary is fetched once and cached. CAELESTIA_NO_INSTALLER_FETCH
-    # keeps a machine offline: the step scripts then run as they always have.
     if [[ "${CAELESTIA_NO_INSTALLER_FETCH:-0}" == "1" ]]; then
         return 1
     fi
     caelestia_fetch_installer
 }
 
-caelestia_step_script() {
-    local id="$1" bundle="${2:-${BUNDLE_DIR:-}}"
-    [[ -n "$bundle" ]] || return 1
-    printf '%s\n' "$bundle/scripts/$id.sh"
-}
-
 caelestia_run_step() {
     local id="$1"
     shift
     local bundle="${BUNDLE_DIR:-}"
-    local bin script
+    local bin
 
-    if bin="$(caelestia_installer_bin)"; then
-        if [[ -n "$bundle" ]]; then
-            "$bin" step "$id" --bundle "$bundle" "$@"
-        else
-            "$bin" step "$id" "$@"
-        fi
-        return $?
+    if ! bin="$(caelestia_installer_bin)"; then
+        printf '[ERR]   cannot run the %s step: no installer binary to run it with\n' "$id" >&2
+        return 127
     fi
 
-    script="$(caelestia_step_script "$id" "$bundle")" || true
-    if [[ -n "$script" && -f "$script" ]]; then
-        BUNDLE_DIR="$bundle" bash "$script" "$@"
-        return $?
+    if [[ -n "$bundle" ]]; then
+        "$bin" step "$id" --bundle "$bundle" "$@"
+    else
+        "$bin" step "$id" "$@"
     fi
-
-    printf '[ERR]   cannot run the %s step: no installer binary and no %s\n' "$id" "${script:-script}" >&2
-    return 127
 }
 
 fi

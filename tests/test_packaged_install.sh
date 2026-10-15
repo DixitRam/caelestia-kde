@@ -22,8 +22,6 @@ stub_steps() {
     : > "$CALLS"
     cp "$REPO_ROOT/scripts/lib/installer-bin.sh" "$DATA/scripts/lib/"
 
-    # The packaged half reaches every step through the installer binary, so the fixture
-    # stands in for it and records the id, the tree, and which install it was told it is.
     cat > "$DATA/caelestia-install" <<EOF
 #!/bin/bash
 printf '%s|%s|%s\n' "\$2" "\$CAELESTIA_DATA_DIR" "\$CAELESTIA_INSTALL_KIND" >> "$CALLS"
@@ -132,8 +130,10 @@ test_shared_runtime_files_have_one_cmake_owner() {
         "CMake should own the matugen data"
     assert_contains "$cmake" '"${CAELESTIA_ROOT_DIR}/src/schemes"' \
         "CMake should own the shipped schemes"
-    assert_contains "$cmake" '"${CAELESTIA_ROOT_DIR}/scripts/[0-9]*.sh"' \
-        "CMake should own the installer step scripts"
+    assert_contains "$cmake" 'scripts/lib/installer-bin.sh' \
+        "CMake should own the resolver a packaged install reaches its steps through"
+    assert_contains "$cmake" '"${CAELESTIA_ROOT_DIR}/scripts/lib"' \
+        "CMake should install the resolver library"
     assert_contains "$cmake" '"${CAELESTIA_ROOT_DIR}/src/dots"' \
         "CMake should own the deployed dotfiles"
     assert_contains "$cmake" '"${CAELESTIA_ROOT_DIR}/shell/assets/wallpaper.webp"' \
@@ -146,8 +146,8 @@ test_shared_runtime_files_have_one_cmake_owner() {
         "CMake should own package-only repository assets"
     assert_contains "$cmake" 'if(NOT CAELESTIA_BIN_FILES)' \
         "CMake should refuse a configure where the CLI glob matched nothing"
-    assert_contains "$cmake" 'if(NOT CAELESTIA_STEP_SCRIPTS)' \
-        "CMake should refuse a configure where the step-script glob matched nothing"
+    assert_contains "$cmake" 'if(NOT EXISTS "${CAELESTIA_ROOT_DIR}/scripts/lib/installer-bin.sh")' \
+        "CMake should refuse a configure where the resolver is missing"
     assert_contains "$pkgbuild" '-DCAELESTIA_PACKAGE=ON' \
         "the package should enable package-only CMake assets"
     assert_contains "$pkgbuild" 'install_manifest.txt' \
