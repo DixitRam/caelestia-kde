@@ -29,24 +29,36 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue((ROOT / rel_path).is_file(), f"Missing installer entrypoint: {rel_path.as_posix()}")
 
     def test_setup_references_existing_step_scripts(self) -> None:
-        steps_text = (ROOT / "installer" / "src" / "steps.rs").read_text(encoding="utf-8")
-        matches = re.findall(r'script: "(scripts/[^"]+)"', steps_text)
+        steps_text = (ROOT / "installer" / "src" / "steps" / "mod.rs").read_text(encoding="utf-8")
+        matches = re.findall(r'Script\("(scripts/[^"]+)"\)', steps_text)
 
-        self.assertTrue(matches, "No installer steps found in installer/src/steps.rs")
+        self.assertTrue(matches, "No installer steps found in installer/src/steps/mod.rs")
 
         for rel_path in matches:
             normalized = Path(rel_path.replace("\\", "/"))
             resolved = ROOT / normalized
             self.assertTrue(
                 resolved.is_file(),
-                f"Missing installer step referenced by steps.rs: {resolved.relative_to(ROOT).as_posix()}",
+                f"Missing installer step referenced by steps/mod.rs: {resolved.relative_to(ROOT).as_posix()}",
             )
+
+    def test_every_step_declares_an_id(self) -> None:
+        """A step is addressed by id, so every step needs one, and no two may collide."""
+        steps_text = (ROOT / "installer" / "src" / "steps" / "mod.rs").read_text(encoding="utf-8")
+        ids = re.findall(r'id: "([^"]+)"', steps_text)
+        self.assertTrue(ids, "No step ids found in installer/src/steps/mod.rs")
+
+        names = re.findall(r'name: "([^"]+)"', steps_text)
+        self.assertEqual(len(ids), len(names), "every step needs exactly one id")
+
+        duplicates = {step_id for step_id in ids if ids.count(step_id) > 1}
+        self.assertFalse(duplicates, f"Duplicate installer step ids: {duplicates}")
 
     def test_no_duplicate_step_names(self) -> None:
         """The step table must not define two steps with the same display name."""
-        steps_text = (ROOT / "installer" / "src" / "steps.rs").read_text(encoding="utf-8")
+        steps_text = (ROOT / "installer" / "src" / "steps" / "mod.rs").read_text(encoding="utf-8")
         display_names = re.findall(r'name: "([^"]+)"', steps_text)
-        self.assertTrue(display_names, "No step names found in installer/src/steps.rs")
+        self.assertTrue(display_names, "No step names found in installer/src/steps/mod.rs")
 
         seen: dict[str, int] = {}
         for name in display_names:
@@ -61,7 +73,7 @@ class InstallerTests(unittest.TestCase):
     def test_every_step_script_is_wired_into_a_step_list(self) -> None:
         """A numbered scripts/*.sh must be run by a step list, and every listed step must exist.
 
-        Three lists run step scripts: the full install (installer/src/steps.rs), the
+        Three lists run step scripts: the full install (installer/src/steps/mod.rs), the
         user's half of a packaged install (src/bin/caelestia), and the subset
         08-build-shell.sh runs on its own when a checkout updates itself. A script in none
         of them is dead weight that every other check still reports as covered; a list
@@ -70,7 +82,7 @@ class InstallerTests(unittest.TestCase):
         lists differ in failure policy - the installer stops, the update path warns and
         carries on - so only their membership is comparable, which is all this checks.
         """
-        runner_text = (ROOT / "installer" / "src" / "steps.rs").read_text(encoding="utf-8")
+        runner_text = (ROOT / "installer" / "src" / "steps" / "mod.rs").read_text(encoding="utf-8")
         packaged_text = (ROOT / "src" / "bin" / "caelestia").read_text(encoding="utf-8")
         update_text = (ROOT / "scripts" / "08-build-shell.sh").read_text(encoding="utf-8")
 
@@ -326,8 +338,12 @@ class InstallerSourceTests(unittest.TestCase):
     def test_the_installer_sources_are_where_this_expects_them(self) -> None:
         """Keeps the checks above from passing just because they read no files."""
         names = {path.name for path in self.SRC.glob("*.rs")}
-        for expected in ("main.rs", "cli.rs", "steps.rs", "menu.rs", "app.rs", "screens.rs", "runner.rs"):
+        for expected in ("main.rs", "cli.rs", "menu.rs", "app.rs", "screens.rs", "runner.rs"):
             self.assertIn(expected, names, f"installer/src/{expected} is missing")
+        self.assertTrue(
+            (self.SRC / "steps" / "mod.rs").is_file(),
+            "installer/src/steps/mod.rs is missing",
+        )
 
     def test_step_scripts_are_named_in_one_place_only(self) -> None:
         """The step table is the single list; everything else renders what it holds."""
@@ -336,7 +352,7 @@ class InstallerSourceTests(unittest.TestCase):
             self.assertNotIn(
                 "scripts/",
                 text,
-                f"installer/src/{name} names a step script; installer/src/steps.rs "
+                f"installer/src/{name} names a step script; installer/src/steps/mod.rs "
                 "is the only place that may",
             )
 

@@ -4,14 +4,17 @@ mod cli;
 mod exit;
 mod handoff;
 mod menu;
+mod output;
 mod privileges;
+mod process;
 mod runner;
 mod screens;
 mod signals;
 mod steps;
 mod theme;
+mod tmp;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -23,15 +26,18 @@ const VERSION: &str = include_str!("../data/tui.version");
 
 const USAGE: &str = "\
 caelestia-install [OPTIONS] [BUNDLE_DIR]
+caelestia-install step [OPTIONS] STEP_ID
 
   Install, update or remove Caelestia. With no arguments this opens the wizard.
 
 Arguments:
   BUNDLE_DIR      the tree to operate on (default: this binary's directory)
+  STEP_ID         a step to run on its own, by its id
 
 Options:
   --update        skip the wizard and run the update path
   --uninstall     skip the wizard and run the uninstall path
+  --bundle DIR    the tree a step operates on
   --debug         write the phase trace to stderr
   --version       print the installer version and exit
   -h, --help      print this help and exit
@@ -71,10 +77,33 @@ fn main() -> ExitCode {
             Outcome::Ok
         }
         Invocation::Askpass(pipe) => askpass(&pipe),
+        Invocation::Step { id, bundle, debug } => run_step(&id, bundle, debug),
         Invocation::Run(args) => run(args),
     };
 
     ExitCode::from(outcome.code())
+}
+
+fn run_step(id: &str, bundle: Option<PathBuf>, debug: bool) -> Outcome {
+    DEBUG.store(debug, Ordering::Relaxed);
+
+    let requested = bundle.or_else(|| std::env::var_os("BUNDLE_DIR").map(PathBuf::from));
+    let bundle = Bundle::discover(requested);
+    trace(&format!("bundle dir: {}", bundle.root().display()));
+
+    let Some(step) = steps::find(id) else {
+        eprintln!("caelestia-install: no step is called '{id}'");
+        return Outcome::Usage;
+    };
+    trace(&format!("step {} ({})", step.id, step.name));
+
+    let context = steps::Context {
+        bundle: bundle.root().to_path_buf(),
+    };
+    match steps::run(step, &context) {
+        0 => Outcome::Ok,
+        _ => Outcome::Failed,
+    }
 }
 
 fn askpass(pipe: &Path) -> Outcome {

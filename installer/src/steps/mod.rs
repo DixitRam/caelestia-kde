@@ -1,4 +1,11 @@
+mod wallpapers;
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use crate::exit::Outcome;
 use crate::menu::Answers;
+use crate::output;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -68,99 +75,165 @@ impl Status {
     }
 }
 
+pub type Act = fn(&Context) -> Result<(), String>;
+
+pub enum Body {
+    Script(&'static str),
+    Native(Act),
+}
+
 pub struct Step {
     pub name: &'static str,
-    pub script: &'static str,
+    pub id: &'static str,
     pub phase: Phase,
+    pub body: Body,
+}
+
+pub struct Context {
+    pub bundle: PathBuf,
+}
+
+impl Context {
+    pub fn variable(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok().filter(|value| !value.is_empty())
+    }
 }
 
 pub const STEPS: [Step; 17] = [
     Step {
         name: "Update system",
-        script: "scripts/00a-system-update.sh",
+        id: "00a-system-update",
         phase: Phase::Prepare,
+        body: Body::Script("scripts/00a-system-update.sh"),
     },
     Step {
         name: "Ensure prerequisites",
-        script: "scripts/01-ensure-prereqs.sh",
+        id: "01-ensure-prereqs",
         phase: Phase::Prepare,
+        body: Body::Script("scripts/01-ensure-prereqs.sh"),
     },
     Step {
         name: "Update submodules",
-        script: "scripts/02a-submodules.sh",
+        id: "02a-submodules",
         phase: Phase::Prepare,
+        body: Body::Script("scripts/02a-submodules.sh"),
     },
     Step {
         name: "Back up current setup",
-        script: "scripts/00-backup-themes.sh",
+        id: "00-backup-themes",
         phase: Phase::Prepare,
+        body: Body::Script("scripts/00-backup-themes.sh"),
     },
     Step {
         name: "Install packages",
-        script: "scripts/02-all-packages.sh",
+        id: "02-all-packages",
         phase: Phase::Packages,
+        body: Body::Script("scripts/02-all-packages.sh"),
     },
     Step {
         name: "Set up Python tooling and matugen",
-        script: "scripts/02-packages.sh",
+        id: "02-packages",
         phase: Phase::Packages,
+        body: Body::Script("scripts/02-packages.sh"),
     },
     Step {
         name: "Deploy config files",
-        script: "scripts/03-deploy-configs.sh",
+        id: "03-deploy-configs",
         phase: Phase::Configure,
+        body: Body::Script("scripts/03-deploy-configs.sh"),
     },
     Step {
         name: "Download wallpapers",
-        script: "scripts/03a-wallpapers.sh",
+        id: "03a-wallpapers",
         phase: Phase::Configure,
+        body: Body::Native(wallpapers::run),
     },
     Step {
         name: "Apply KDE theme",
-        script: "scripts/04-deploy-kde.sh",
+        id: "04-deploy-kde",
         phase: Phase::Configure,
+        body: Body::Script("scripts/04-deploy-kde.sh"),
     },
     Step {
         name: "Apply window rules",
-        script: "scripts/04a-window-rules.sh",
+        id: "04a-window-rules",
         phase: Phase::Configure,
+        body: Body::Script("scripts/04a-window-rules.sh"),
     },
     Step {
         name: "Install SDDM theme",
-        script: "scripts/05-sddm-theme.sh",
+        id: "05-sddm-theme",
         phase: Phase::Configure,
+        body: Body::Script("scripts/05-sddm-theme.sh"),
     },
     Step {
         name: "Enable system services",
-        script: "scripts/06-services.sh",
+        id: "06-services",
         phase: Phase::Configure,
+        body: Body::Script("scripts/06-services.sh"),
     },
     Step {
         name: "Configure KDE applications",
-        script: "scripts/07-kde-apps.sh",
+        id: "07-kde-apps",
         phase: Phase::Configure,
+        body: Body::Script("scripts/07-kde-apps.sh"),
     },
     Step {
         name: "Build Caelestia shell",
-        script: "scripts/08-build-shell.sh",
+        id: "08-build-shell",
         phase: Phase::Build,
+        body: Body::Script("scripts/08-build-shell.sh"),
     },
     Step {
         name: "Apply system tweaks",
-        script: "scripts/09-system-tweaks.sh",
+        id: "09-system-tweaks",
         phase: Phase::Finalize,
+        body: Body::Script("scripts/09-system-tweaks.sh"),
     },
     Step {
         name: "Create autostart entries",
-        script: "scripts/10-autostart.sh",
+        id: "10-autostart",
         phase: Phase::Finalize,
+        body: Body::Script("scripts/10-autostart.sh"),
     },
     Step {
         name: "Install optional components",
-        script: "scripts/11-optional-apps.sh",
+        id: "11-optional-apps",
         phase: Phase::Finalize,
+        body: Body::Script("scripts/11-optional-apps.sh"),
     },
 ];
+
+pub fn find(id: &str) -> Option<&'static Step> {
+    STEPS.iter().find(|step| step.id == id)
+}
+
+pub fn run(step: &Step, context: &Context) -> i32 {
+    match step.body {
+        Body::Native(act) => match act(context) {
+            Ok(()) => 0,
+            Err(problem) => {
+                output::err(&problem);
+                1
+            }
+        },
+        Body::Script(script) => run_script(&context.bundle.join(script)),
+    }
+}
+
+fn run_script(path: &Path) -> i32 {
+    if !path.is_file() {
+        output::err(&format!("{} is missing", path.display()));
+        return Outcome::Environment.code().into();
+    }
+    match Command::new("bash").arg(path).status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(error) => {
+            output::err(&format!("could not run {}: {error}", path.display()));
+            Outcome::Environment.code().into()
+        }
+    }
+}
 
 const OPTIONAL_APP_ANSWERS: [&str; 6] = [
     "INSTALL_VSCODE",
@@ -199,11 +272,30 @@ mod tests {
     }
 
     #[test]
-    fn every_step_script_lives_under_scripts() {
+    fn every_script_step_names_a_script_under_scripts() {
         for step in STEPS.iter() {
-            assert!(step.script.starts_with("scripts/"), "{}", step.script);
-            assert!(step.script.ends_with(".sh"), "{}", step.script);
+            if let Body::Script(script) = step.body {
+                assert!(script.starts_with("scripts/"), "{script}");
+                assert!(script.ends_with(".sh"), "{script}");
+                assert_eq!(
+                    script
+                        .trim_start_matches("scripts/")
+                        .trim_end_matches(".sh"),
+                    step.id,
+                    "{} should be named after its script",
+                    step.name
+                );
+            }
         }
+    }
+
+    #[test]
+    fn step_ids_are_unique() {
+        let mut ids: Vec<&str> = STEPS.iter().map(|step| step.id).collect();
+        ids.sort_unstable();
+        let count = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), count, "duplicate step ids");
     }
 
     #[test]

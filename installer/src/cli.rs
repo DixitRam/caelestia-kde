@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -18,6 +18,11 @@ pub struct Args {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Invocation {
     Run(Args),
+    Step {
+        id: String,
+        bundle: Option<PathBuf>,
+        debug: bool,
+    },
     Version,
     Help,
     Askpass(PathBuf),
@@ -27,13 +32,18 @@ pub fn parse<I>(args: I) -> Result<Invocation, String>
 where
     I: IntoIterator<Item = OsString>,
 {
+    let collected: Vec<OsString> = args.into_iter().collect();
+    if collected.first().map(OsString::as_os_str) == Some(OsStr::new("step")) {
+        return parse_step(&collected[1..]);
+    }
+
     let mut parsed = Args {
         bundle: None,
         action: PresetAction::Wizard,
         debug: false,
     };
     let mut seen_preset: Option<&'static str> = None;
-    let mut args = args.into_iter();
+    let mut args = collected.into_iter();
 
     while let Some(arg) = args.next() {
         match arg.to_str() {
@@ -68,6 +78,40 @@ where
     }
 
     Ok(Invocation::Run(parsed))
+}
+
+fn parse_step(args: &[OsString]) -> Result<Invocation, String> {
+    let mut id: Option<String> = None;
+    let mut bundle: Option<PathBuf> = None;
+    let mut debug = false;
+    let mut args = args.iter();
+
+    while let Some(arg) = args.next() {
+        match arg.to_str() {
+            Some("-h") | Some("--help") => return Ok(Invocation::Help),
+            Some("--version") => return Ok(Invocation::Version),
+            Some("--debug") => debug = true,
+            Some("--bundle") => {
+                let directory = args.next().ok_or("--bundle needs the directory to use")?;
+                bundle = Some(PathBuf::from(directory));
+            }
+            Some(text) if text.starts_with('-') => {
+                return Err(format!("unknown option: {text}"));
+            }
+            _ => {
+                if id.is_some() {
+                    return Err(format!(
+                        "step takes one step, not '{}'",
+                        arg.to_string_lossy()
+                    ));
+                }
+                id = Some(arg.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    let id = id.ok_or("step needs the id of the step to run")?;
+    Ok(Invocation::Step { id, bundle, debug })
 }
 
 #[cfg(test)]
@@ -160,6 +204,57 @@ mod tests {
         assert!(
             parse_args(&["--askpass"]).is_err(),
             "the pipe has to be named"
+        );
+    }
+
+    #[test]
+    fn a_step_invocation_carries_its_id() {
+        assert_eq!(
+            parse_args(&["step", "03a-wallpapers"]),
+            Ok(Invocation::Step {
+                id: "03a-wallpapers".to_string(),
+                bundle: None,
+                debug: false,
+            })
+        );
+    }
+
+    #[test]
+    fn a_step_invocation_can_name_the_bundle_and_ask_for_the_trace() {
+        assert_eq!(
+            parse_args(&[
+                "step",
+                "03a-wallpapers",
+                "--bundle",
+                "/srv/caelestia",
+                "--debug"
+            ]),
+            Ok(Invocation::Step {
+                id: "03a-wallpapers".to_string(),
+                bundle: Some(PathBuf::from("/srv/caelestia")),
+                debug: true,
+            })
+        );
+    }
+
+    #[test]
+    fn a_step_invocation_without_an_id_is_refused() {
+        let error = parse_args(&["step"]).unwrap_err();
+        assert!(error.contains("needs the id"), "{error}");
+    }
+
+    #[test]
+    fn a_step_invocation_takes_one_step_only() {
+        let error = parse_args(&["step", "one", "two"]).unwrap_err();
+        assert!(error.contains("takes one step"), "{error}");
+    }
+
+    #[test]
+    fn a_step_invocation_still_answers_help_and_version() {
+        assert_eq!(parse_args(&["step", "--help"]), Ok(Invocation::Help));
+        assert_eq!(
+            parse_args(&["step", "one", "--version"]),
+            Ok(Invocation::Version)
         );
     }
 }

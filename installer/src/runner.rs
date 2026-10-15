@@ -25,6 +25,38 @@ impl Running {
         if !script_path.is_file() {
             return Err(format!("missing step script: {}", script_path.display()));
         }
+
+        let mut streamed = Command::new("stdbuf");
+        streamed.args(["-oL", "-eL", "bash"]).arg(&script_path);
+        if let Ok(running) = Self::launch(bundle, log, env, &mut streamed, script) {
+            return Ok(running);
+        }
+
+        let mut plain = Command::new("bash");
+        plain.arg(&script_path);
+        Self::launch(bundle, log, env, &mut plain, script)
+    }
+
+    pub fn spawn_native(
+        bundle: &Path,
+        id: &str,
+        log: &Path,
+        env: &[(&'static str, String)],
+    ) -> Result<Self, String> {
+        let exe = std::env::current_exe()
+            .map_err(|error| format!("cannot locate the installer binary: {error}"))?;
+        let mut command = Command::new(exe);
+        command.arg("step").arg(id);
+        Self::launch(bundle, log, env, &mut command, id)
+    }
+
+    fn launch(
+        bundle: &Path,
+        log: &Path,
+        env: &[(&'static str, String)],
+        command: &mut Command,
+        label: &str,
+    ) -> Result<Self, String> {
         let out = OpenOptions::new()
             .create(true)
             .append(true)
@@ -34,36 +66,14 @@ impl Running {
 
         let offset = std::fs::metadata(log).map(|meta| meta.len()).unwrap_or(0);
 
-        let mut command = Command::new("stdbuf");
-        if command
-            .args(["-oL", "-eL", "bash"])
-            .arg(&script_path)
+        let child = command
             .current_dir(bundle)
             .envs(env.iter().map(|(key, value)| (*key, value.clone())))
             .stdin(Stdio::null())
             .stdout(Stdio::from(out))
             .stderr(Stdio::from(err))
             .spawn()
-            .is_err()
-        {
-            let out = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(log)
-                .map_err(|error| format!("cannot open the install log: {error}"))?;
-            let err = out.try_clone().map_err(|error| error.to_string())?;
-            command = Command::new("bash");
-            command
-                .arg(&script_path)
-                .current_dir(bundle)
-                .envs(env.iter().map(|(key, value)| (*key, value.clone())))
-                .stdin(Stdio::null())
-                .stdout(Stdio::from(out))
-                .stderr(Stdio::from(err));
-        }
-        let child = command
-            .spawn()
-            .map_err(|error| format!("cannot run {}: {error}", script_path.display()))?;
+            .map_err(|error| format!("cannot run {label}: {error}"))?;
 
         Ok(Self {
             child,
