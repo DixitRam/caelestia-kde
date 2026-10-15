@@ -691,7 +691,7 @@ install step reads to open the same port on the firewall. It reaches the setup h
 as `--port`. A listener on a random port could only be opened while the shell runs,
 which needs administrator rights on every start.
 
-`scripts/06-services.sh` does both during a source install. A package install leaves
+The `06-services` step does both during a source install. A package install leaves
 them to the shell, because a package must not enable a system daemon or open a port
 behind the user's back. There, the first time Quick Share is switched on the shell
 checks the system through

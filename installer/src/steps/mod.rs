@@ -5,6 +5,7 @@ mod kde_apps;
 mod kde_theme;
 mod optional_apps;
 mod prereqs;
+mod services;
 mod system_update;
 mod wallpapers;
 mod window_rules;
@@ -203,7 +204,7 @@ pub const STEPS: [Step; 17] = [
         name: "Enable system services",
         id: "06-services",
         phase: Phase::Configure,
-        body: Body::Script("scripts/06-services.sh"),
+        body: Body::Native(services::run),
     },
     Step {
         name: "Configure KDE applications",
@@ -254,6 +255,61 @@ pub fn wallpapers_dir(context: &Context) -> PathBuf {
         return PathBuf::from(pictures).join("Wallpapers");
     }
     crate::paths::home().join("Pictures").join("Wallpapers")
+}
+
+pub fn ensure_five_desktops(context: &Context) -> Result<(), Failure> {
+    // The marker the install entries set is "1"; anything else is an update.
+    if context.variable("CAELESTIA_FRESH_INSTALL").as_deref() != Some("1") {
+        output::skip("Not an install - leaving the virtual desktops alone.");
+        return Ok(());
+    }
+
+    let count = crate::process::capture(
+        "kreadconfig6",
+        &["--file", "kwinrc", "--group", "Desktops", "--key", "Number"],
+    )
+    .unwrap_or_default();
+
+    // KWin's own default of one desktop is not a configuration the user made.
+    if !count.is_empty() && count != "1" {
+        output::skip(&format!("Keeping the existing {count} virtual desktops."));
+        return Ok(());
+    }
+
+    output::info("Configuring 5 virtual desktops...");
+
+    let mut written = true;
+    for (key, value) in [("Number", "5"), ("Rows", "1")] {
+        written &= crate::process::succeeds(
+            "kwriteconfig6",
+            &[
+                "--file", "kwinrc", "--group", "Desktops", "--key", key, value,
+            ],
+            None,
+        );
+    }
+    for index in 1..=5 {
+        written &= crate::process::succeeds(
+            "kwriteconfig6",
+            &[
+                "--file",
+                "kwinrc",
+                "--group",
+                "Desktops",
+                "--key",
+                &format!("Name_{index}"),
+                &format!("Desktop {index}"),
+            ],
+            None,
+        );
+    }
+
+    if written {
+        output::ok("5 virtual desktops configured.");
+    } else {
+        output::warn("Could not write the virtual desktop configuration.");
+    }
+    Ok(())
 }
 
 pub fn run(step: &Step, context: &Context) -> i32 {

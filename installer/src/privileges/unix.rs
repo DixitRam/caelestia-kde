@@ -108,7 +108,7 @@ pub fn is_root() -> bool {
 }
 
 pub fn sudo_cached() -> bool {
-    let Some(sudo) = sudo_path() else {
+    let Some(sudo) = sudo_binary() else {
         return false;
     };
     std::process::Command::new(sudo)
@@ -159,6 +159,14 @@ fn have_askpass() -> bool {
 }
 
 fn sudo_binary() -> Option<PathBuf> {
+    // CAELESTIA_SUDO_BIN names the sudo to escalate through, the same override the shell
+    // resolver next to this honours.
+    if let Ok(explicit) = std::env::var("CAELESTIA_SUDO_BIN") {
+        let explicit = PathBuf::from(explicit);
+        if crate::process::is_executable(&explicit) {
+            return Some(explicit);
+        }
+    }
     sudo_path().or_else(|| crate::process::locate("sudo"))
 }
 

@@ -1539,9 +1539,508 @@ fn without_quickshell_the_step_refuses_to_configure_anything() {
 }
 
 #[cfg(unix)]
+fn desktop_calls(fixture: &Fixture) -> Vec<String> {
+    std::fs::read_to_string(fixture.path("calls.log"))
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.starts_with("kwriteconfig6 "))
+        .filter(|line| line.contains("--group Desktops --key"))
+        .map(|line| line.trim_start_matches("kwriteconfig6 ").to_string())
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fresh_install_without_a_desktop_count_gets_five_named_desktops() {
+    let fixture = Fixture::new("desktops-fresh");
+    let tools = services_tools(&fixture);
+
+    let output = run_services(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "1"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let written = desktop_calls(&fixture);
+    assert!(
+        written.contains(&"--file kwinrc --group Desktops --key Number 5".to_string()),
+        "{written:?}"
+    );
+    assert!(
+        written.contains(&"--file kwinrc --group Desktops --key Rows 1".to_string()),
+        "the desktops are laid out in one row: {written:?}"
+    );
+    assert!(
+        written.contains(&"--file kwinrc --group Desktops --key Name_5 Desktop 5".to_string()),
+        "every desktop is named: {written:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fresh_install_at_kwins_own_default_of_one_gets_five() {
+    let fixture = Fixture::new("desktops-default");
+    let tools = services_tools(&fixture);
+
+    let output = run_services(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "1"),
+            ("KW_DESKTOPS", "1"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let written = desktop_calls(&fixture);
+    assert!(
+        written.contains(&"--file kwinrc --group Desktops --key Number 5".to_string()),
+        "a kwinrc carrying KWin's own default is not a user's configuration: {written:?}"
+    );
+    assert!(
+        written.contains(&"--file kwinrc --group Desktops --key Name_1 Desktop 1".to_string()),
+        "{written:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fresh_install_keeps_a_desktop_count_the_user_chose() {
+    let fixture = Fixture::new("desktops-chosen");
+    let tools = services_tools(&fixture);
+
+    let output = run_services(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "1"),
+            ("KW_DESKTOPS", "3"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert_eq!(
+        desktop_calls(&fixture),
+        Vec::<String>::new(),
+        "the desktops a user configured are left alone"
+    );
+    assert!(
+        output
+            .stdout
+            .contains("Keeping the existing 3 virtual desktops."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_update_never_touches_the_desktop_count() {
+    for count in ["1", ""] {
+        let fixture = Fixture::new("desktops-update");
+        let tools = services_tools(&fixture);
+
+        let output = run_services(
+            &fixture,
+            &tools,
+            &[
+                ("CAELESTIA_INSTALL_KIND", "package"),
+                ("CAELESTIA_FRESH_INSTALL", "0"),
+                ("KW_DESKTOPS", count),
+            ],
+        );
+        assert_eq!(output.code, Some(0), "{}", output.stderr);
+        assert_eq!(
+            desktop_calls(&fixture),
+            Vec::<String>::new(),
+            "an update must not be read as an install"
+        );
+        assert!(
+            output.stdout.contains("Not an install"),
+            "{}",
+            output.stdout
+        );
+    }
+}
+
+#[cfg(unix)]
 struct ConfigTools {
     path: PathBuf,
     calls: PathBuf,
+}
+
+#[cfg(unix)]
+struct Services {
+    path: PathBuf,
+    calls: PathBuf,
+}
+
+#[cfg(unix)]
+fn services_tools(fixture: &Fixture) -> Services {
+    let bin = fixture.path("bin");
+    let calls = fixture.path("calls.log");
+    std::fs::write(&calls, "").expect("the call log");
+
+    stub_in(
+        &bin,
+        "systemctl",
+        "#!/bin/sh\n[ \"${KW_KEYD:-}\" = 1 ] && case \"$*\" in *keyd*) exit 0 ;; esac\nexit 1\n",
+    );
+    stub_in(
+        &bin,
+        "kwriteconfig6",
+        "#!/bin/sh\nprintf 'kwriteconfig6 %s\\n' \"$*\" >> \"$KW_CALLS\"\nexit 0\n",
+    );
+    stub_in(
+        &bin,
+        "kreadconfig6",
+        "#!/bin/sh\n[ -n \"${KW_DESKTOPS:-}\" ] && printf '%s\\n' \"$KW_DESKTOPS\"\nexit 0\n",
+    );
+
+    let system = std::env::var("PATH").unwrap_or_default();
+    Services {
+        path: PathBuf::from(format!("{}:{system}", bin.display())),
+        calls,
+    }
+}
+
+#[cfg(unix)]
+fn run_services(fixture: &Fixture, tools: &Services, extra: &[(&str, &str)]) -> Output {
+    let calls = tools.calls.to_str().expect("a path");
+    let rules = fixture.path("rules");
+    std::fs::create_dir_all(&rules).expect("a rules directory");
+    // A current rule keeps the system-level branch, which escalates, out of these tests;
+    // the decision itself is covered by the unit tests beside it.
+    std::fs::write(
+        rules.join("70-uinput.rules"),
+        "KERNEL==\"uinput\", MODE=\"0600\", OPTIONS+=\"static_node=uinput\", TAG+=\"uaccess\"\n",
+    )
+    .expect("a rule that is already current");
+    let rules = rules.to_string_lossy().to_string();
+
+    let mut environment: Vec<(&str, &str)> = vec![
+        ("KW_CALLS", calls),
+        ("CAELESTIA_UDEV_RULES_DIR", rules.as_str()),
+    ];
+    environment.extend_from_slice(extra);
+    let bundle = fixture.path("bundle");
+    fixture.step_in("06-services", &tools.path, &bundle, &environment)
+}
+
+// The step's own text is what the tests below drive, so a stub that reports one status and
+// logs the arguments it was handed is enough to see what the step did with it. `install`
+// says whether the second run the step makes is taken to have worked.
+#[cfg(unix)]
+fn quick_share_bundle(fixture: &Fixture, status: &str, port: &str, install: bool) -> PathBuf {
+    let bundle = fixture.path("bundle");
+    let scripts = bundle.join("shell").join("scripts");
+    std::fs::create_dir_all(&scripts).expect("the shell scripts directory");
+    let refused = if install { "0" } else { "1" };
+    stub_in(
+        &scripts,
+        "quickshare_setup.sh",
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$KW_SETUP_CALLS\"\nprintf 'AVAHI=active\\nSETUP={status}\\n'\ncase \"$*\" in\n    *--status*) exit 0 ;;\nesac\nexit {refused}\n"
+        ),
+    );
+    std::fs::write(scripts.join("quickshare-port"), format!("{port}\n")).expect("the port");
+
+    bundle
+}
+
+#[cfg(unix)]
+fn quick_share_calls(fixture: &Fixture) -> String {
+    std::fs::read_to_string(fixture.path("quickshare.calls")).unwrap_or_default()
+}
+
+// Escalation has to be reachable from a test that is not root and has no terminal, so the
+// sudo to escalate through is named rather than discovered - the same override the shell
+// resolver offers.
+#[cfg(unix)]
+fn sudo_stub(fixture: &Fixture) -> PathBuf {
+    stub_in(
+        &fixture.path("bin"),
+        "sudo",
+        "#!/bin/sh\ncase \"$*\" in\n    '-n -v'*) exit 0 ;;\nesac\nshift\nexec \"$@\"\n",
+    )
+}
+
+#[cfg(unix)]
+fn quick_share_environment(
+    fixture: &Fixture,
+    kind: &str,
+    sudo: Option<&str>,
+) -> Vec<(&'static str, String)> {
+    let calls = fixture
+        .path("quickshare.calls")
+        .to_string_lossy()
+        .to_string();
+    let mut environment = vec![
+        ("CAELESTIA_INSTALL_KIND", kind.to_string()),
+        ("CAELESTIA_FRESH_INSTALL", "0".to_string()),
+        ("KW_SETUP_CALLS", calls),
+    ];
+    if let Some(sudo) = sudo {
+        environment.push(("CAELESTIA_SUDO_BIN", sudo.to_string()));
+    }
+    environment
+}
+
+#[cfg(unix)]
+fn run_quick_share(fixture: &Fixture, tools: &Services, environment: &[(&str, String)]) -> Output {
+    let borrowed: Vec<(&str, &str)> = environment
+        .iter()
+        .map(|(key, value)| (*key, value.as_str()))
+        .collect();
+    run_services(fixture, tools, &borrowed)
+}
+
+#[cfg(unix)]
+#[test]
+fn the_ydotoold_wrapper_and_unit_are_deployed() {
+    let fixture = Fixture::new("services-ydotoold");
+    let tools = services_tools(&fixture);
+
+    let output = run_services(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "0"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let wrapper = fixture.path(".local/bin/ydotoold-wrapper");
+    let body = std::fs::read_to_string(&wrapper).expect("the wrapper");
+    assert!(
+        body.contains("exec /usr/bin/ydotoold"),
+        "the wrapper starts ydotoold: {body}"
+    );
+    assert!(
+        body.contains("--socket-perm=0660"),
+        "with the socket permissions the session needs: {body}"
+    );
+
+    let unit = std::fs::read_to_string(fixture.path(".config/systemd/user/ydotoold.service"))
+        .expect("the unit");
+    assert!(
+        unit.contains("ExecStart=%h/.local/bin/ydotoold-wrapper"),
+        "{unit}"
+    );
+    assert!(unit.contains("WantedBy=graphical-session.target"), "{unit}");
+
+    assert!(
+        output.stdout.contains("ydotoold service configured."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_packaged_install_leaves_the_system_level_alone() {
+    let fixture = Fixture::new("services-packaged");
+    let tools = services_tools(&fixture);
+
+    let output = run_services(
+        &fixture,
+        &tools,
+        &[
+            ("CAELESTIA_INSTALL_KIND", "package"),
+            ("CAELESTIA_FRESH_INSTALL", "0"),
+        ],
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("System-level configuration belongs to the package."),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        !std::fs::read_to_string(fixture.path("rules/70-uinput.rules"))
+            .expect("the rule")
+            .is_empty(),
+        "and the rule the package owns is not rewritten"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_packaged_install_leaves_quick_share_to_the_shell() {
+    let fixture = Fixture::new("services-quickshare-package");
+    let tools = services_tools(&fixture);
+    quick_share_bundle(&fixture, "needed", "1234", true);
+
+    let output = run_quick_share(
+        &fixture,
+        &tools,
+        &quick_share_environment(&fixture, "package", None),
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("packaged install"),
+        "{}",
+        output.stdout
+    );
+    assert_eq!(
+        quick_share_calls(&fixture),
+        "",
+        "so nothing is run for Quick Share"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_quick_share_setup_that_is_missing_warns_without_raising_a_password_prompt() {
+    let fixture = Fixture::new("services-quickshare-missing");
+    let tools = services_tools(&fixture);
+
+    let output = run_quick_share(
+        &fixture,
+        &tools,
+        &quick_share_environment(&fixture, "source", None),
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("setup helper is missing"),
+        "{}",
+        output.stdout
+    );
+    assert_eq!(quick_share_calls(&fixture), "");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_bundle_without_the_transfer_port_warns_without_raising_a_password_prompt() {
+    let fixture = Fixture::new("services-quickshare-port");
+    let tools = services_tools(&fixture);
+    let bundle = quick_share_bundle(&fixture, "needed", "1234", true);
+    std::fs::remove_file(bundle.join("shell/scripts/quickshare-port")).expect("the port is gone");
+
+    let output = run_quick_share(
+        &fixture,
+        &tools,
+        &quick_share_environment(&fixture, "source", None),
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("transfer port is missing"),
+        "{}",
+        output.stdout
+    );
+    assert_eq!(quick_share_calls(&fixture), "");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_transfer_port_that_is_not_a_number_warns_without_raising_a_password_prompt() {
+    let fixture = Fixture::new("services-quickshare-bad-port");
+    let tools = services_tools(&fixture);
+    quick_share_bundle(&fixture, "needed", "not-a-port", true);
+
+    let output = run_quick_share(
+        &fixture,
+        &tools,
+        &quick_share_environment(&fixture, "source", None),
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("is not a port number"),
+        "{}",
+        output.stdout
+    );
+    assert_eq!(quick_share_calls(&fixture), "");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_quick_share_that_already_works_is_not_raised_for() {
+    let fixture = Fixture::new("services-quickshare-ok");
+    let tools = services_tools(&fixture);
+    quick_share_bundle(&fixture, "ok", "1234", true);
+
+    let output = run_quick_share(
+        &fixture,
+        &tools,
+        &quick_share_environment(&fixture, "source", None),
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output
+            .stdout
+            .contains("Quick Share already has the access it needs."),
+        "{}",
+        output.stdout
+    );
+
+    let calls = quick_share_calls(&fixture);
+    assert_eq!(
+        calls.lines().count(),
+        1,
+        "the status check decided, and nothing was run after it: {calls}"
+    );
+    assert!(
+        calls.contains("--status --port 1234"),
+        "and it was asked about the port the service binds: {calls}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_quick_share_that_needs_setup_is_raised_for_with_the_port_the_service_binds() {
+    let fixture = Fixture::new("services-quickshare-needed");
+    let tools = services_tools(&fixture);
+    quick_share_bundle(&fixture, "needed", "1234", true);
+    let sudo = sudo_stub(&fixture).to_string_lossy().to_string();
+
+    let output = run_quick_share(
+        &fixture,
+        &tools,
+        &quick_share_environment(&fixture, "source", Some(&sudo)),
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let calls = quick_share_calls(&fixture);
+    let runs: Vec<&str> = calls.lines().collect();
+    assert_eq!(runs.len(), 2, "the status check and the setup run: {calls}");
+    assert_eq!(
+        runs[1], "--port 1234",
+        "the run that is elevated carries the port the service listens on"
+    );
+    assert!(
+        output.stdout.contains("Quick Share can receive"),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_quick_share_setup_that_fails_warns_instead_of_failing_the_install() {
+    let fixture = Fixture::new("services-quickshare-failed");
+    let tools = services_tools(&fixture);
+    quick_share_bundle(&fixture, "needed", "1234", false);
+    let sudo = sudo_stub(&fixture).to_string_lossy().to_string();
+
+    let output = run_quick_share(
+        &fixture,
+        &tools,
+        &quick_share_environment(&fixture, "source", Some(&sudo)),
+    );
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(
+        output.stdout.contains("did not finish"),
+        "{}",
+        output.stdout
+    );
 }
 
 #[cfg(unix)]
