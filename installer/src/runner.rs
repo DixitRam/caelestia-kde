@@ -15,6 +15,10 @@ pub struct Running {
 }
 
 impl Running {
+    // Every step is native now, so the installer itself only ever launches the binary. The
+    // tests below drive a script instead: a step run through the binary would be the test
+    // binary, which is not the installer.
+    #[cfg(test)]
     pub fn spawn(
         bundle: &Path,
         script: &str,

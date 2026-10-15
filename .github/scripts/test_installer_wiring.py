@@ -28,18 +28,36 @@ class InstallerTests(unittest.TestCase):
         for rel_path in INSTALLER_ENTRYPOINTS:
             self.assertTrue((ROOT / rel_path).is_file(), f"Missing installer entrypoint: {rel_path.as_posix()}")
 
-    def test_setup_references_existing_step_scripts(self) -> None:
+    def test_every_step_names_an_implementation_that_is_there(self) -> None:
+        """A step's `run:` names a function in the crate, so both halves have to resolve.
+
+        Every step is native now, so the table is the only place the installer says what it
+        runs; a function renamed away, or a module that is not a module, is what this
+        catches. The ids alongside it are what the step lists and the docs call a step by.
+        """
         steps_text = (ROOT / "installer" / "src" / "steps" / "mod.rs").read_text(encoding="utf-8")
-        matches = re.findall(r'Script\("(scripts/[^"]+)"\)', steps_text)
+        runs = re.findall(r"run: ([a-z_]+)::([a-z_]+),", steps_text)
+        ids = re.findall(r'id: "([^"]+)"', steps_text)
 
-        self.assertTrue(matches, "No installer steps found in installer/src/steps/mod.rs")
+        self.assertTrue(runs, "No installer steps found in installer/src/steps/mod.rs")
+        self.assertEqual(
+            len(runs), len(ids), "every step runs exactly one implementation"
+        )
 
-        for rel_path in matches:
-            normalized = Path(rel_path.replace("\\", "/"))
-            resolved = ROOT / normalized
+        for module, function in runs:
+            source = ROOT / "installer" / "src" / "steps" / f"{module}.rs"
+            if not source.is_file():
+                source = ROOT / "installer" / "src" / f"{module}.rs"
+            if not source.is_file():
+                source = ROOT / "installer" / "src" / module / "mod.rs"
             self.assertTrue(
-                resolved.is_file(),
-                f"Missing installer step referenced by steps/mod.rs: {resolved.relative_to(ROOT).as_posix()}",
+                source.is_file(),
+                f"installer/src/{module} is not a module",
+            )
+            self.assertIn(
+                f"pub fn {function}(",
+                source.read_text(encoding="utf-8"),
+                f"{module}::{function} is not defined",
             )
 
     def test_every_step_declares_an_id(self) -> None:

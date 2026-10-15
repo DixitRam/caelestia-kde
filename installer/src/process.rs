@@ -73,6 +73,18 @@ pub fn status_quietly(program: &str, args: &[&str], directory: Option<&Path>) ->
     command.status().ok().and_then(|status| status.code())
 }
 
+// A package manager or a source build prints progress the user is watching, so this one
+// leaves the child's own output where it lands. stdin stays closed either way: nothing here
+// may block on a prompt.
+pub fn run_visible(program: &str, args: &[&str], directory: Option<&Path>) -> Option<i32> {
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::null());
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
+    command.status().ok().and_then(|status| status.code())
+}
+
 pub fn capture(program: &str, args: &[&str]) -> Option<String> {
     capture_in(program, args, None)
 }

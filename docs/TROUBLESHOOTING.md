@@ -101,7 +101,7 @@ The project enables ccache in `shell/CMakeLists.txt`. If rebuilds are still slow
 
 | Issue | Cause |
 |---|---|
-| `yay` fails to install | Network issues, AUR down, or PKGBUILD changes. The script (`installer/distro/arch/packages.sh`) retries individually and falls back to `makepkg -si`. |
+| `yay` fails to install | Network issues, AUR down, or PKGBUILD changes. The `02-all-packages` step retries individually and falls back to `makepkg -si`. |
 | `pacman` errors during install | The script uses `-Sy --noconfirm` (refresh DB) then `-S --needed --noconfirm`. If the `00a-system-update` step was skipped, partial upgrades can cause conflicts. |
 
 **AUR packages used by Caelestia:**

@@ -33,11 +33,10 @@ impl Bundle {
         &self.root
     }
 
-    fn with_step_scripts(self) -> Self {
-        let scripts = self.root.join("scripts");
-        fs::create_dir_all(&scripts).expect("a scripts directory");
-        fs::write(scripts.join("00a-system-update.sh"), "#!/bin/bash\ntrue\n")
-            .expect("the canary step script");
+    // A step no longer runs a script, but a bundle still owes its scripts/ directory: that is
+    // where setup.sh, the update helper and the step libraries are installed from.
+    fn with_scripts_dir(self) -> Self {
+        fs::create_dir_all(self.root.join("scripts")).expect("a scripts directory");
         self
     }
 
@@ -112,7 +111,7 @@ fn a_bundle_without_step_scripts_is_reported_as_the_environment() {
 
 #[test]
 fn the_wizard_refuses_to_start_without_a_terminal() {
-    let bundle = Bundle::new("with-scripts").with_step_scripts();
+    let bundle = Bundle::new("with-scripts").with_scripts_dir();
     let output = run(&[&bundle.path().to_string_lossy()]);
     assert_eq!(code(&output), 4);
     assert!(
@@ -124,7 +123,7 @@ fn the_wizard_refuses_to_start_without_a_terminal() {
 
 #[test]
 fn uninstall_without_its_script_is_reported_as_the_environment() {
-    let bundle = Bundle::new("no-uninstaller").with_step_scripts();
+    let bundle = Bundle::new("no-uninstaller").with_scripts_dir();
     let output = run(&[&bundle.path().to_string_lossy(), "--uninstall"]);
     assert_eq!(code(&output), 4);
     assert!(
@@ -136,7 +135,7 @@ fn uninstall_without_its_script_is_reported_as_the_environment() {
 
 #[test]
 fn the_phase_trace_only_appears_when_asked_for() {
-    let bundle = Bundle::new("trace").with_step_scripts();
+    let bundle = Bundle::new("trace").with_scripts_dir();
     let path = bundle.path().to_string_lossy().into_owned();
 
     let quiet = run(&[&path]);
@@ -157,7 +156,7 @@ fn the_phase_trace_only_appears_when_asked_for() {
 #[cfg(unix)]
 #[test]
 fn update_hands_off_to_the_script_in_the_bundle_it_was_given() {
-    let bundle = Bundle::new("handoff").with_step_scripts();
+    let bundle = Bundle::new("handoff").with_scripts_dir();
     let marker = format!("ran-{}", bundle.label);
     let bundle = bundle.with_script(
         "update.sh",
@@ -173,7 +172,7 @@ fn update_hands_off_to_the_script_in_the_bundle_it_was_given() {
 #[cfg(unix)]
 #[test]
 fn a_failing_handoff_is_a_failure() {
-    let bundle = Bundle::new("failing").with_step_scripts();
+    let bundle = Bundle::new("failing").with_scripts_dir();
     let bundle = bundle.with_script("update.sh", "#!/bin/bash\nexit 7\n");
 
     let output = run(&[&bundle.path().to_string_lossy(), "--update"]);

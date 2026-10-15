@@ -11,6 +11,7 @@ mod install_kind;
 mod js;
 mod menu;
 mod output;
+mod packages;
 mod paths;
 mod pkg;
 mod privileges;

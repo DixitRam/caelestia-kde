@@ -414,14 +414,7 @@ impl App {
             self.statuses[index] = Status::Running;
             let env = self.step_environment();
             let step = &STEPS[index];
-            let started = match step.body {
-                steps::Body::Script(script) => {
-                    Running::spawn(&self.bundle, script, &self.log_path, &env)
-                }
-                steps::Body::Native(_) => {
-                    Running::spawn_native(&self.bundle, step.id, &self.log_path, &env)
-                }
-            };
+            let started = Running::spawn_native(&self.bundle, step.id, &self.log_path, &env);
             match started {
                 Ok(running) => {
                     self.running = Some(running);

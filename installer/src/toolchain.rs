@@ -56,12 +56,10 @@ pub fn install_linguist_tools() -> bool {
     }
 }
 
-#[allow(dead_code)]
 pub fn cava_sdk_installed() -> bool {
     cava_state() != "none"
 }
 
-#[allow(dead_code)]
 pub fn install_cava_sdk() -> bool {
     let suffix = match distro::detect() {
         Distro::Arch => "arch",

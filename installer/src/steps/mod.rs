@@ -14,12 +14,11 @@ mod system_update;
 mod wallpapers;
 mod window_rules;
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
-use crate::exit::Outcome;
 use crate::menu::Answers;
 use crate::output;
+use crate::packages;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -117,16 +116,11 @@ impl From<&str> for Failure {
 
 pub type Act = fn(&Context) -> Result<(), Failure>;
 
-pub enum Body {
-    Script(&'static str),
-    Native(Act),
-}
-
 pub struct Step {
     pub name: &'static str,
     pub id: &'static str,
     pub phase: Phase,
-    pub body: Body,
+    pub run: Act,
 }
 
 pub struct Context {
@@ -151,103 +145,103 @@ pub const STEPS: [Step; 17] = [
         name: "Update system",
         id: "00a-system-update",
         phase: Phase::Prepare,
-        body: Body::Native(system_update::run),
+        run: system_update::run,
     },
     Step {
         name: "Ensure prerequisites",
         id: "01-ensure-prereqs",
         phase: Phase::Prepare,
-        body: Body::Native(prereqs::run),
+        run: prereqs::run,
     },
     Step {
         name: "Update submodules",
         id: "02a-submodules",
         phase: Phase::Prepare,
-        body: Body::Native(submodules::run),
+        run: submodules::run,
     },
     Step {
         name: "Back up current setup",
         id: "00-backup-themes",
         phase: Phase::Prepare,
-        body: Body::Native(backup::run),
+        run: backup::run,
     },
     Step {
         name: "Install packages",
         id: "02-all-packages",
         phase: Phase::Packages,
-        body: Body::Script("scripts/02-all-packages.sh"),
+        run: packages::all,
     },
     Step {
         name: "Set up Python tooling and matugen",
         id: "02-packages",
         phase: Phase::Packages,
-        body: Body::Script("scripts/02-packages.sh"),
+        run: packages::tooling,
     },
     Step {
         name: "Deploy config files",
         id: "03-deploy-configs",
         phase: Phase::Configure,
-        body: Body::Native(configs::run),
+        run: configs::run,
     },
     Step {
         name: "Download wallpapers",
         id: "03a-wallpapers",
         phase: Phase::Configure,
-        body: Body::Native(wallpapers::run),
+        run: wallpapers::run,
     },
     Step {
         name: "Apply KDE theme",
         id: "04-deploy-kde",
         phase: Phase::Configure,
-        body: Body::Native(kde_theme::run),
+        run: kde_theme::run,
     },
     Step {
         name: "Apply window rules",
         id: "04a-window-rules",
         phase: Phase::Configure,
-        body: Body::Native(window_rules::run),
+        run: window_rules::run,
     },
     Step {
         name: "Install SDDM theme",
         id: "05-sddm-theme",
         phase: Phase::Configure,
-        body: Body::Native(login_screen::run),
+        run: login_screen::run,
     },
     Step {
         name: "Enable system services",
         id: "06-services",
         phase: Phase::Configure,
-        body: Body::Native(services::run),
+        run: services::run,
     },
     Step {
         name: "Configure KDE applications",
         id: "07-kde-apps",
         phase: Phase::Configure,
-        body: Body::Native(kde_apps::run),
+        run: kde_apps::run,
     },
     Step {
         name: "Build Caelestia shell",
         id: "08-build-shell",
         phase: Phase::Build,
-        body: Body::Native(build_shell::run),
+        run: build_shell::run,
     },
     Step {
         name: "Apply system tweaks",
         id: "09-system-tweaks",
         phase: Phase::Finalize,
-        body: Body::Native(system_tweaks::run),
+        run: system_tweaks::run,
     },
     Step {
         name: "Create autostart entries",
         id: "10-autostart",
         phase: Phase::Finalize,
-        body: Body::Native(autostart::run),
+        run: autostart::run,
     },
     Step {
         name: "Install optional components",
         id: "11-optional-apps",
         phase: Phase::Finalize,
-        body: Body::Native(optional_apps::run),
+        run: optional_apps::run,
     },
 ];
 
@@ -326,30 +320,13 @@ pub fn ensure_five_desktops(context: &Context) -> Result<(), Failure> {
 }
 
 pub fn run(step: &Step, context: &Context) -> i32 {
-    match step.body {
-        Body::Native(act) => match act(context) {
-            Ok(()) => 0,
-            Err(Failure::Message(problem)) => {
-                output::err(&problem);
-                1
-            }
-            Err(Failure::Reported) => 1,
-        },
-        Body::Script(script) => run_script(&context.bundle.join(script)),
-    }
-}
-
-fn run_script(path: &Path) -> i32 {
-    if !path.is_file() {
-        output::err(&format!("{} is missing", path.display()));
-        return Outcome::Environment.code().into();
-    }
-    match Command::new("bash").arg(path).status() {
-        Ok(status) => status.code().unwrap_or(1),
-        Err(error) => {
-            output::err(&format!("could not run {}: {error}", path.display()));
-            Outcome::Environment.code().into()
+    match (step.run)(context) {
+        Ok(()) => 0,
+        Err(Failure::Message(problem)) => {
+            output::err(&problem);
+            1
         }
+        Err(Failure::Reported) => 1,
     }
 }
 
@@ -387,24 +364,6 @@ mod tests {
             .iter()
             .map(|(key, value)| (*key, value.to_string()))
             .collect()
-    }
-
-    #[test]
-    fn every_script_step_names_a_script_under_scripts() {
-        for step in STEPS.iter() {
-            if let Body::Script(script) = step.body {
-                assert!(script.starts_with("scripts/"), "{script}");
-                assert!(script.ends_with(".sh"), "{script}");
-                assert_eq!(
-                    script
-                        .trim_start_matches("scripts/")
-                        .trim_end_matches(".sh"),
-                    step.id,
-                    "{} should be named after its script",
-                    step.name
-                );
-            }
-        }
     }
 
     #[test]
