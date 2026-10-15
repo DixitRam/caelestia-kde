@@ -1186,6 +1186,53 @@ run_wallpaper_hook() {
         "WALLPAPER_PATH=$wallpaper" "THUMBNAIL_PATH=$wallpaper"
 }
 
+is_video() {
+    local file="$1"
+    case "${file,,}" in
+        *.mp4|*.webm|*.mkv|*.mov|*.avi|*.flv|*.wmv|*.m4v) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+video_thumbnail() {
+    local video="$1"
+    local hash thumb_dir thumb
+    command -v ffmpeg >/dev/null 2>&1 || return 1
+    hash="$(sha256sum "$video" 2>/dev/null | awk '{print $1}')"
+    [[ -n "$hash" ]] || return 1
+    thumb_dir="$CACHE_HOME/caelestia/wallpapers/$hash"
+    thumb="$thumb_dir/first_frame.png"
+    mkdir -p "$thumb_dir"
+    printf '%s' "$video" > "$thumb_dir/source_path"
+    if [[ ! -s "$thumb" ]]; then
+        ffmpeg -y -loglevel error -i "$video" -vf "thumbnail,scale=640:-1" -frames:v 1 "$thumb" >/dev/null 2>&1 || return 1
+    fi
+    printf '%s' "$thumb"
+}
+
+# Inspect parent process arguments for any video path parameter (e.g. from Quickshell)
+_find_parent_video_arg() {
+    local pid="$BASHPID" ppid arg
+    while true; do
+        ppid="$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d ' ')" || break
+        [[ -n "$ppid" && "$ppid" -gt 1 ]] || break
+        if [[ -r "/proc/$ppid/cmdline" ]]; then
+            while IFS= read -r -d '' arg; do
+                case "${arg,,}" in
+                    *.mp4|*.webm|*.mkv|*.mov|*.avi|*.flv|*.wmv|*.m4v)
+                        if [[ -f "$arg" ]]; then
+                            printf '%s' "$arg"
+                            return 0
+                        fi
+                        ;;
+                esac
+            done < "/proc/$ppid/cmdline"
+        fi
+        pid="$ppid"
+    done
+    return 1
+}
+
 # Return 0 (true) if any ancestor process in the current process tree is skwd-walld.
 # This detects the re-entrant call skwd-walld -> caelestia-color and is used to skip
 # the skwd-helm apply that would feed back into skwd-walld, creating an infinite loop.
@@ -1203,6 +1250,21 @@ _called_from_skwd_walld() {
 
 write_wallpaper_state() {
     local wallpaper="$1"
+
+    # If a thumbnail was passed (e.g. from Quickshell video preview/thumb), resolve the original video
+    if [[ "$wallpaper" == */first_frame.png ]]; then
+        local dir source_video
+        dir="$(dirname -- "$wallpaper")"
+        if [[ -f "$dir/source_path" ]]; then
+            source_video="$(<"$dir/source_path")"
+            [[ -n "$source_video" && -f "$source_video" ]] && wallpaper="$source_video"
+        fi
+        if [[ "$wallpaper" == */first_frame.png ]]; then
+            source_video="$(_find_parent_video_arg)"
+            [[ -n "$source_video" && -f "$source_video" ]] && wallpaper="$source_video"
+        fi
+    fi
+
     mkdir -p "$(dirname -- "$WALLPAPER_FILE")"
     printf '%s' "$wallpaper" > "$WALLPAPER_FILE"
     ln -sfn "$wallpaper" "$WALLPAPER_LINK"
@@ -1227,7 +1289,14 @@ stored_wallpaper() {
 derive_from_wallpaper() {
     local wallpaper="$1" flavour="$2" mode="$3" variant="$4"
     local variant_smart="$5" mode_smart="$6"
-    render_image "$wallpaper" "$flavour" "$mode" "$variant" true "$RENDER_FILE" \
+    local palette_source="$wallpaper"
+    if is_video "$wallpaper"; then
+        local vthumb
+        if vthumb="$(video_thumbnail "$wallpaper")"; then
+            palette_source="$vthumb"
+        fi
+    fi
+    render_image "$palette_source" "$flavour" "$mode" "$variant" true "$RENDER_FILE" \
         "$variant_smart" "$mode_smart"
     commit "$RENDER_FILE"
     defer_to_desktop "$META_MODE"
@@ -1381,7 +1450,14 @@ cmd_scheme_set() {
                 fail_or_notify "$notify" "no wallpaper has been set yet"
                 return 1
             fi
-            render_image "$wallpaper" "$flavour" "$mode" "$variant" false "$PREVIEW_FILE" \
+            local preview_wallpaper="$wallpaper"
+            if is_video "$wallpaper"; then
+                local vthumb
+                if vthumb="$(video_thumbnail "$wallpaper")"; then
+                    preview_wallpaper="$vthumb"
+                fi
+            fi
+            render_image "$preview_wallpaper" "$flavour" "$mode" "$variant" false "$PREVIEW_FILE" \
                 "$variant_smart" "$mode_smart"
             cat "$PREVIEW_FILE"
             printf '\n'
@@ -1447,11 +1523,12 @@ cmd_scheme() {
 }
 
 cmd_wallpaper() {
-    local file="" print=0 print_path="" random=0 random_dir="" no_smart=0 smart="true"
+    local file="" apply_file="" print=0 print_path="" random=0 random_dir="" no_smart=0 smart="true"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -f|--file) file="${2:-}"; [[ -n "$file" ]] || die "-f needs a path"; shift 2 ;;
+            -a|--apply-path) apply_file="${2:-}"; [[ -n "$apply_file" ]] || die "-a needs a path"; shift 2 ;;
             -p|--print)
                 print=1
                 shift
@@ -1489,7 +1566,14 @@ cmd_wallpaper() {
         local source="$print_path"
         [[ -n "$source" ]] || source="$(stored_wallpaper)" || die "no wallpaper has been set yet"
         [[ -f "$source" ]] || die "no such wallpaper: $source"
-        render_image "$source" "${META_FLAVOUR:-default}" "${META_MODE:-dark}" "${META_VARIANT:-tonalspot}" \
+        local preview_source="$source"
+        if is_video "$source"; then
+            local vthumb
+            if vthumb="$(video_thumbnail "$source")"; then
+                preview_source="$vthumb"
+            fi
+        fi
+        render_image "$preview_source" "${META_FLAVOUR:-default}" "${META_MODE:-dark}" "${META_VARIANT:-tonalspot}" \
             false "$PREVIEW_FILE" "$smart" "$smart"
         cat "$PREVIEW_FILE"
         printf '\n'
@@ -1504,15 +1588,37 @@ cmd_wallpaper() {
     [[ -f "$file" ]] || die "no such wallpaper: $file"
     file="$(realpath -- "$file")"
 
-    write_wallpaper_state "$file"
+    local palette_source="$file"
+    if is_video "$file"; then
+        local video_thumb
+        if video_thumb="$(video_thumbnail "$file")"; then
+            palette_source="$video_thumb"
+        fi
+    fi
+
+    local state_file="${apply_file:-$file}"
+    if [[ "$state_file" == */first_frame.png ]]; then
+        local dir source_video
+        dir="$(dirname -- "$state_file")"
+        if [[ -f "$dir/source_path" ]]; then
+            source_video="$(<"$dir/source_path")"
+            [[ -n "$source_video" && -f "$source_video" ]] && state_file="$source_video"
+        fi
+        if [[ "$state_file" == */first_frame.png ]]; then
+            source_video="$(_find_parent_video_arg)"
+            [[ -n "$source_video" && -f "$source_video" ]] && state_file="$source_video"
+        fi
+    fi
+
+    write_wallpaper_state "$state_file"
 
     # Only a dynamic scheme follows the wallpaper; a named one stays.
     if [[ -z "${META_NAME:-}" || "${META_NAME}" == "dynamic" ]]; then
-        derive_from_wallpaper "$file" "${META_FLAVOUR:-default}" "${META_MODE:-dark}" \
+        derive_from_wallpaper "$palette_source" "${META_FLAVOUR:-default}" "${META_MODE:-dark}" \
             "${META_VARIANT:-tonalspot}" "$smart" "$smart"
     fi
 
-    run_wallpaper_hook "$file"
+    run_wallpaper_hook "$state_file"
 }
 
 pick_random_wallpaper() {
