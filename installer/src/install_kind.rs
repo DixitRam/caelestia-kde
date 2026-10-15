@@ -1,6 +1,5 @@
-// The accessors below are the install-kind contract: each one is used by the steps
-// that are still shell, so they are kept ready rather than re-derived.
-#![allow(dead_code)]
+// The install-kind contract: which layout this install has and where each of its directories
+// is. Every step and the shell wrappers read the same answers from here.
 
 use std::path::PathBuf;
 

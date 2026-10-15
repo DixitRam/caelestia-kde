@@ -20,7 +20,7 @@ SELF_DIR="$(dirname -- "$SELF")"
 # Which install this command belongs to, and where it keeps its files.
 #
 # Everywhere else is told its install kind, but this command is reached by name with
-# nothing set and must answer before it can find install-kind.sh, so it decides from its
+# nothing set and must answer before it can find the installer's own, so it decides from its
 # own location: /usr/bin is a package, anything else a checkout. Using the checkout paths
 # unconditionally put ~/.config/quickshell/caelestia ahead of the installed /etc/xdg tree.
 #
