@@ -74,20 +74,21 @@ class InstallerTests(unittest.TestCase):
         """A numbered step has to be reachable, and every list entry has to resolve.
 
         Three lists run steps: the full install (installer/src/steps/mod.rs), the user's
-        half of a packaged install (src/bin/caelestia), and the subset 08-build-shell.sh
-        runs on its own when a checkout updates itself; update.sh and caelestia-update
-        name their subset the same way. A step in none of them is dead weight that every
-        other check still reports as covered; an entry that resolves to neither a script
-        nor a native step fails at install time instead of here. The step numbers are not
-        an order: the TUI runs 00-backup-themes after 02a-submodules, deliberately. The
-        lists differ in failure policy - the installer stops, the update path warns and
-        carries on - so only their membership is comparable, which is all this checks.
+        half of a packaged install (src/bin/caelestia), and the subset the build step runs
+        on its own when a checkout updates itself (installer/src/steps/build_shell.rs);
+        update.sh and caelestia-update name their subset the same way. A step in none of
+        them is dead weight that every other check still reports as covered; an entry that
+        resolves to neither a script nor a native step fails at install time instead of
+        here. The step numbers are not an order: the TUI runs 00-backup-themes after
+        02a-submodules, deliberately. The lists differ in failure policy - the installer
+        stops, the update path warns and carries on - so only their membership is
+        comparable, which is all this checks.
         """
         steps_table = (ROOT / "installer" / "src" / "steps" / "mod.rs").read_text(encoding="utf-8")
         lists = [
             (ROOT / "src" / "bin" / "caelestia"),
             (ROOT / "src" / "bin" / "caelestia-update"),
-            (ROOT / "scripts" / "08-build-shell.sh"),
+            (ROOT / "installer" / "src" / "steps" / "build_shell.rs"),
             (ROOT / "update.sh"),
         ]
 
@@ -97,13 +98,17 @@ class InstallerTests(unittest.TestCase):
         for path in lists:
             text = path.read_text(encoding="utf-8")
             # scripts/<id>.sh, caelestia_run_step <id>, run_core_step <id>, run_step <s> <id>,
-            # and the bare ids of a list that is passed to the resolver.
+            # the bare ids of a list that is passed to the resolver, and the Rust step runner
+            # naming a step it hands off to.
             listed |= set(re.findall(r"scripts/([0-9][0-9a-z]*-[A-Za-z0-9._-]+)\.sh", text))
             listed |= set(
                 re.findall(r"(?:caelestia_run_step|run_core_step)\s+([0-9][0-9a-z]*-[A-Za-z0-9._-]+)", text)
             )
             listed |= set(
                 re.findall(r"run_step\s+\d+\s+([0-9][0-9a-z]*-[A-Za-z0-9._-]+)", text)
+            )
+            listed |= set(
+                re.findall(r'run_step\(context, "([0-9][0-9a-z]*-[A-Za-z0-9._-]+)"\)', text)
             )
             listed |= set(
                 re.findall(r"^\s+([0-9][0-9a-z]*-[A-Za-z0-9._-]+)$", text, re.MULTILINE)
@@ -126,7 +131,7 @@ class InstallerTests(unittest.TestCase):
         )
 
     def test_the_update_fallback_sparsifies_only_paths_the_updater_writes(self) -> None:
-        """08-build-shell.sh adds to the sparse-checkout list src/bin/caelestia-update owns.
+        """The build step's repair adds to the sparse-checkout list src/bin/caelestia-update owns.
 
         The updater writes that list before it checks the tree out, so a helper cannot
         live in the tree and be called from there: the two name the same paths twice.
@@ -134,19 +139,18 @@ class InstallerTests(unittest.TestCase):
         which would leave the fallback silently doing nothing.
         """
         updater = (ROOT / "src" / "bin" / "caelestia-update").read_text(encoding="utf-8")
-        build = (ROOT / "scripts" / "08-build-shell.sh").read_text(encoding="utf-8")
+        build = (ROOT / "installer" / "src" / "steps" / "build_shell.rs").read_text(encoding="utf-8")
 
         owned = set(re.findall(r'echo "([^"]+)" >+ \.git/info/sparse-checkout', updater))
-        added = set()
-        for call in re.findall(r"^\s*sparsify_checkout_paths (.+)$", build, re.MULTILINE):
-            added.update(call.split())
+        rules = re.search(r"const SPARSIFY: \[&str; \d+\] = \[(.*?)\];", build, re.S)
+        added = set(re.findall(r'"([^"]+)"', rules.group(1))) if rules else set()
 
         self.assertTrue(owned, "caelestia-update should still write the sparse-checkout list")
-        self.assertTrue(added, "08-build-shell.sh should still name the rules it adds")
+        self.assertTrue(added, "the build step should still name the rules it adds")
         self.assertEqual(
             sorted(added - owned),
             [],
-            "08-build-shell.sh sparsifies rule(s) caelestia-update never writes:",
+            "the build step sparsifies rule(s) caelestia-update never writes:",
         )
 
     def test_the_sparse_checkout_covers_everything_the_shell_install_reads(self) -> None:
@@ -214,23 +218,35 @@ class InstallStepSafetyTests(unittest.TestCase):
     """
 
     def test_the_legacy_fonts_cleanup_is_called(self) -> None:
-        script = (ROOT / "scripts" / "08-build-shell.sh").read_text(encoding="utf-8")
+        script = (ROOT / "installer" / "src" / "steps" / "build_shell.rs").read_text(
+            encoding="utf-8"
+        )
 
-        self.assertIn("cleanup_legacy_fonts() {", script, "the cleanup should still be defined")
+        self.assertIn(
+            "fn cleanup_legacy_fonts(", script, "the cleanup should still be defined"
+        )
         self.assertIsNotNone(
-            re.search(r"^\s*cleanup_legacy_fonts\s*$", script, re.MULTILINE),
-            "08-build-shell.sh defines cleanup_legacy_fonts but never calls it",
+            re.search(r"^\s*cleanup_legacy_fonts\(&home\);", script, re.MULTILINE),
+            "the build step defines cleanup_legacy_fonts but never calls it",
         )
 
     def test_shell_config_backup_precedes_the_prebuilt_install(self) -> None:
         """#663: the prebuilt path extracts over $HOME, so it must be backed up first."""
-        script = (ROOT / "scripts" / "08-build-shell.sh").read_text(encoding="utf-8")
+        script = (ROOT / "installer" / "src" / "steps" / "build_shell.rs").read_text(
+            encoding="utf-8"
+        )
 
-        backup_at = script.find("backup_shell_config ||")
-        prebuilt_at = script.find("if try_download_prebuilt_shell;")
+        backup_at = script.find("backup_shell_config(&home)?")
+        prebuilt_at = script.find("&& try_prebuilt_shell(")
 
-        self.assertNotEqual(backup_at, -1, "08-build-shell.sh should back up the shell config")
-        self.assertNotEqual(prebuilt_at, -1, "08-build-shell.sh should still use the prebuilt download")
+        self.assertNotEqual(
+            backup_at, -1, "the build step should back up the shell config"
+        )
+        self.assertNotEqual(
+            prebuilt_at,
+            -1,
+            "the build step should still use the prebuilt download",
+        )
         self.assertLess(
             backup_at,
             prebuilt_at,
@@ -239,16 +255,26 @@ class InstallStepSafetyTests(unittest.TestCase):
 
     def test_privileged_package_installs_go_through_the_escalation_helper(self) -> None:
         """#664: a GUI-triggered update has no terminal, so bare sudo fails silently."""
-        script = (ROOT / "scripts" / "08-build-shell.sh").read_text(encoding="utf-8")
+        toolchain = (ROOT / "installer" / "src" / "toolchain.rs").read_text(encoding="utf-8")
 
         self.assertIn(
             "install_linguist_tools",
-            script,
-            "08-build-shell.sh should install the Linguist tools via the shared helper",
+            toolchain,
+            "the Linguist tools install should live in the shared toolchain module",
+        )
+        self.assertIn(
+            "privileges::elevated(",
+            toolchain,
+            "and escalate through the helper the rest of the installer uses",
+        )
+        self.assertIn(
+            '"pacman"',
+            toolchain,
+            "through the distribution's own manager",
         )
         self.assertNotIn(
-            "sudo pacman -S --needed --noconfirm qt6-tools",
-            script,
+            "sudo pacman",
+            toolchain,
             "the Linguist tools install must not escalate with bare sudo",
         )
 

@@ -12,7 +12,7 @@ const AUTOSTART_TEMPLATE: &str = r#"#!/bin/bash
 # session; they are repeated because the unit can start this outside one.
 #
 # The command the shell and its widgets call by name must be on PATH for everything
-# this spawns: 08-build-shell.sh installs it into ~/.local/bin, which a session started
+# this spawns: the 08-build-shell step installs it into ~/.local/bin, which a session started
 # by the display manager does not necessarily have on PATH.
 export PATH="__BIN_DIR__:$PATH"
 export QML2_IMPORT_PATH="__QML_IMPORT_PATH__"
@@ -98,7 +98,7 @@ pub fn run(context: &Context) -> Result<(), Failure> {
         let shell_config = install_kind::shell_config();
         if !shell_config.is_file() {
             return Err(format!(
-                "Caelestia Shell entrypoint not found: {} (run scripts/08-build-shell.sh first)",
+                "Caelestia Shell entrypoint not found: {} (run caelestia-install step 08-build-shell first)",
                 shell_config.display()
             )
             .into());

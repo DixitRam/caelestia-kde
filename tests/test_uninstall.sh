@@ -184,7 +184,7 @@ test_the_uninstaller_leaves_an_unrelated_qml_import_path_alone() {
     home="$tmp/home"
 
     # The same variable names, but one points somewhere that is not Caelestia and
-    # one is Caelestia's own (the exact value 08-build-shell.sh writes). All three
+    # one is Caelestia's own (the exact value the 08-build-shell step writes). All three
     # shells must agree: drop ours, keep theirs.
     cat > "$home/.bashrc" <<'EOF'
 export PATH="$HOME/.local/bin:$PATH"

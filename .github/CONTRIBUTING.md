@@ -56,7 +56,7 @@ caelestia-shell-ipc log
 ### For C++ plugin changes
 
 ```bash
-bash scripts/08-build-shell.sh   # Recompiles and installs the plugins
+make build-shell   # Recompiles and installs the plugins
 bash shell/scripts/restart_shell.sh  # Restart to pick up the new .so
 ```
 

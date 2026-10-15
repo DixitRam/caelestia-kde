@@ -121,7 +121,7 @@ test_shared_runtime_files_have_one_cmake_owner() {
     local cmake pkgbuild build_script workflow
     cmake="$(cat "$REPO_ROOT/shell/CMakeLists.txt")"
     pkgbuild="$(cat "$REPO_ROOT/packaging/aur/caelestia-kde/PKGBUILD")"
-    build_script="$(cat "$REPO_ROOT/scripts/08-build-shell.sh")"
+    build_script="$(cat "$REPO_ROOT/installer/src/steps/build_shell.rs")"
     workflow="$(cat "$REPO_ROOT/.github/workflows/version-release.yml")"
 
     assert_contains "$cmake" 'set(INSTALL_BINDIR "usr/bin"' \
@@ -176,18 +176,18 @@ test_shared_runtime_files_have_one_cmake_owner() {
         "the package must not copy the wallpaper outside CMake"
     assert_not_contains "$pkgbuild" 'cp -r assets/org.quickshell.desktop' \
         "the package must not copy desktop integration outside CMake"
-    assert_not_contains "$build_script" 'install -m 755 "$BUNDLE_DIR/src/bin/' \
+    assert_not_contains "$build_script" 'src/bin' \
         "the source installer must not copy CLI wrappers outside CMake"
-    assert_not_contains "$build_script" 'cp -r "$BUNDLE_DIR/src/matugen"' \
+    assert_not_contains "$build_script" 'matugen' \
         "the source installer must not copy color data outside CMake"
-    assert_contains "$build_script" 'tar -tzf "$tmp_archive" bin/' \
-        "prebuilt installs should require the CMake-owned CLI tree"
-    assert_contains "$build_script" 'tar -tzf "$tmp_archive" lib/caelestia/' \
-        "prebuilt installs should require the source data tree"
-    assert_contains "$build_script" 'tar -C "$HOME/.local" -xzf "$tmp_archive" bin' \
-        "prebuilt installs should extract the CMake-owned CLI tree"
-    assert_not_contains "$build_script" 'bin share' \
+    assert_not_contains "$build_script" '"share"' \
         "prebuilt installs should not introduce a second data layout"
+    assert_contains "$build_script" 'archive_has(&archive, "bin/")' \
+        "prebuilt installs should require the CMake-owned CLI tree"
+    assert_contains "$build_script" 'archive_has(&archive, "lib/caelestia/")' \
+        "prebuilt installs should require the source data tree"
+    assert_contains "$build_script" 'extract(&archive, &local, "bin")' \
+        "prebuilt installs should extract the CMake-owned CLI tree"
     assert_contains "$build_script" 'falling back to a local build' \
         "legacy prebuilt artifacts should not claim a complete install"
     assert_contains "$workflow" 'cp -a stage/usr/bin/. dist/root/bin/' \

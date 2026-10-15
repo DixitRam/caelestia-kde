@@ -27,7 +27,7 @@ test_both_steps_that_apply_the_rule_are_native() {
 test_the_update_path_reaches_the_rule_through_a_step() {
     assert_file_contains "$REPO_ROOT/update.sh" "run_core_step 09-system-tweaks" \
         "an update re-applies the tweaks step, which applies the rule"
-    assert_file_contains "$REPO_ROOT/scripts/08-build-shell.sh" "caelestia_run_step 06-services" \
+    assert_file_contains "$REPO_ROOT/installer/src/steps/build_shell.rs" 'run_step(context, "06-services")' \
         "building the shell re-applies the services step"
     assert_file_contains "$REPO_ROOT/src/bin/caelestia-update" "run_step 3600 08-build-shell" \
         "and a packaged update reaches both by building the shell"

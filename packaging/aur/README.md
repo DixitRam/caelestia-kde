@@ -51,7 +51,7 @@ and the ones the defaults name are in the optdepends (`ttf-rubik-vf` for the clo
 the workspace label, `ttf-cascadia-code-nerd` for the mono style). That is upstream's
 arrangement, and it is why nothing downloads a font any more: the step that fetched the
 Apple families into `~/.local/share/caelestia/assets/fonts` is gone, and
-`08-build-shell.sh` reclaims what an older install left in that directory and in the
+`08-build-shell` reclaims what an older install left in that directory and in the
 shell tree, about 300 MiB in each.
 
 It no longer depends on `caelestia-cli`. The color pipeline belongs to this

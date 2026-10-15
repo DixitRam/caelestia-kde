@@ -9,6 +9,12 @@ impl TempDir {
         let base = std::env::var_os("TMPDIR")
             .map(PathBuf::from)
             .unwrap_or_else(std::env::temp_dir);
+        Self::new_in(&base, prefix)
+    }
+
+    // A directory made in a caller's own tree: staging that has to share a filesystem with
+    // what it is about to be renamed onto.
+    pub fn new_in(base: &Path, prefix: &str) -> Option<Self> {
         for attempt in 0..64u32 {
             let candidate = base.join(format!("{prefix}.{}.{attempt}", std::process::id()));
             match std::fs::create_dir(&candidate) {

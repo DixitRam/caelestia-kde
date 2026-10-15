@@ -6,6 +6,7 @@ mod distro;
 mod download;
 mod exit;
 mod handoff;
+mod install_fs;
 mod install_kind;
 mod js;
 mod menu;
@@ -20,6 +21,8 @@ mod signals;
 mod steps;
 mod theme;
 mod tmp;
+mod toolchain;
+mod update_state;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

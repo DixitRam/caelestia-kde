@@ -294,7 +294,7 @@ elif command -v apt-get >/dev/null; then
     sudo apt-get update && sudo apt-get upgrade -y || warn "System update was canceled or failed. Continuing with non-sudo parts..."
 fi
 
-# 3. 08-build-shell.sh handles GUI privilege escalation itself.
+# 3. the 08-build-shell step handles GUI privilege escalation itself.
 info "Executing build scripts (GUI prompts will appear if required)..."
 
 export BUNDLE_DIR="$UPD_DIR/repo"

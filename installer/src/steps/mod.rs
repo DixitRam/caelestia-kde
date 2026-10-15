@@ -1,5 +1,6 @@
 mod autostart;
 mod backup;
+mod build_shell;
 mod configs;
 mod kde_apps;
 mod kde_theme;
@@ -228,7 +229,7 @@ pub const STEPS: [Step; 17] = [
         name: "Build Caelestia shell",
         id: "08-build-shell",
         phase: Phase::Build,
-        body: Body::Script("scripts/08-build-shell.sh"),
+        body: Body::Native(build_shell::run),
     },
     Step {
         name: "Apply system tweaks",

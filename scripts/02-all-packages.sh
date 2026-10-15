@@ -8,7 +8,7 @@ BUNDLE_DIR="${BUNDLE_DIR:?BUNDLE_DIR not set}"
 export BUNDLE_DIR
 
 # This is the all-groups entry point: the TUI's "Install packages" step and
-# 08-build-shell.sh's update path both want every group at once. A partial install
+# the 08-build-shell step's update path both want every group at once. A partial install
 # calls a distro's packages.sh directly with PACKAGE_GROUP set.
 export PACKAGE_GROUP="all"
 

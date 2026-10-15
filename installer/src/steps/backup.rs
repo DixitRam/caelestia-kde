@@ -46,7 +46,7 @@ pub fn run(context: &Context) -> Result<(), Failure> {
     let backup = context
         .bundle
         .join("backups")
-        .join(timestamp().unwrap_or_else(|| "backup".to_string()));
+        .join(crate::install_fs::timestamp().unwrap_or_else(|| "backup".to_string()));
     fs::create_dir_all(&backup)
         .map_err(|error| format!("cannot use {}: {error}", backup.display()))?;
     fs::write(
@@ -220,14 +220,6 @@ fn first_archive(directory: &Path) -> Option<PathBuf> {
         .collect();
     archives.sort();
     archives.into_iter().next()
-}
-
-pub(crate) fn timestamp() -> Option<String> {
-    let stamp = process::capture("date", &["+%Y%m%d_%H%M%S"])?;
-    if stamp.is_empty() {
-        return None;
-    }
-    Some(stamp)
 }
 
 #[cfg(test)]

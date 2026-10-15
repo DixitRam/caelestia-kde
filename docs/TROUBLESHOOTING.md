@@ -43,7 +43,7 @@ have.
 
 ### 1.2 Shell / Plugin Compilation Fails
 
-The shell build (`08-build-shell.sh`) requires **Qt 6.9+** and several system libraries. The CMake project in `shell/CMakeLists.txt` uses `qt_standard_project_setup(REQUIRES 6.9)`.
+The shell build (the `08-build-shell` step) requires **Qt 6.9+** and several system libraries. The CMake project in `shell/CMakeLists.txt` uses `qt_standard_project_setup(REQUIRES 6.9)`.
 
 #### Qt / QML Dependencies
 
@@ -83,7 +83,7 @@ This means the CMake install step didn't copy required `qmldir` or `.so` files p
 **Causes & fixes:**
 - **Install prefix mismatch:** The build uses `-DCMAKE_INSTALL_PREFIX=$HOME/.local`. If Qt6 looks for QML modules elsewhere, the module won't load.
 - **Stale build artifacts:** Run `rm -rf shell/build shell/plugin/build` before re-running
-- **Partial installation:** If CMake install was interrupted, files may be missing. Re-run `08-build-shell.sh`
+- **Partial installation:** If CMake install was interrupted, files may be missing. Re-run `caelestia-install step 08-build-shell`
 
 ### 1.4 ccache Not Speeding Up Rebuilds
 
@@ -182,7 +182,7 @@ CAELESTIA_BIN_DIR=$HOME/.local/bin
 CAELESTIA_SHELL_CONFIG=$HOME/.config/quickshell/caelestia/shell.qml
 ```
 
-**If they are missing:** re-run `scripts/08-build-shell.sh`, then log out and back
+**If they are missing:** re-run `caelestia-install step 08-build-shell`, then log out and back
 in. `systemctl --user show-environment` lists what the systemd user manager has.
 
 ### 3.3 Window Thumbnails / Screencast Not Working
@@ -380,7 +380,7 @@ ls -la ~/.local/share/plasma/shells/caelestia.desktop/contents/lockscreen/LockSc
 | Symptom | Cause | Solution |
 |---|---|---|
 | Stock Breeze lock screen appears | `ShellPackage` reset after KDE update or theme switch. | Caelestia autostart (`caelestia-autostart.sh`) automatically self-heals this at next login if `caelestia.desktop` is present. To restore immediately in session: `kwriteconfig6 --file plasmashellrc --group "Shell" --key "ShellPackage" "caelestia.desktop" && kwriteconfig6 --file kscreenlockerrc --group "Greeter" --key "Theme" --delete`. |
-| Lock screen fails or crashes | Greeter files missing or corrupted in `~/.local/share/plasma/shells/`. | Re-deploy via `BUNDLE_DIR=. ./scripts/08-build-shell.sh` or `cp -r src/kde/shells/caelestia.desktop ~/.local/share/plasma/shells/`. |
+| Lock screen fails or crashes | Greeter files missing or corrupted in `~/.local/share/plasma/shells/`. | Re-deploy via `caelestia-install step 08-build-shell --bundle .` or `cp -r src/kde/shells/caelestia.desktop ~/.local/share/plasma/shells/`. |
 | Lock screen shows wallpaper error | Legacy `PlasmaApplicationWallpaper` left in `kscreenlockerrc`. | Reset WallpaperPlugin: `kwriteconfig6 --file kscreenlockerrc --group Greeter --key WallpaperPlugin "org.kde.image"`. |
 | Profile picture missing | `~/.face` does not exist and no system user avatar set. | Place your avatar image at `~/.face` or configure an avatar in KDE System Settings → Users. |
 
@@ -841,7 +841,7 @@ all depends on what the artifact is for:
 
 | Artifact | No published checksum | On mismatch |
 |---|---|---|
-| Prebuilt shell tarball (`08-build-shell.sh`, extracted over `$HOME`) | Warns and extracts | Builds the shell locally instead |
+| Prebuilt shell tarball (the `08-build-shell` step, extracted over `$HOME`) | Warns and extracts | Builds the shell locally instead |
 | Prebuilt installer binary (executed straight away) | Compiles the installer locally instead | Same |
 | Prebuilt CAVA SDK (unpacked into `/usr` as root) | Warns and unpacks | Not unpacked; `libcava` comes from the repositories instead |
 

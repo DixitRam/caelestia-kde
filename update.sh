@@ -127,10 +127,10 @@ run_core_step() {
     return 127
 }
 
+# The steps are native now, so an update has nothing to run them with unless it can reach
+# the installer binary. Said here, before the pull, rather than at the first step after it.
 if ! caelestia_installer_bin >/dev/null 2>&1; then
-    if [ ! -f "$BUNDLE_DIR/scripts/08-build-shell.sh" ]; then
-        die "Critical internal scripts are missing from $BUNDLE_DIR/scripts/"
-    fi
+    die "The update steps run through caelestia-install, which could not be found or downloaded. Set CAELESTIA_INSTALL_BIN to a local build, or re-run install.sh."
 fi
 
 if [ -f "$HOME/.config/caelestia-kde/install.env" ]; then

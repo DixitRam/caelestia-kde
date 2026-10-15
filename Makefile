@@ -45,7 +45,7 @@ uninstall: ## Remove the shell, its configs and the lockscreen plugin
 # Build
 
 build-shell: ## Build and install the C++ QML plugin (needs Qt6 + CMake; Linux only)
-	$(BASH) $(STEPS_DIR)/08-build-shell.sh
+	cargo run -q --release --manifest-path $(INSTALLER_MANIFEST) -- step 08-build-shell --bundle $(CURDIR)
 
 fetch-dependencies: ## Fetch pinned build dependencies for offline builds
 	$(BASH) $(STEPS_DIR)/fetch-dependencies.sh

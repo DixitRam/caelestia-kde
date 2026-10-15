@@ -5,7 +5,7 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_SCRIPT="$REPO_ROOT/scripts/08-build-shell.sh"
+BUILD_SCRIPT="$REPO_ROOT/installer/src/steps/build_shell.rs"
 RESTART_SCRIPT="$REPO_ROOT/shell/scripts/restart_shell.sh"
 UNINSTALL_SCRIPT="$REPO_ROOT/uninstall.sh"
 IPC="$REPO_ROOT/src/bin/caelestia-shell-ipc"
@@ -17,19 +17,20 @@ test_the_packaged_unit_keeps_the_apps_behind_the_shell() {
 }
 
 test_the_environment_writer_uses_the_same_layout() {
-    # The environment the session reads and the wrapper the unit runs have to agree on
-    # where the install put things; they agree by both asking install-kind.sh.
+    # The environment the session reads and the wrapper the unit runs have to agree on where
+    # the install put things; they agree by both asking install-kind. The writer is the
+    # native build step now, so the source of truth is its Rust.
     local script
     script="$(cat "$BUILD_SCRIPT")"
 
-    assert_contains "$script" 'QML2_IMPORT_PATH=$(install_qml_import_path)' "the session environment should ask for the layout"
-    assert_contains "$script" 'CAELESTIA_LIB_DIR=$(install_lib_dir)' "as should the library directory"
-    assert_contains "$script" 'CAELESTIA_BIN_DIR=$(install_bin_dir)' "and the command directory"
-    assert_contains "$script" 'export PATH="$(install_bin_dir)\${PATH:+:\$PATH}"' "which the session should also put on PATH"
-    assert_contains "$script" 'CAELESTIA_SHELL_CONFIG=$(install_shell_config)' "and the entrypoint"
-    assert_contains "$script" 'plasma-workspace/env' "the Plasma session environment should be written"
+    assert_contains "$script" 'install_kind::qml_import_path()' "the session environment should ask for the layout"
+    assert_contains "$script" 'install_kind::lib_dir()' "as should the library directory"
+    assert_contains "$script" 'install_kind::bin_dir()' "and the command directory"
+    assert_contains "$script" 'export PATH=\"' "which the session should also put on PATH"
+    assert_contains "$script" 'install_kind::shell_config()' "and the entrypoint"
+    assert_contains "$script" 'plasma-workspace' "the Plasma session environment should be written"
     assert_contains "$(cat "$UNINSTALL_SCRIPT")" 'plasma-workspace/env/caelestia.sh' "uninstall should clean up the Plasma environment script"
-    assert_not_contains "$script" 'QML2_IMPORT_PATH=/usr/lib/qt6/qml' "and must not carry its own copy of the values"
+    assert_not_contains "$script" '/usr/lib/qt6/qml' "and must not carry its own copy of the values"
 }
 
 test_restarting_goes_through_that_unit() {

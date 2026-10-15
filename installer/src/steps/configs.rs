@@ -138,7 +138,7 @@ pub fn backup_dir(context: &Context) -> PathBuf {
         context.bundle.clone()
     };
     root.join("backups")
-        .join(super::backup::timestamp().unwrap_or_else(|| "backup".to_string()))
+        .join(crate::install_fs::timestamp().unwrap_or_else(|| "backup".to_string()))
 }
 
 fn recorded_backup(cache: &Path, bundle: &Path) -> Option<PathBuf> {
