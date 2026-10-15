@@ -1294,3 +1294,211 @@ fn a_missing_wallpaper_leaves_the_desktop_alone() {
     assert!(recorded(&tools, "qdbus6").is_empty(), "nothing to set");
     assert!(!fixture.path("state/caelestia/wallpaper/path.txt").exists());
 }
+
+#[cfg(unix)]
+struct Autostart {
+    path: PathBuf,
+    calls: PathBuf,
+}
+
+#[cfg(unix)]
+fn autostart_tools(fixture: &Fixture) -> Autostart {
+    let bin = fixture.path("bin");
+    let calls = fixture.path("calls.log");
+    std::fs::write(&calls, "").expect("the call log");
+
+    stub_in(
+        &bin,
+        "systemctl",
+        "#!/bin/sh\nprintf '%s %s\\n' 'systemctl' \"$*\" >> \"$KW_CALLS\"\nexit 0\n",
+    );
+    stub_in(&bin, "update-desktop-database", "#!/bin/sh\nexit 0\n");
+    stub_in(&bin, "kbuildsycoca6", "#!/bin/sh\nexit 0\n");
+    stub_in(
+        &bin,
+        "quickshell",
+        "#!/bin/sh\n[ \"${KW_FAIL_QUICKSHELL:-}\" = 1 ] && exit 1\nexit 0\n",
+    );
+
+    let system = std::env::var("PATH").unwrap_or_default();
+    Autostart {
+        path: PathBuf::from(format!("{}:{system}", bin.display())),
+        calls,
+    }
+}
+
+#[cfg(unix)]
+fn run_autostart(fixture: &Fixture, tools: &Autostart, extra: &[(&str, &str)]) -> Output {
+    let calls = tools.calls.to_str().expect("a path");
+    let mut environment: Vec<(&str, &str)> = vec![("KW_CALLS", calls)];
+    environment.extend_from_slice(extra);
+    let bundle = fixture.path("bundle");
+    fixture.step_in("10-autostart", &tools.path, &bundle, &environment)
+}
+
+#[cfg(unix)]
+fn autostart_calls(tools: &Autostart) -> Vec<String> {
+    std::fs::read_to_string(&tools.calls)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.starts_with("systemctl"))
+        .map(|line| line.trim_start_matches("systemctl").trim().to_string())
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_source_install_writes_the_launcher_the_unit_and_the_interface_declaration() {
+    let fixture = Fixture::new("autostart-source");
+    let tools = autostart_tools(&fixture);
+    let shell_config = fixture.path(".config/quickshell/caelestia/shell.qml");
+    std::fs::create_dir_all(shell_config.parent().expect("a parent")).expect("the config tree");
+    std::fs::write(&shell_config, b"// shell").expect("the entrypoint");
+
+    let source = fixture.path("bundle/assets/org.quickshell.desktop");
+    std::fs::create_dir_all(source.parent().expect("a parent")).expect("the assets directory");
+    std::fs::write(
+        &source,
+        "[Desktop Entry]\nExec=/usr/bin/quickshell\nX-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1\n",
+    )
+    .expect("the asset");
+
+    let output = run_autostart(&fixture, &tools, &[("CAELESTIA_INSTALL_KIND", "source")]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    let launcher = fixture.path(".local/bin/caelestia-autostart.sh");
+    assert!(launcher.is_file(), "the launcher is installed");
+    let script = std::fs::read_to_string(&launcher).expect("the launcher");
+    assert!(
+        script.contains("exec \"") && script.contains("\" -n -p \""),
+        "it starts the entrypoint the install named: {script}"
+    );
+    assert!(
+        script.contains(&shell_config.display().to_string()),
+        "and the entrypoint is the one this install has: {script}"
+    );
+
+    let unit = fixture.path(".config/systemd/user/caelestia-shell.service");
+    let unit_text = std::fs::read_to_string(&unit).expect("the unit");
+    assert!(unit_text.contains("ExecStart=%h/.local/bin/caelestia-autostart.sh"));
+    assert!(unit_text.contains("Before=xdg-desktop-autostart.target"));
+
+    let calls = autostart_calls(&tools);
+    assert!(
+        calls.contains(&"--user reset-failed caelestia-shell.service".to_string()),
+        "a failed unit is cleared before it is used: {calls:?}"
+    );
+    assert!(
+        calls.contains(&"--user enable caelestia-shell.service".to_string()),
+        "{calls:?}"
+    );
+
+    let declaration = fixture.path(".local/share/applications/quickshell.desktop");
+    let declaration_text = std::fs::read_to_string(&declaration).expect("the declaration");
+    assert!(declaration_text.contains("X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1"));
+
+    let preview = fixture.path(".local/share/applications/org.quickshell.desktop");
+    let preview_text = std::fs::read_to_string(&preview).expect("the preview declaration");
+    assert!(
+        preview_text.contains("Exec=/") && !preview_text.contains("Exec=/usr/bin/quickshell"),
+        "the exec line points at the resolved binary: {preview_text}"
+    );
+    assert!(
+        output.stdout.contains("Autostart entries configured."),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_packaged_install_takes_the_users_own_copies_out_of_the_way() {
+    let fixture = Fixture::new("autostart-package");
+    let tools = autostart_tools(&fixture);
+    let unit = fixture.path(".config/systemd/user/caelestia-shell.service");
+    let launcher = fixture.path(".local/bin/caelestia-autostart.sh");
+    std::fs::create_dir_all(unit.parent().expect("a parent")).expect("the unit directory");
+    std::fs::create_dir_all(launcher.parent().expect("a parent")).expect("the bin directory");
+    std::fs::write(&unit, b"stale").expect("a stale unit");
+    std::fs::write(&launcher, b"stale").expect("a stale launcher");
+
+    let output = run_autostart(&fixture, &tools, &[("CAELESTIA_INSTALL_KIND", "package")]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+    assert!(!unit.exists(), "the user's copy of the unit goes");
+    assert!(!launcher.exists(), "and the user's copy of the launcher");
+    assert!(
+        output.stdout.contains("the package's is the one to use"),
+        "{}",
+        output.stdout
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_retired_entries_and_a_dead_enable_link_do_not_survive() {
+    let fixture = Fixture::new("autostart-retire");
+    let tools = autostart_tools(&fixture);
+    let shell_config = fixture.path(".config/quickshell/caelestia/shell.qml");
+    std::fs::create_dir_all(shell_config.parent().expect("a parent")).expect("the config tree");
+    std::fs::write(&shell_config, b"// shell").expect("the entrypoint");
+
+    let retired = fixture.path(".config/autostart/caelestiashell.desktop");
+    std::fs::create_dir_all(retired.parent().expect("a parent")).expect("the autostart directory");
+    std::fs::write(&retired, b"[Desktop Entry]").expect("the retired entry");
+
+    let wants = fixture.path(".config/systemd/user/graphical-session.target.wants");
+    std::fs::create_dir_all(&wants).expect("the wants directory");
+    let dead = wants.join("caelestia-shell.service");
+    std::os::unix::fs::symlink(fixture.path("gone"), &dead).expect("a dead link");
+
+    let material_you = fixture.path(".config/systemd/user/kde-material-you-colors.service");
+    std::fs::write(&material_you, b"[Unit]").expect("the material-you unit");
+    let scheme = fixture.path(".local/share/color-schemes/MaterialYou.colors");
+    std::fs::create_dir_all(scheme.parent().expect("a parent")).expect("the schemes directory");
+    std::fs::write(&scheme, b"[Colors]").expect("a generated scheme");
+
+    let output = run_autostart(&fixture, &tools, &[("CAELESTIA_INSTALL_KIND", "source")]);
+    assert_eq!(output.code, Some(0), "{}", output.stderr);
+
+    assert!(!retired.exists(), "the retired autostart entry goes");
+    assert!(!dead.exists(), "a dead enable link goes");
+    assert!(!material_you.exists(), "the material-you unit goes");
+    assert!(!scheme.exists(), "and the scheme it generated");
+
+    let calls = autostart_calls(&tools);
+    assert!(
+        calls.contains(&"--user disable app-caelestiashell@autostart.service".to_string()),
+        "{calls:?}"
+    );
+    assert!(
+        calls.contains(&"--user disable --now kde-material-you-colors.service".to_string()),
+        "{calls:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn without_quickshell_the_step_refuses_to_configure_anything() {
+    let fixture = Fixture::new("autostart-no-quickshell");
+    let bare = fixture.path("bare");
+    std::fs::create_dir_all(&bare).expect("a directory for the bare path");
+
+    let output = fixture.step(
+        "10-autostart",
+        &bare,
+        &[("CAELESTIA_INSTALL_KIND", "source")],
+    );
+    assert_eq!(output.code, Some(1));
+    assert!(
+        output
+            .stderr
+            .contains("Quickshell is not installed or is not available in PATH."),
+        "{}",
+        output.stderr
+    );
+    assert!(
+        !fixture
+            .path(".config/systemd/user/caelestia-shell.service")
+            .exists()
+    );
+}

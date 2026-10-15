@@ -1,3 +1,4 @@
+mod autostart;
 mod backup;
 mod kde_apps;
 mod kde_theme;
@@ -225,7 +226,7 @@ pub const STEPS: [Step; 17] = [
         name: "Create autostart entries",
         id: "10-autostart",
         phase: Phase::Finalize,
-        body: Body::Script("scripts/10-autostart.sh"),
+        body: Body::Native(autostart::run),
     },
     Step {
         name: "Install optional components",

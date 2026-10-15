@@ -27,7 +27,12 @@ impl TempDir {
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
+        for _ in 0..20 {
+            if std::fs::remove_dir_all(&self.path).is_ok() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
     }
 }
 
