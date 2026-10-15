@@ -7,6 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/scripts/lib/log.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/scripts/lib/privileges.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/scripts/lib/install-fs.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/scripts/lib/submodules.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/scripts/lib/installer-bin.sh"
 
 section() {
     local title="$1"
@@ -109,8 +110,27 @@ fi
 
 section "Step 2 - Core Updates"
 
-if [ ! -f "$BUNDLE_DIR/scripts/03-deploy-configs.sh" ] || [ ! -f "$BUNDLE_DIR/scripts/08-build-shell.sh" ]; then
-    die "Critical internal scripts are missing from $BUNDLE_DIR/scripts/"
+run_core_step() {
+    local id="$1" script
+    if command -v caelestia_run_step >/dev/null 2>&1; then
+        caelestia_run_step "$id"
+        return $?
+    fi
+
+    script="$BUNDLE_DIR/scripts/$id.sh"
+    if [[ -f "$script" ]]; then
+        BUNDLE_DIR="$BUNDLE_DIR" bash "$script"
+        return $?
+    fi
+
+    printf '[ERR]   cannot run the %s step: no installer binary and no script\n' "$id" >&2
+    return 127
+}
+
+if ! caelestia_installer_bin >/dev/null 2>&1; then
+    if [ ! -f "$BUNDLE_DIR/scripts/03-deploy-configs.sh" ] || [ ! -f "$BUNDLE_DIR/scripts/08-build-shell.sh" ]; then
+        die "Critical internal scripts are missing from $BUNDLE_DIR/scripts/"
+    fi
 fi
 
 if [ -f "$HOME/.config/caelestia-kde/install.env" ]; then
@@ -122,13 +142,13 @@ fi
 
 trap 'caelestia_stop_sudo_keepalive' EXIT
 
-bash "$BUNDLE_DIR/scripts/03-deploy-configs.sh" || die "Config deployment failed."
+run_core_step 03-deploy-configs || die "Config deployment failed."
 
 info "Building the Caelestia shell UI..."
-bash "$BUNDLE_DIR/scripts/08-build-shell.sh" || die "Shell build failed."
+run_core_step 08-build-shell || die "Shell build failed."
 
 info "Re-applying system tweaks..."
-bash "$BUNDLE_DIR/scripts/09-system-tweaks.sh" || warn "System tweaks step reported errors (non-fatal)."
+run_core_step 09-system-tweaks || warn "System tweaks step reported errors (non-fatal)."
 
 caelestia_stop_sudo_keepalive
 

@@ -276,6 +276,13 @@ EOF
         10-autostart.sh
     )
 
+    local have_runner=0
+    if [[ -f "$SCRIPTS_DIR/lib/installer-bin.sh" ]]; then
+        # shellcheck source=/dev/null
+        . "$SCRIPTS_DIR/lib/installer-bin.sh"
+        have_runner=1
+    fi
+
     export CAELESTIA_FRESH_INSTALL="${CAELESTIA_FRESH_INSTALL:-1}"
 
     echo "Deploying the user's half of a packaged Caelestia install"
@@ -284,7 +291,13 @@ EOF
 
     for step in "${steps[@]}"; do
         printf '== %s\n' "$step"
-        if ! BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND=package bash "$SCRIPTS_DIR/$step"; then
+        local id="${step%.sh}" status=0
+        if [[ "$have_runner" -eq 1 ]]; then
+            BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND=package caelestia_run_step "$id" || status=$?
+        else
+            BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND=package bash "$SCRIPTS_DIR/$step" || status=$?
+        fi
+        if [[ "$status" -ne 0 ]]; then
             printf '[ERR] %s failed; nothing after it was run.\n' "$step" >&2
             return 1
         fi

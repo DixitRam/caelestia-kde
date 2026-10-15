@@ -19,6 +19,29 @@ run_stage() {
     fi
 }
 
+run_step() {
+    local seconds="$1" id="$2"
+    local bin
+
+    if [[ -f "$UPD_DIR/repo/scripts/lib/installer-bin.sh" ]]; then
+        # shellcheck source=/dev/null
+        . "$UPD_DIR/repo/scripts/lib/installer-bin.sh"
+    fi
+
+    if bin="$(caelestia_installer_bin 2>/dev/null)"; then
+        BUNDLE_DIR="$UPD_DIR/repo" run_stage "$seconds" "$bin" step "$id" --bundle "$UPD_DIR/repo"
+        return $?
+    fi
+
+    if [[ -f "$UPD_DIR/repo/scripts/$id.sh" ]]; then
+        BUNDLE_DIR="$UPD_DIR/repo" run_stage "$seconds" bash "$UPD_DIR/repo/scripts/$id.sh"
+        return $?
+    fi
+
+    printf '[ERR]   cannot run the %s step: no installer binary and no script\n' "$id" >&2
+    return 127
+}
+
 BRANCH="${1:-main}"
 TARGET_REF="${2:-}"
 if [ "$BRANCH" != "main" ] && [ "$BRANCH" != "dev" ]; then
@@ -292,7 +315,7 @@ echo "---------------------------------------------"
 if [[ "${CAELESTIA_SKIP_DEPLOY:-0}" == "1" ]]; then
     info "Skipping deploy-configs per user settings."
 else
-    run_stage 900 bash "$UPD_DIR/repo/scripts/03-deploy-configs.sh" || die "Config deployment failed or timed out."
+    run_step 900 03-deploy-configs || die "Config deployment failed or timed out."
 fi
 echo "PROGRESS: 3/5: Configuration files deployed."
 
@@ -305,7 +328,7 @@ echo "---------------------------------------------"
 if [[ "${CAELESTIA_SKIP_BUILD:-0}" == "1" ]]; then
     info "Skipping build-shell per user settings."
 else
-    run_stage 3600 bash "$UPD_DIR/repo/scripts/08-build-shell.sh" || die "Shell build failed or timed out."
+    run_step 3600 08-build-shell || die "Shell build failed or timed out."
 
     # Fail fast on an incomplete QML install, or the shell dies at startup with 'module
     # "Caelestia.Config" is not installed'.

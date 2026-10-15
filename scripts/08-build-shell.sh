@@ -10,6 +10,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/packages.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/download.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/toolchain.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/update-state.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/installer-bin.sh"
 
 export BUNDLE_DIR="${BUNDLE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SHELL_DIR="$BUNDLE_DIR/shell"
@@ -257,17 +258,15 @@ fi
 if [[ "${CAELESTIA_SETUP_RUNNING:-0}" == "0" ]]; then
     info "Running standalone update mode... ensuring prerequisites."
 
-    if [[ -f "$BUNDLE_DIR/scripts/02a-submodules.sh" ]]; then
-        bash "$BUNDLE_DIR/scripts/02a-submodules.sh" || die "Failed to initialize submodules"
-    fi
+    caelestia_run_step 02a-submodules || die "Failed to initialize submodules"
 
     sparsify_checkout_paths installer/ assets/ uninstall.sh
 
-    if [[ -f "$BUNDLE_DIR/scripts/02-all-packages.sh" && -d "$BUNDLE_DIR/installer" ]]; then
+    if [[ -d "$BUNDLE_DIR/installer" ]]; then
         info "Checking core, shell, theme, and utility dependencies..."
-        bash "$BUNDLE_DIR/scripts/02-all-packages.sh" || warn "02-all-packages.sh reported warnings"
+        caelestia_run_step 02-all-packages || warn "02-all-packages reported warnings"
     else
-        warn "Skipping the dependency check: scripts/02-all-packages.sh or installer/ is missing."
+        warn "Skipping the dependency check: installer/ is missing."
     fi
 
     info "Deleting yet-another-monochrome-icon-set for lag free update..."
@@ -284,23 +283,17 @@ if [[ "${CAELESTIA_SETUP_RUNNING:-0}" == "0" ]]; then
     fi
 
     info "Installing Caelestia Services..."
-    if [[ -f "$BUNDLE_DIR/scripts/06-services.sh" ]]; then
-        bash "$BUNDLE_DIR/scripts/06-services.sh" || warn "06-services.sh failed"
-    fi
+    caelestia_run_step 06-services || warn "06-services failed"
 
     info "Updating autostart environment variables"
-    if [[ -f "$BUNDLE_DIR/scripts/10-autostart.sh" ]]; then
-        bash "$BUNDLE_DIR/scripts/10-autostart.sh" || warn "10-autostart.sh failed"
-    fi
+    caelestia_run_step 10-autostart || warn "10-autostart failed"
 
     # The default wallpaper pack is a step of its own in a full install, but an
     # update only runs 03-deploy-configs, this script and 09-system-tweaks, so
     # fetch it from here to keep updates supplied with it. The script is
     # idempotent: it exits on its own once the pack is already present.
     info "Downloading the default wallpaper pack..."
-    if [[ -f "$BUNDLE_DIR/scripts/03a-wallpapers.sh" ]]; then
-        bash "$BUNDLE_DIR/scripts/03a-wallpapers.sh" || warn "03a-wallpapers.sh failed"
-    fi
+    caelestia_run_step 03a-wallpapers || warn "03a-wallpapers failed"
 fi
 
 info "Building the Caelestia shell..."
