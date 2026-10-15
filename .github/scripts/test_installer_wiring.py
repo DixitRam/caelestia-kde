@@ -71,34 +71,48 @@ class InstallerTests(unittest.TestCase):
         )
 
     def test_every_step_script_is_wired_into_a_step_list(self) -> None:
-        """A numbered scripts/*.sh must be run by a step list, and every listed step must exist.
+        """A numbered step has to be reachable, and every list entry has to resolve.
 
-        Three lists run step scripts: the full install (installer/src/steps/mod.rs), the
-        user's half of a packaged install (src/bin/caelestia), and the subset
-        08-build-shell.sh runs on its own when a checkout updates itself. A script in none
-        of them is dead weight that every other check still reports as covered; a list
-        entry with no file fails at install time instead of here. The step numbers are not
+        Three lists run steps: the full install (installer/src/steps/mod.rs), the user's
+        half of a packaged install (src/bin/caelestia), and the subset 08-build-shell.sh
+        runs on its own when a checkout updates itself; update.sh and caelestia-update
+        name their subset the same way. A step in none of them is dead weight that every
+        other check still reports as covered; an entry that resolves to neither a script
+        nor a native step fails at install time instead of here. The step numbers are not
         an order: the TUI runs 00-backup-themes after 02a-submodules, deliberately. The
         lists differ in failure policy - the installer stops, the update path warns and
         carries on - so only their membership is comparable, which is all this checks.
         """
-        runner_text = (ROOT / "installer" / "src" / "steps" / "mod.rs").read_text(encoding="utf-8")
-        packaged_text = (ROOT / "src" / "bin" / "caelestia").read_text(encoding="utf-8")
-        update_text = (ROOT / "scripts" / "08-build-shell.sh").read_text(encoding="utf-8")
+        steps_table = (ROOT / "installer" / "src" / "steps" / "mod.rs").read_text(encoding="utf-8")
+        lists = [
+            (ROOT / "src" / "bin" / "caelestia"),
+            (ROOT / "src" / "bin" / "caelestia-update"),
+            (ROOT / "scripts" / "08-build-shell.sh"),
+            (ROOT / "update.sh"),
+        ]
 
-        runner_steps = set(re.findall(r"scripts/([0-9][0-9a-z]*-[A-Za-z0-9._-]+\.sh)", runner_text))
-        packaged_steps = set(
-            re.findall(r"^\s+([0-9][0-9a-z]*-[A-Za-z0-9._-]+\.sh)$", packaged_text, re.MULTILINE)
-        )
-        update_steps = set(
-            re.findall(r"scripts/([0-9][0-9a-z]*-[A-Za-z0-9._-]+\.sh)", update_text)
-        )
-        listed = runner_steps | packaged_steps | update_steps
-        self.assertTrue(listed, "No step scripts found in Runner.cpp, src/bin/caelestia or 08-build-shell.sh")
+        native = set(re.findall(r'id: "([^"]+)"', steps_table))
+
+        listed = set(re.findall(r"scripts/([0-9][0-9a-z]*-[A-Za-z0-9._-]+)\.sh", steps_table))
+        for path in lists:
+            text = path.read_text(encoding="utf-8")
+            # scripts/<id>.sh, caelestia_run_step <id>, run_core_step <id>, run_step <s> <id>,
+            # and the bare ids of a list that is passed to the resolver.
+            listed |= set(re.findall(r"scripts/([0-9][0-9a-z]*-[A-Za-z0-9._-]+)\.sh", text))
+            listed |= set(
+                re.findall(r"(?:caelestia_run_step|run_core_step)\s+([0-9][0-9a-z]*-[A-Za-z0-9._-]+)", text)
+            )
+            listed |= set(
+                re.findall(r"run_step\s+\d+\s+([0-9][0-9a-z]*-[A-Za-z0-9._-]+)", text)
+            )
+            listed |= set(
+                re.findall(r"^\s+([0-9][0-9a-z]*-[A-Za-z0-9._-]+)$", text, re.MULTILINE)
+            )
+        self.assertTrue(listed, "No steps found in the installer's table or the step lists")
 
         scripts_dir = ROOT / "scripts"
         numbered = {
-            path.name for path in scripts_dir.glob("*.sh")
+            path.name[: -len(".sh")] for path in scripts_dir.glob("*.sh")
             if re.match(r"^\d+[a-z]?-", path.name)
         }
 
@@ -107,8 +121,8 @@ class InstallerTests(unittest.TestCase):
             "Step script(s) no step list runs:",
         )
         self.assertEqual(
-            sorted(listed - numbered), [],
-            "Step list(s) reference script(s) that do not exist in scripts/:",
+            sorted(listed - numbered - native), [],
+            "Step list(s) name step(s) that are neither a script nor a native step:",
         )
 
     def test_the_update_fallback_sparsifies_only_paths_the_updater_writes(self) -> None:

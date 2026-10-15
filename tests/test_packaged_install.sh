@@ -191,7 +191,7 @@ test_a_failing_step_stops_the_run() {
     local status=$?
 
     assert_status 1 "$status" "a failing step should fail the run"
-    assert_contains "$(cat "$DIR/out.txt")" "04-deploy-kde.sh failed" "the failure should name the step"
+    assert_contains "$(cat "$DIR/out.txt")" "04-deploy-kde failed" "the failure should name the step"
     assert_not_contains "$(cat "$CALLS")" "06-services.sh" "nothing after the failing step should run"
 }
 

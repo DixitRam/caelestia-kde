@@ -265,15 +265,15 @@ EOF
     fi
 
     local -a steps=(
-        03-deploy-configs.sh
-        03a-wallpapers.sh
-        04-deploy-kde.sh
-        04a-window-rules.sh
-        05-sddm-theme.sh
-        06-services.sh
-        08-build-shell.sh
-        09-system-tweaks.sh
-        10-autostart.sh
+        03-deploy-configs
+        03a-wallpapers
+        04-deploy-kde
+        04a-window-rules
+        05-sddm-theme
+        06-services
+        08-build-shell
+        09-system-tweaks
+        10-autostart
     )
 
     local have_runner=0
@@ -289,16 +289,16 @@ EOF
     echo "  steps: $SCRIPTS_DIR"
     echo
 
-    for step in "${steps[@]}"; do
-        printf '== %s\n' "$step"
-        local id="${step%.sh}" status=0
+    for id in "${steps[@]}"; do
+        printf '== %s\n' "$id"
+        local status=0
         if [[ "$have_runner" -eq 1 ]]; then
             BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND=package caelestia_run_step "$id" || status=$?
         else
-            BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND=package bash "$SCRIPTS_DIR/$step" || status=$?
+            BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND=package bash "$SCRIPTS_DIR/$id.sh" || status=$?
         fi
         if [[ "$status" -ne 0 ]]; then
-            printf '[ERR] %s failed; nothing after it was run.\n' "$step" >&2
+            printf '[ERR] %s failed; nothing after it was run.\n' "$id" >&2
             return 1
         fi
         echo
