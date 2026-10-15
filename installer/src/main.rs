@@ -5,7 +5,6 @@ mod copy;
 mod distro;
 mod download;
 mod exit;
-mod handoff;
 mod install_fs;
 mod install_kind;
 mod js;
@@ -23,6 +22,7 @@ mod steps;
 mod theme;
 mod tmp;
 mod toolchain;
+mod uninstall;
 mod update;
 mod update_state;
 
@@ -152,11 +152,14 @@ fn run(args: Args) -> Outcome {
                 Err(Failure::Reported) => Outcome::Failed,
             }
         }
-        PresetAction::Uninstall => {
-            let script = bundle.root().join("uninstall.sh");
-            trace(&format!("handing off to {}", script.display()));
-            handoff::run_script(&script)
-        }
+        PresetAction::Uninstall => match uninstall::run(bundle.root()) {
+            Ok(()) => Outcome::Ok,
+            Err(Failure::Message(problem)) => {
+                output::err(&problem);
+                Outcome::Failed
+            }
+            Err(Failure::Reported) => Outcome::Failed,
+        },
         PresetAction::Wizard => {
             if let Err(problem) = bundle.check_scripts() {
                 eprintln!("caelestia-install: {problem}");

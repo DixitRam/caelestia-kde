@@ -15,6 +15,10 @@ pub fn data_home() -> PathBuf {
     option("XDG_DATA_HOME").unwrap_or_else(|| home().join(".local").join("share"))
 }
 
+pub fn config_dir() -> PathBuf {
+    option("XDG_CONFIG_HOME").unwrap_or_else(|| home().join(".config"))
+}
+
 pub fn state_dir() -> PathBuf {
     option("XDG_STATE_HOME").unwrap_or_else(|| home().join(".local").join("state"))
 }

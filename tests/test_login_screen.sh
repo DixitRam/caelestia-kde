@@ -6,7 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOGIN_STEP="$REPO_ROOT/installer/src/steps/login_screen.rs"
-UNINSTALL_SCRIPT="$REPO_ROOT/uninstall.sh"
+UNINSTALL_STEP="$REPO_ROOT/installer/src/uninstall.rs"
 SYNC_SCRIPT="$REPO_ROOT/src/sddm/sync.sh"
 CLI="$REPO_ROOT/src/bin/caelestia"
 
@@ -16,9 +16,8 @@ PLASMA_LOGIN_HOOK="sudo /usr/local/bin/caelestia-greeter-sync --posthook"
 # (installer/src/steps/login_screen.rs and installer/tests/steps.rs): the variant that is
 # read from the installed theme, the Qt version SDDM routes on, which greeter that version
 # needs, which display manager is live, when a theme is left unselected, and the posthook
-# edit that keeps a hook the user wrote. What is left here is the pairing with the parts
-# that are still shell: uninstall.sh, which removes the posthook the step writes, and
-# sync.sh, which is shipped rather than run.
+# edit that keeps a hook the user wrote. What is left here is the pairing between the step
+# and the uninstall that undoes it, and sync.sh, which is shipped rather than run.
 
 json_get() {
     python3 - "$@" <<'PYEOF'
@@ -54,7 +53,7 @@ EOF
 test_the_step_and_uninstall_recognise_the_same_helpers() {
     local step uninstall
     step="$(cat "$LOGIN_STEP")"
-    uninstall="$(cat "$UNINSTALL_SCRIPT")"
+    uninstall="$(cat "$UNINSTALL_STEP")"
 
     for helper in 'sync\.sh' 'caelestia-greeter-sync'; do
         assert_contains "$step" "$helper" "the step should treat $helper as one of ours"
@@ -69,10 +68,12 @@ test_uninstall_removes_the_same_hooks_the_installer_writes() {
     dir="$(new_tmpdir)"
     write_fixture "$dir/cli.json"
 
-    python3 - "$UNINSTALL_SCRIPT" "$dir/uninstall.py" <<'PYEOF'
+    # The editor is a Python script in the crate; the test drives that same script at the
+    # fixture, so what it checks is what the uninstall runs.
+    python3 - "$UNINSTALL_STEP" "$dir/uninstall.py" <<'PYEOF'
 import re, sys
 source = open(sys.argv[1]).read()
-blocks = re.findall(r"<<'PYEOF'\n(.*?)\nPYEOF", source, re.S)
+blocks = re.findall(r'POSTHOOK_CLEANER: &str = r##"(.*?)"##;', source, re.S)
 for block in blocks:
     if "postHook" in block:
         open(sys.argv[2], "w").write(block)
@@ -81,7 +82,7 @@ sys.exit(1)
 PYEOF
 
     if [[ ! -f "$dir/uninstall.py" ]]; then
-        fail "uninstall.sh no longer has a posthook block"
+        fail "the uninstall no longer has a posthook editor"
         return 0
     fi
 
@@ -94,28 +95,28 @@ PYEOF
 test_the_saved_theme_selection_is_named_the_same_twice() {
     local written read_back
     written="$(grep -o 'sddm\.conf\.theme-current' "$LOGIN_STEP" | head -n 1)"
-    read_back="$(grep -o 'state}/caelestia/sddm\.conf\.theme-current' "$UNINSTALL_SCRIPT" | head -n 1)"
+    read_back="$(grep -o 'caelestia/sddm\.conf\.theme-current' "$UNINSTALL_STEP" | head -n 1)"
 
     assert_ne "" "$written" "the step should save the previous theme selection"
     assert_ne "" "$read_back" "and uninstall should read the same record"
     assert_contains "$read_back" "$written" "both should name the same file"
 
     assert_contains "$(cat "$LOGIN_STEP")" '#none' "the installer should be able to record that there was no selection"
-    assert_contains "$(cat "$UNINSTALL_SCRIPT")" '#none' "uninstall should understand that record"
+    assert_contains "$(cat "$UNINSTALL_STEP")" '#none' "uninstall should understand that record"
 }
 
 test_the_login_wallpaper_copy_has_a_directory_of_its_own() {
     assert_contains "$(cat "$SYNC_SCRIPT")" 'PLASMALOGIN_WALLPAPERS="$PLASMALOGIN_HOME/wallpapers/caelestia"' "the sync should copy into its own directory"
-    assert_contains "$(cat "$UNINSTALL_SCRIPT")" '"$PLASMALOGIN_HOME/wallpapers/caelestia"' "uninstall should remove that directory"
-    assert_not_contains "$(cat "$UNINSTALL_SCRIPT")" 'rm -rf "$PLASMALOGIN_HOME/wallpapers"' "uninstall must not remove the shared wallpapers directory"
+    assert_contains "$(cat "$UNINSTALL_STEP")" 'wallpapers/caelestia' "uninstall should remove that directory"
+    assert_not_contains "$(cat "$UNINSTALL_STEP")" 'join("wallpapers")' "uninstall must not remove the shared wallpapers directory"
 }
 
 test_uninstall_removes_only_the_schemes_that_were_copied() {
-    assert_contains "$(cat "$UNINSTALL_SCRIPT")" 'color-schemes/Matugen"*.colors' "uninstall should name the schemes it copied"
-    assert_not_contains "$(cat "$UNINSTALL_SCRIPT")" 'rm -rf "$PLASMALOGIN_HOME/.local/share/color-schemes"' "uninstall must not remove the shared colour schemes directory"
+    assert_contains "$(cat "$UNINSTALL_STEP")" '"Matugen"' "uninstall should name the schemes it copied"
+    assert_not_contains "$(cat "$UNINSTALL_STEP")" 'remove_tree(&schemes)' "uninstall must not remove the shared colour schemes directory"
     assert_contains "$(cat "$SYNC_SCRIPT")" 'color-schemes/Matugen*.colors' "the sync should copy only those schemes in the first place"
 
-    assert_contains "$(cat "$UNINSTALL_SCRIPT")" 'rm -f "$HOME/.local/share/color-schemes/Matugen"*.colors' "uninstall should remove the generated schemes from the user's own directory too"
+    assert_contains "$(cat "$UNINSTALL_STEP")" 'remove_by_prefix(&self.path(directory), prefix)' "uninstall should remove the generated schemes from the user's own directory too"
 }
 
 test_the_login_screen_command_runs_the_greeter_step() {

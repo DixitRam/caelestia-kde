@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 const BINARY: &str = env!("CARGO_BIN_EXE_caelestia-install");
 
 struct Fixture {
@@ -533,133 +535,23 @@ fn a_failed_clone_leaves_the_library_as_it_was() {
 }
 
 #[cfg(unix)]
-const CONFIG_TOOLS: &str = r##"
-import os
-import sys
-from pathlib import Path
-
-
-def arguments(argv):
-    values = {"file": "kwinrulesrc", "group": "", "key": ""}
-    positional = []
-    index = 0
-    while index < len(argv):
-        argument = argv[index]
-        if argument in ("--file", "--group", "--key") and index + 1 < len(argv):
-            values[argument[2:]] = argv[index + 1]
-            index += 2
-        else:
-            positional.append(argument)
-            index += 1
-    return values, positional
-
-
-def read(path):
-    sections = {}
-    current = None
-    if not path.is_file():
-        return sections
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith(("#", ";")):
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            current = line[1:-1]
-            sections.setdefault(current, {})
-        elif current is not None and "=" in line:
-            key, _, value = line.partition("=")
-            sections[current][key.strip()] = value.strip()
-    return sections
-
-
-def write(path, sections):
-    lines = []
-    for name, entries in sections.items():
-        if not entries:
-            continue
-        lines.append("[%s]" % name)
-        for key, value in entries.items():
-            lines.append("%s=%s" % (key, value))
-        lines.append("")
-    path.write_text("\n".join(lines))
-
-
-def main():
-    mode = sys.argv[1]
-    values, positional = arguments(sys.argv[2:])
-    path = Path(values["file"])
-    if not path.is_absolute():
-        path = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / path
-    sections = read(path)
-
-    if mode == "get":
-        value = sections.get(values["group"], {}).get(values["key"])
-        if value is None:
-            return 1
-        print(value)
-        return 0
-
-    if mode == "delete":
-        entries = sections.get(values["group"])
-        if entries is not None:
-            entries.pop(values["key"], None)
-            if not entries:
-                del sections[values["group"]]
-        write(path, sections)
-        return 0
-
-    sections.setdefault(values["group"], {})[values["key"]] = positional[0]
-    write(path, sections)
-    return 0
-
-
-sys.exit(main())
-"##;
-
-#[cfg(unix)]
 struct WindowRules {
     path: PathBuf,
+    program: PathBuf,
     config: PathBuf,
     calls: PathBuf,
 }
 
 #[cfg(unix)]
 fn config_tools(fixture: &Fixture) -> WindowRules {
-    use std::os::unix::fs::PermissionsExt;
-
-    let config = fixture.path("config");
     let bin = fixture.path("bin");
-    std::fs::create_dir_all(&config).expect("the config directory");
     std::fs::create_dir_all(&bin).expect("a directory for the stubs");
+    let tools = common::config_tools(&fixture.root, &bin);
 
-    let program = fixture.path("kwinrules.py");
-    std::fs::write(&program, CONFIG_TOOLS).expect("the config-tool program");
-    let calls = fixture.path("calls.log");
-    std::fs::write(&calls, "").expect("the call log");
-
-    let stub = |name: &str, body: String| {
-        let path = bin.join(name);
-        std::fs::write(&path, body).expect("a stub");
-        let mut permissions = std::fs::metadata(&path).expect("the stub").permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&path, permissions).expect("an executable stub");
-    };
-
-    stub(
-        "kreadconfig6",
-        "#!/bin/sh\nexec python3 \"$KW_RULES\" get \"$@\"\n".to_string(),
-    );
-    stub(
-        "kwriteconfig6",
-        "#!/bin/sh\nprintf '%s %s\\n' 'kwriteconfig6' \"$*\" >> \"$KW_CALLS\"\n\
-         if [ -n \"${KW_SILENT_REJECT:-}\" ]; then exit 0; fi\n\
-         case \"$*\" in *--delete*) exec python3 \"$KW_RULES\" delete \"$@\" ;; esac\n\
-         exec python3 \"$KW_RULES\" set \"$@\"\n"
-            .to_string(),
-    );
-    stub(
+    common::stub(
+        &bin,
         "qdbus6",
-        "#!/bin/sh\nprintf '%s %s\\n' 'qdbus6' \"$*\" >> \"$KW_CALLS\"\nexit 0\n".to_string(),
+        "#!/bin/sh\nprintf '%s %s\\n' 'qdbus6' \"$*\" >> \"$KW_CALLS\"\nexit 0\n",
     );
 
     let system = std::env::var("PATH").unwrap_or_default();
@@ -667,15 +559,15 @@ fn config_tools(fixture: &Fixture) -> WindowRules {
 
     WindowRules {
         path,
-        config,
-        calls,
+        program: tools.program,
+        config: tools.config,
+        calls: tools.calls,
     }
 }
 
 #[cfg(unix)]
 fn run_window_rules(fixture: &Fixture, tools: &WindowRules, extra: &[(&str, &str)]) -> Output {
-    let program = fixture.path("kwinrules.py");
-    let program = program.to_str().expect("a path");
+    let program = tools.program.to_str().expect("a path");
     let config = tools.config.to_str().expect("a path");
     let calls = tools.calls.to_str().expect("a path");
 
@@ -690,12 +582,15 @@ fn run_window_rules(fixture: &Fixture, tools: &WindowRules, extra: &[(&str, &str
 
 #[cfg(unix)]
 fn writer_calls(tools: &WindowRules) -> Vec<String> {
-    std::fs::read_to_string(&tools.calls)
-        .unwrap_or_default()
-        .lines()
-        .filter(|line| line.starts_with("kwriteconfig6 "))
-        .map(|line| line.trim_start_matches("kwriteconfig6 ").to_string())
-        .collect()
+    common::calls(&common::ConfigTools {
+        program: tools.program.clone(),
+        config: tools.config.clone(),
+        calls: tools.calls.clone(),
+    })
+    .into_iter()
+    .filter(|line| line.starts_with("kwriteconfig6 "))
+    .map(|line| line.trim_start_matches("kwriteconfig6 ").to_string())
+    .collect()
 }
 
 #[cfg(unix)]

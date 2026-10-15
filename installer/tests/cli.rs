@@ -34,12 +34,6 @@ impl Bundle {
         fs::create_dir_all(self.root.join("scripts")).expect("a scripts directory");
         self
     }
-
-    #[cfg(unix)]
-    fn with_script(self, name: &str, body: &str) -> Self {
-        fs::write(self.root.join(name), body).expect("a bundle script");
-        self
-    }
 }
 
 impl Drop for Bundle {
@@ -116,15 +110,45 @@ fn the_wizard_refuses_to_start_without_a_terminal() {
     );
 }
 
+#[cfg(unix)]
 #[test]
-fn uninstall_without_its_script_is_reported_as_the_environment() {
-    let bundle = Bundle::new("no-uninstaller").with_scripts_dir();
-    let output = run(&[&bundle.path().to_string_lossy(), "--uninstall"]);
-    assert_eq!(code(&output), 4);
+fn cancelling_the_uninstall_leaves_the_install_alone() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let bundle = Bundle::new("cancel-uninstall").with_scripts_dir();
+    let home = bundle.path().join("home");
+    let config = home.join(".config/caelestia");
+    fs::create_dir_all(&config).expect("a configuration directory");
+    fs::write(config.join("shell.json"), "{}\n").expect("a file the uninstall would remove");
+
+    let mut child = Command::new(BINARY)
+        .args([bundle.path().to_string_lossy().as_ref(), "--uninstall"])
+        .env("HOME", &home)
+        .env("BASE_DISTRO", "arch")
+        .env("CAELESTIA_SUDO_PRIMED", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the installer runs");
+    child
+        .stdin
+        .take()
+        .expect("a pipe to answer on")
+        .write_all(b"n\n")
+        .expect("the answer");
+
+    let output = child.wait_with_output().expect("the installer finishes");
+    assert_eq!(code(&output), 1, "{}", stdout(&output));
     assert!(
-        stderr(&output).contains("uninstall.sh"),
+        stderr(&output).contains("Uninstall cancelled."),
         "{}",
         stderr(&output)
+    );
+    assert!(
+        config.join("shell.json").is_file(),
+        "nothing may be removed before the confirmation"
     );
 }
 
@@ -182,16 +206,56 @@ fn an_update_runs_in_the_installer_and_says_what_it_needs() {
 
 #[cfg(unix)]
 #[test]
-fn a_failing_handoff_is_a_failure() {
-    let bundle = Bundle::new("failing").with_scripts_dir();
-    let bundle = bundle.with_script("uninstall.sh", "#!/bin/bash\nexit 7\n");
+fn an_uninstall_with_nothing_to_remove_says_so_and_finishes() {
+    use std::io::Write;
+    use std::process::Stdio;
 
-    let output = run(&[&bundle.path().to_string_lossy(), "--uninstall"]);
-    assert_eq!(code(&output), 1);
+    // Answering the confirmation, then declining packages and the cache: a machine that never
+    // had Caelestia installed should still walk the whole flow and end cleanly.
+    let bundle = Bundle::new("empty-uninstall").with_scripts_dir();
+    let home = bundle.path().join("home");
+    let bin = bundle.path().join("bin");
+    fs::create_dir_all(&home).expect("a home");
+    fs::create_dir_all(&bin).expect("a directory for the stub");
+
+    // Nothing is on PATH, and the one thing that would ask for root answers yes without doing
+    // anything: the flow runs in full without touching the machine it runs on.
+    let sudo = bin.join("sudo");
+    fs::write(&sudo, "#!/bin/sh\nexit 0\n").expect("a sudo stub");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&sudo, fs::Permissions::from_mode(0o755)).expect("an executable stub");
+    }
+
+    let mut child = Command::new(BINARY)
+        .args([bundle.path().to_string_lossy().as_ref(), "--uninstall"])
+        .env("HOME", &home)
+        .env("BASE_DISTRO", "arch")
+        .env("CAELESTIA_SUDO_PRIMED", "1")
+        .env("CAELESTIA_SUDO_BIN", &sudo)
+        .env("PATH", "/nonexistent")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the installer runs");
+    child
+        .stdin
+        .take()
+        .expect("a pipe to answer on")
+        .write_all(b"y\nn\n")
+        .expect("the answers");
+
+    let output = child.wait_with_output().expect("the installer finishes");
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
     assert!(
-        stdout(&output).contains("Finished with errors."),
+        stdout(&output).contains("Step 1 - Stop and Disable Services"),
         "{}",
         stdout(&output)
     );
-    assert!(stderr(&output).contains("exited 7"), "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("Caelestia has been uninstalled."),
+        "{}",
+        stdout(&output)
+    );
 }
