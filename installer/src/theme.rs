@@ -1,10 +1,3 @@
-//! The installer's look, as typed data.
-//!
-//! This used to be `theme.json` plus a 21,595-line vendored JSON parser. Nothing
-//! outside this crate ever read the file, and nothing rewrote it at runtime, so
-//! it is source now: a bad colour or a missing glyph is a compile error instead
-//! of a validator job in CI.
-
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::steps::Status;
@@ -56,8 +49,6 @@ pub const CHECK_OFF: &str = "[ ]";
 pub const SELECT_LEFT: &str = "<";
 pub const SELECT_RIGHT: &str = ">";
 
-/// The glyph the progress, review and summary screens use for a step state.
-/// These were keys in `theme.json`; they are constants now.
 pub fn status_glyph(status: Status) -> &'static str {
     match status {
         Status::Pending => "[ ]",
@@ -90,8 +81,6 @@ pub fn title_style() -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
-/// The whole screen's background, so the installer does not sit on whatever the
-/// terminal was showing before.
 pub fn background_style() -> Style {
     Style::default().bg(PALETTE.surface)
 }
@@ -118,7 +107,6 @@ pub fn body_style() -> Style {
     Style::default().fg(PALETTE.secondary)
 }
 
-/// The style of the highlighted row in a list.
 pub fn selected_style() -> Style {
     Style::default()
         .fg(PALETTE.primary)
@@ -133,9 +121,6 @@ mod tests {
     fn every_status_has_a_glyph_and_a_colour() {
         for status in Status::ALL {
             assert!(!status_glyph(status).is_empty());
-            // Reaching `status_color` for every variant is the point: an
-            // unhandled state is a compile error, which is the whole reason the
-            // palette moved out of JSON.
             let _ = status_color(status);
         }
     }

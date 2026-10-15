@@ -112,8 +112,6 @@ release_tag() {
     sed -nE 's/^[[:space:]]*VERSION=//p' "$BUNDLE_DIR/.github/version.env" 2>/dev/null | tr -d '[:space:]'
 }
 
-# The installer is published as a static binary per architecture, so there is
-# nothing to compile here: fetch the one this checkout asks for, or stop.
 fetch_installer() {
     local arch version tag url status=0
     arch="$(uname -m)"
@@ -159,8 +157,6 @@ fetch_installer() {
     return 0
 }
 
-# The binary has to be the one this checkout asks for: the step scripts it runs
-# are the ones sitting next to it.
 installer_matches_checkout() {
     local version
     version="$(tui_version)"
@@ -232,7 +228,6 @@ if [[ ! -x "$BIN" ]]; then
     exit 1
 fi
 
-# Where the installer writes the step output, so a failure has something to read.
 export CAELESTIA_INSTALL_LOG="${XDG_CACHE_HOME:-$HOME/.cache}/caelestia/install.log"
 
 # Under set -e a plain invocation would kill this script on the installer's first
@@ -241,8 +236,6 @@ ERR_LOG="$(mktemp "${TMPDIR:-/tmp}/caelestia-installer-err.XXXXXX.log")"
 _exit_code=0
 "$BIN" "$@" 2>"$ERR_LOG" || _exit_code=$?
 
-# The exit code is the outcome. Nothing is scraped out of the installer's output,
-# and cancelling is not a failure, so it gets no banner.
 _diag_title=""
 case $_exit_code in
     0) ;;

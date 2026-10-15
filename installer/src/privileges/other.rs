@@ -1,7 +1,3 @@
-//! The installer only ever runs on Linux. This keeps the crate buildable
-//! elsewhere so that everything that *is* portable — the CLI, the data, the
-//! screens, the runner — can still be developed and tested on any host.
-
 use std::path::Path;
 
 pub struct Credential;

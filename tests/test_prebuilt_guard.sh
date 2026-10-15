@@ -136,8 +136,6 @@ test_a_tree_that_is_not_a_checkout_builds_locally() {
     fi
 }
 
-# The launcher used to fall back to compiling the installer. It does not any more:
-# the download is the only path, so these check what happens when it fails.
 fetch_function() {
     local name="$1" source
     source="$(awk -v fn="$name" '
@@ -154,8 +152,6 @@ fetch_function() {
 FETCH_SOURCE="$(fetch_function fetch_installer)"
 MATCH_SOURCE="$(fetch_function installer_matches_checkout)"
 
-# Runs fetch_installer with the network, the checksum tool and uname stubbed, and
-# prints whatever it printed.
 fetch_with_status() {
     local status="$1" arch="${2:-x86_64}"
     BIN="$(mktemp -d)/caelestia-install"
@@ -208,8 +204,6 @@ test_a_checksum_mismatch_is_fatal() {
 }
 
 test_a_release_without_a_checksum_is_fatal() {
-    # There is no compile-on-target fallback to fall back to, so a release with no
-    # published checksum stops here rather than building something unverified.
     local err status
 
     fetch_with_status 2 >/dev/null 2>&1

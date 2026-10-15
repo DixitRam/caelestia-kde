@@ -1,28 +1,15 @@
-//! Command line parsing.
-//!
-//! The surface is deliberately the same as the C++ installer's: a positional
-//! bundle directory, the update and uninstall presets, and nothing else. The
-//! additions are `--version`, which the launcher uses to detect a binary that
-//! disagrees with the checkout, and `--debug`, which is where the phase trace
-//! went when it stopped being written unconditionally.
-
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-/// What the user asked the installer to do.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PresetAction {
-    /// Show the wizard. The default, and the only path `setup.sh` takes.
     Wizard,
-    /// Hand off to the bundle's update script.
     Update,
-    /// Hand off to the bundle's uninstall script.
     Uninstall,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Args {
-    /// The bundle to operate on; discovered from the binary's own location when absent.
     pub bundle: Option<PathBuf>,
     pub action: PresetAction,
     pub debug: bool,
@@ -31,19 +18,11 @@ pub struct Args {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Invocation {
     Run(Args),
-    /// Print the version marker and exit.
     Version,
     Help,
-    /// Answer one password question for `sudo`, reading the pipe named here.
     Askpass(PathBuf),
 }
 
-/// Parse argv without the program name.
-///
-/// A bare argument is the bundle directory, last one winning, as before.
-/// Anything else beginning with `-` is rejected: the previous installer silently
-/// treated an unrecognised flag as the bundle directory, and then failed
-/// somewhere further from the cause.
 pub fn parse<I>(args: I) -> Result<Invocation, String>
 where
     I: IntoIterator<Item = OsString>,
@@ -93,7 +72,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, Args, Invocation, PresetAction};
+    use super::{Args, Invocation, PresetAction, parse};
     use std::ffi::OsString;
     use std::path::PathBuf;
 

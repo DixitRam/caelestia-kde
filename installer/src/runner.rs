@@ -1,8 +1,3 @@
-//! Running the step scripts and reading what they said.
-//!
-//! One step is one script, spawned the way the shell runs it, with its output
-//! captured into the install log so the wizard can tail it while it works.
-
 use std::fs::OpenOptions;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -10,11 +5,8 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 
 use crate::steps::Status;
 
-/// The marker the step scripts' own logging helper writes when something is
-/// wrong but not fatal, and the one it writes when something failed.
 const WARN_MARKER: &str = "[WARN]";
 
-/// A step script that is running.
 pub struct Running {
     child: Child,
     log: PathBuf,
@@ -23,9 +15,6 @@ pub struct Running {
 }
 
 impl Running {
-    /// Spawn the step. `stdbuf` is used when it exists so the script's output
-    /// reaches the log line by line instead of in one block at exit — without
-    /// it the live log view would show nothing until the step finished.
     pub fn spawn(
         bundle: &Path,
         script: &str,
@@ -43,8 +32,6 @@ impl Running {
             .map_err(|error| format!("cannot open the install log: {error}"))?;
         let err = out.try_clone().map_err(|error| error.to_string())?;
 
-        // Whatever the log already holds belongs to an earlier run, or to a step
-        // that has already been read: only what follows is this step's.
         let offset = std::fs::metadata(log).map(|meta| meta.len()).unwrap_or(0);
 
         let mut command = Command::new("stdbuf");
@@ -59,7 +46,6 @@ impl Running {
             .spawn()
             .is_err()
         {
-            // No stdbuf on this system: run the script anyway.
             let out = OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -87,14 +73,12 @@ impl Running {
         })
     }
 
-    /// The step's exit status, or `None` while it is still running.
     pub fn poll(&mut self) -> Result<Option<ExitStatus>, String> {
         self.child
             .try_wait()
             .map_err(|error| format!("cannot wait for the step: {error}"))
     }
 
-    /// Append whatever the step has written since the last call.
     pub fn drain(&mut self, into: &mut Vec<String>) -> usize {
         let mut fresh = Vec::new();
         if tail_lines(&self.log, &mut self.offset, &mut fresh).is_err() {
@@ -106,7 +90,6 @@ impl Running {
         added
     }
 
-    /// How the step's ending should be recorded.
     pub fn outcome(&self, status: ExitStatus) -> Status {
         if !status.success() {
             Status::Failed
@@ -118,10 +101,6 @@ impl Running {
     }
 }
 
-/// Read the log from `from` onwards, appending whole lines.
-///
-/// Only whole lines are returned: a partial line at the end of the file is left
-/// for the next call, so the live view never shows half a line.
 pub fn tail_lines(log: &Path, from: &mut u64, into: &mut Vec<String>) -> io::Result<()> {
     let mut file = OpenOptions::new().read(true).open(log)?;
     let length = file.metadata()?.len();
@@ -136,8 +115,6 @@ pub fn tail_lines(log: &Path, from: &mut u64, into: &mut Vec<String>) -> io::Res
         Some(end) => end + 1,
         None => return Ok(()),
     };
-    // split_terminator, not split: the trailing newline would otherwise add an
-    // empty line to the view after every step.
     for line in raw[..complete].split_terminator('\n') {
         into.push(strip_ansi(line));
     }
@@ -145,9 +122,6 @@ pub fn tail_lines(log: &Path, from: &mut u64, into: &mut Vec<String>) -> io::Res
     Ok(())
 }
 
-/// Remove ANSI escapes so the log view shows text, not control sequences.
-///
-/// The scripts colour their output; without this the tail would be unreadable.
 pub fn strip_ansi(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
@@ -157,7 +131,6 @@ pub fn strip_ansi(text: &str) -> String {
             continue;
         }
         match chars.peek() {
-            // CSI: parameters then a final byte.
             Some('[') => {
                 chars.next();
                 for next in chars.by_ref() {
@@ -166,7 +139,6 @@ pub fn strip_ansi(text: &str) -> String {
                     }
                 }
             }
-            // OSC: runs to BEL or to the string terminator.
             Some(']') => {
                 chars.next();
                 while let Some(next) = chars.next() {
@@ -179,7 +151,6 @@ pub fn strip_ansi(text: &str) -> String {
                     }
                 }
             }
-            // A two-character escape.
             Some(_) => {
                 chars.next();
             }

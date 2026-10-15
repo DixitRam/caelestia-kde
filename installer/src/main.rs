@@ -1,10 +1,3 @@
-//! The Caelestia installer.
-//!
-//! This entry point owns the argument surface and the exit-code contract. The
-//! wizard, the step runner and the credential live behind it; the codes in
-//! `exit` are what `scripts/setup.sh` reads, so they are the one thing here that
-//! cannot change on its own.
-
 mod app;
 mod bundle;
 mod cli;
@@ -26,7 +19,6 @@ use bundle::Bundle;
 use cli::{Args, Invocation, PresetAction};
 use exit::Outcome;
 
-/// The version marker the launcher checks an installed binary against.
 const VERSION: &str = include_str!("../data/tui.version");
 
 const USAGE: &str = "\
@@ -85,11 +77,6 @@ fn main() -> ExitCode {
     ExitCode::from(outcome.code())
 }
 
-/// Serve one password question.
-///
-/// This is not a mode a user picks: it is what the generated askpass helper
-/// runs, and it is why the password can stay off disk — the helper only exists
-/// while `sudo` is waiting for the answer.
 fn askpass(pipe: &Path) -> Outcome {
     match privileges::read_secret(pipe) {
         Ok(secret) => {

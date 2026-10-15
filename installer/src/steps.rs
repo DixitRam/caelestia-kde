@@ -1,15 +1,5 @@
-//! The canonical step table.
-//!
-//! The installer's list of steps, in the order the installer runs them. Two
-//! other lists name the same scripts — the packaged install's half and the
-//! update path's subset — and they keep their own copies because their failure
-//! policies differ. Only membership is shared, and a test in the repository's
-//! Python suite checks all three against `scripts/`.
-
 use crate::menu::Answers;
 
-/// A named group of steps, the primary organizer of the progress and review
-/// screens.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Phase {
     Prepare,
@@ -28,7 +18,6 @@ impl Phase {
         Phase::Finalize,
     ];
 
-    /// The phase's stable identifier, used by the table's tests.
     #[cfg(test)]
     pub fn id(self) -> &'static str {
         match self {
@@ -51,8 +40,6 @@ impl Phase {
     }
 }
 
-/// The canonical step state, rendered by the progress screen, the live log and
-/// the summary.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Status {
     Pending,
@@ -76,7 +63,6 @@ impl Status {
         Status::Ignored,
     ];
 
-    /// Whether the run should stop and ask the user what to do.
     pub fn is_failure(self) -> bool {
         matches!(self, Status::Failed)
     }
@@ -88,9 +74,6 @@ pub struct Step {
     pub phase: Phase,
 }
 
-/// The order here is the order the installer runs them, and it is not the order
-/// of the file names: backing up the current setup happens after the submodule
-/// update on purpose, so the backup captures the state the update left behind.
 pub const STEPS: [Step; 17] = [
     Step {
         name: "Update system",
@@ -179,7 +162,6 @@ pub const STEPS: [Step; 17] = [
     },
 ];
 
-/// Answers that turn a step off, and the answer that turns one on.
 const OPTIONAL_APP_ANSWERS: [&str; 6] = [
     "INSTALL_VSCODE",
     "INSTALL_ZED",
@@ -193,7 +175,6 @@ fn answer_is_true(answers: &Answers, name: &str) -> bool {
     answers.get(name).map(String::as_str) == Some("true")
 }
 
-/// The three steps whose inclusion depends on the Configure answers.
 pub fn is_skipped(step: &Step, answers: &Answers) -> bool {
     match step.name {
         "Update system" => answer_is_true(answers, "SKIP_SYSTEM_UPDATE"),

@@ -1,8 +1,3 @@
-//! The wizard: what is on screen, what the keys mean, and what happens next.
-//!
-//! The screens are a state machine over one `App`, rendered from that state and
-//! driveable from a test, so the whole flow can be exercised without a terminal.
-
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -15,17 +10,14 @@ use crate::menu::{self, Answers, Entry};
 use crate::privileges::{self, Credential, Inhibitor};
 use crate::runner::Running;
 use crate::signals;
-use crate::steps::{self, Status, STEPS};
+use crate::steps::{self, STEPS, Status};
 
-/// The log the step scripts are captured into. It sits beside the inhibitor's
-/// state, where the launcher's diagnostics already look.
 pub fn log_path() -> PathBuf {
     std::env::var_os("CAELESTIA_INSTALL_LOG")
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("caelestia-install.log"))
 }
 
-/// Which full-screen view the wizard is showing.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Screen {
     Welcome,
@@ -37,14 +29,12 @@ pub enum Screen {
     Complete,
 }
 
-/// What a key press asked for.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Flow {
     Continue,
     Done(Outcome),
 }
 
-/// The question a failed step raises.
 pub struct ErrorDialog {
     pub step: String,
     pub detail: Vec<String>,
@@ -55,7 +45,6 @@ impl ErrorDialog {
     pub const CHOICES: [&'static str; 3] = ["Retry", "Ignore", "Exit"];
 
     pub fn new(step: &str, log: &[String]) -> Self {
-        // The last few lines of output are the useful part, as before.
         let detail: Vec<String> = log.iter().rev().take(6).rev().cloned().collect();
         Self {
             step: step.to_string(),
@@ -70,16 +59,13 @@ pub struct App {
     pub log_path: PathBuf,
     pub screen: Screen,
     pub answers: Answers,
-    /// Which submenu the Configure screen is inside, as indexes into the tree.
     pub menu_path: Vec<usize>,
     pub cursor: usize,
-    /// 0 = yes, 1 = no on the optional app theming question.
     pub theming: usize,
     pub password: String,
     pub problem: Option<String>,
     pub error: Option<ErrorDialog>,
     pub statuses: Vec<Status>,
-    /// The next step to consider; the steps before it are done or skipped.
     pub current: usize,
     pub log: Vec<String>,
     pub log_scroll: usize,
@@ -119,7 +105,6 @@ impl App {
         }
     }
 
-    /// The entries the Configure screen is currently showing.
     pub fn current_entries(&self) -> &'static [Entry] {
         let mut entries: &'static [Entry] = &menu::ROOT;
         for index in &self.menu_path {
@@ -139,7 +124,6 @@ impl App {
         self.leaving = Some(outcome);
     }
 
-    /// One pass of the loop: notice signals, and move the install along.
     pub fn tick(&mut self) {
         if signals::terminated() {
             self.leave(Outcome::Interrupted);
@@ -152,7 +136,6 @@ impl App {
 
     pub fn key(&mut self, key: KeyEvent) -> Flow {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-            // The only way out of a running install that the user can rely on.
             return Flow::Done(Outcome::Interrupted);
         }
         match self.screen {
@@ -201,8 +184,6 @@ impl App {
                         }
                     }
                     Err(problem) => {
-                        // The installer could not prepare its own credential.
-                        // Nothing the user types will fix that.
                         eprintln!("caelestia-install: {problem}");
                         self.problem = Some(problem);
                         self.leave(Outcome::Internal);
@@ -291,7 +272,6 @@ impl App {
         Flow::Continue
     }
 
-    /// Act on the highlighted entry.
     pub fn choose(&mut self) -> Flow {
         let Some(entry) = self.selected() else {
             return Flow::Continue;
@@ -315,7 +295,6 @@ impl App {
         Flow::Continue
     }
 
-    /// Leave the current submenu, or step back a screen at the root.
     fn go_back(&mut self) -> Flow {
         if self.menu_path.pop().is_some() {
             self.cursor = 0;
@@ -410,7 +389,6 @@ impl App {
         }
     }
 
-    /// Start the run: reset the step states and hand the first step its script.
     pub fn begin_install(&mut self) {
         self.screen = Screen::Install;
         self.statuses = vec![Status::Pending; STEPS.len()];
@@ -421,7 +399,6 @@ impl App {
         self.start_next();
     }
 
-    /// Start the next step that will actually run, marking the skipped ones.
     pub fn start_next(&mut self) {
         while self.current < STEPS.len() {
             let index = self.current;
@@ -454,15 +431,10 @@ impl App {
         }
         self.screen = Screen::Complete;
         self.finished = true;
-        // The credential is not needed again, and the machine may sleep.
         self.credential = None;
         self.inhibitor = None;
     }
 
-    /// The environment a step script runs with.
-    ///
-    /// The answers travel this way, as they did before: the scripts read the
-    /// environment, and a file would mean teaching every one of them to parse.
     pub fn step_environment(&self) -> Vec<(&'static str, String)> {
         let mut env: Vec<(&'static str, String)> = self
             .answers
@@ -478,7 +450,6 @@ impl App {
         env
     }
 
-    /// Move the running step along, or record how it ended.
     fn progress(&mut self) {
         let Some(mut running) = self.running.take() else {
             return;
@@ -510,12 +481,10 @@ impl App {
         }
     }
 
-    /// The outcome the wizard has reached, if it is finished.
     pub fn leaving(&self) -> Option<Outcome> {
         self.leaving
     }
 
-    /// How many steps ended in each state, for the summary screen.
     pub fn tally(&self) -> (usize, usize, usize, usize) {
         let count = |status: Status| self.statuses.iter().filter(|each| **each == status).count();
         (
@@ -527,7 +496,6 @@ impl App {
     }
 }
 
-/// Turn on the apps the optional theming question is about.
 fn enable_app_theming(answers: &mut Answers) {
     for id in [
         "INSTALL_VSCODE",
@@ -541,15 +509,11 @@ fn enable_app_theming(answers: &mut Answers) {
     }
 }
 
-/// Whether the wizard has to ask for a password at all.
 fn needs_password() -> bool {
     !privileges::is_root() && !privileges::sudo_cached()
 }
 
-/// Run the wizard until it leaves.
 pub fn run(bundle: PathBuf, log_path: PathBuf) -> Outcome {
-    // The wizard is a full-screen program. Without a terminal it would sit in
-    // its event loop waiting for keys nobody can press, so it says so instead.
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         eprintln!("caelestia-install: the installer needs a terminal to run");
         return Outcome::Environment;

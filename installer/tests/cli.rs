@@ -1,9 +1,3 @@
-//! Process-level tests: what the launcher and the user can actually observe.
-//!
-//! The installer is tested through its command line and its exit code, because
-//! that is the interface `scripts/setup.sh` consumes. Nothing here reaches into
-//! a module to check how the answer was arrived at.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -14,10 +8,8 @@ const VERSION_MARKER: &str = include_str!("../data/tui.version");
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// A bundle fixture that removes itself when the test ends.
 struct Bundle {
     root: PathBuf,
-    /// Read by the handoff test, which is unix-only because it runs bash.
     #[cfg_attr(not(unix), allow(dead_code))]
     label: String,
 }
@@ -49,8 +41,6 @@ impl Bundle {
         self
     }
 
-    /// A script that announces which bundle ran it, so a test can tell the
-    /// handoff honoured the bundle directory it was given.
     #[cfg(unix)]
     fn with_script(self, name: &str, body: &str) -> Self {
         fs::write(self.root.join(name), body).expect("a bundle script");
@@ -122,8 +112,6 @@ fn a_bundle_without_step_scripts_is_reported_as_the_environment() {
 
 #[test]
 fn the_wizard_refuses_to_start_without_a_terminal() {
-    // A full-screen wizard with no terminal would wait forever for keys nobody
-    // can press. This is also what keeps a test run from hanging on it.
     let bundle = Bundle::new("with-scripts").with_step_scripts();
     let output = run(&[&bundle.path().to_string_lossy()]);
     assert_eq!(code(&output), 4);

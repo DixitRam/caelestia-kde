@@ -1,17 +1,8 @@
-//! The Configure screen's question tree, as typed data.
-//!
-//! This used to be `menu.json`, parsed at startup into an untyped tree that
-//! silently skipped any entry it did not understand. It is source now, so an
-//! entry with no answer or a select with no options does not compile.
-
 use std::collections::BTreeMap;
 
-/// The Configure answers, as handed to the step scripts in the environment.
 pub type Answers = BTreeMap<&'static str, String>;
 
-/// The one entry that leaves a submenu.
 pub const BACK: &str = "action_back";
-/// The one entry that ends configuration and goes to the review screen.
 pub const REVIEW: &str = "action_review";
 
 #[derive(Debug)]
@@ -70,7 +61,6 @@ impl Entry {
         }
     }
 
-    /// Whether this entry is one the user can change. Actions are not.
     #[cfg(test)]
     pub fn is_answerable(&self) -> bool {
         matches!(self, Entry::Toggle { .. } | Entry::Choice { .. })
@@ -147,7 +137,11 @@ const APPEARANCE: [Entry; 6] = [
         default: "full",
         options: &["full", "mini"],
     },
-    Entry::Action { id: BACK, title: "Back", help: "" },
+    Entry::Action {
+        id: BACK,
+        title: "Back",
+        help: "",
+    },
 ];
 
 const SHELL: [Entry; 2] = [
@@ -267,11 +261,6 @@ pub const ROOT: [Entry; 6] = [
     },
 ];
 
-/// Walk the tree once, seeding every answer the tree can show.
-///
-/// Seeding and reading happen over the same tree for the same reason the old
-/// parser merged them into one pass: an answer can only be seeded by the entry
-/// that can also display it, so a value the menu cannot show is impossible.
 pub fn seed_answers(entries: &[Entry], answers: &mut Answers) {
     for entry in entries {
         match entry {
@@ -303,12 +292,10 @@ pub fn seed_answers(entries: &[Entry], answers: &mut Answers) {
     }
 }
 
-/// The current answer for a toggle or a select, if it has one.
 pub fn value<'a>(entry: &Entry, answers: &'a Answers) -> Option<&'a str> {
     answers.get(entry.id()).map(String::as_str)
 }
 
-/// Flip a toggle. Returns whether anything changed.
 pub fn toggle(entry: &Entry, answers: &mut Answers) -> bool {
     let Entry::Toggle { id, .. } = entry else {
         return false;
@@ -322,7 +309,6 @@ pub fn toggle(entry: &Entry, answers: &mut Answers) -> bool {
     true
 }
 
-/// Step a select through its options, wrapping at both ends.
 pub fn cycle(entry: &Entry, answers: &mut Answers, forward: bool) -> bool {
     let Entry::Choice { id, options, .. } = entry else {
         return false;
@@ -461,8 +447,6 @@ mod tests {
             .into_iter()
             .find(|e| e.id() == "DEFAULT_SHELL")
             .unwrap();
-        // The default is the last of bash, zsh, fish, so the first step forward
-        // is the wrap.
         assert_eq!(value(shell, &answers), Some("fish"));
 
         assert!(cycle(shell, &mut answers, true));
@@ -497,8 +481,6 @@ mod tests {
 
     #[test]
     fn every_question_the_step_policy_reads_is_in_the_tree() {
-        // The old JSON validator checked this by hand; the compiler checks the
-        // shape and this test checks that policy and menu still agree.
         let mut answers = Answers::new();
         seed_answers(&ROOT, &mut answers);
         for key in [

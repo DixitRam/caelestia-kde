@@ -1,21 +1,13 @@
-//! Where the installer is running, and whether it can run at all.
-
 use std::path::{Path, PathBuf};
 
-/// The tree the installer operates on: a checkout or an installed copy.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bundle {
     root: PathBuf,
 }
 
-/// The step script whose presence proves the bundle carries the install scripts.
 const CANARY_STEP: &str = "00a-system-update.sh";
 
 impl Bundle {
-    /// The bundle the user named, or the directory holding this binary.
-    ///
-    /// Falling back to the executable's own directory is what lets a checkout
-    /// run the installer straight out of its build directory with no arguments.
     pub fn discover(explicit: Option<PathBuf>) -> Self {
         if let Some(root) = explicit {
             return Self { root };
@@ -35,7 +27,6 @@ impl Bundle {
         self.root.join("scripts")
     }
 
-    /// Tells "run this from the right place" apart from "the install is broken".
     pub fn check_scripts(&self) -> Result<(), String> {
         let scripts = self.scripts_dir();
         if scripts.join(CANARY_STEP).is_file() {
@@ -79,7 +70,6 @@ mod tests {
 
     #[test]
     fn this_checkout_is_a_valid_bundle() {
-        // The crate lives inside the bundle, so the repository itself must pass.
         let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let root = crate_dir
             .parent()

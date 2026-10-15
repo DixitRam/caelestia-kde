@@ -88,6 +88,9 @@ cargo fmt --manifest-path installer/Cargo.toml
 cargo build --release --manifest-path installer/Cargo.toml   # Linux only
 ```
 
+These need the newest stable Rust: `rust-version` in `installer/Cargo.toml` names the
+release the crate tracks, and an older toolchain refuses the build.
+
 The installer is a Rust crate at `installer/`, and it is Linux-only: the wizard, the
 step runner and the credential all use unix facilities. Everything that is portable
 (the CLI, the step table, the menu tree, the screens, the runner) is covered by

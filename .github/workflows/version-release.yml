@@ -375,6 +375,9 @@ jobs:
           source .github/version.env
           echo "TAG=$VERSION" >> "$GITHUB_ENV"
 
+      - name: Use the newest stable Rust
+        run: rustup update stable && rustup default stable
+
       - name: Install the musl toolchain
         run: |
           set -euo pipefail

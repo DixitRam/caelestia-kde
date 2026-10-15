@@ -1,15 +1,8 @@
-//! Handing the terminal to one of the bundle's own scripts.
-
 use std::path::Path;
 use std::process::Command;
 
 use crate::exit::Outcome;
 
-/// Run a script the way `install.sh` runs the installer: the child owns the
-/// terminal, and its status becomes the installer's own.
-///
-/// Update and uninstall have exactly one implementation, in the shell, and the
-/// installer does not grow a second one.
 pub fn run_script(path: &Path) -> Outcome {
     if !path.is_file() {
         eprintln!("caelestia-install: {} is missing", path.display());

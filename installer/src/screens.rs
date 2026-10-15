@@ -1,15 +1,12 @@
-//! Rendering. Every screen draws from `App`'s state and nothing else, which is
-//! what makes the whole wizard testable through ratatui's test backend.
-
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
-use ratatui::Frame;
 
 use crate::app::{App, ErrorDialog, Screen};
 use crate::menu::{self, Entry};
-use crate::steps::{self, Phase, Status, STEPS};
+use crate::steps::{self, Phase, STEPS, Status};
 use crate::theme;
 
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -491,7 +488,6 @@ mod tests {
     use super::*;
     use crate::app::App;
 
-    /// Render a screen and return its text, the way a terminal would show it.
     fn render(app: &App, width: u16, height: u16) -> String {
         let backend = ratatui::backend::TestBackend::new(width, height);
         let mut terminal = ratatui::Terminal::new(backend).expect("a test terminal");
@@ -550,7 +546,6 @@ mod tests {
         assert!(text.contains("Packages"), "{text}");
         assert!(text.contains("Review installation"), "{text}");
 
-        // The first entry is a submenu holding the fish toggle; descend into it.
         app.choose();
         let text = render(&app, 80, 30);
         assert!(
@@ -567,7 +562,6 @@ mod tests {
         let text = render(&app, 80, 40);
         assert!(text.contains("PREPARE"), "{text}");
         assert!(text.contains("Update system"), "{text}");
-        // SDDM is off by default, so its step is marked skipped before it runs.
         assert!(text.contains("[SKIP]"), "{text}");
     }
 
