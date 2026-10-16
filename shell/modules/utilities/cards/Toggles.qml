@@ -265,10 +265,10 @@ StyledRect {
     Timer {
         id: execTimer
 
+        property var pendingAction: null
+
         interval: 250
         repeat: false
-
-        property var pendingAction: null
         onTriggered: {
             if (pendingAction) pendingAction();
             pendingAction = null;

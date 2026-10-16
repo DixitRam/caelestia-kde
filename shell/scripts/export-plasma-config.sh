@@ -255,6 +255,26 @@ for (var i = 0; i < desktops().length; i++) {
 
 open_kde_applet_config() {
     local plugin_id="$1"
+    local helper=""
+    for candidate in \
+        "plasma-applet-config" \
+        "/usr/lib/caelestia/plasma-applet-config" \
+        "${HOME}/.local/lib/caelestia/plasma-applet-config" \
+        "${SCRIPT_DIR}/../build/lib/plasma-applet-config"; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            helper="$candidate"
+            break
+        elif [[ -x "$candidate" ]]; then
+            helper="$candidate"
+            break
+        fi
+    done
+
+    if [[ -n "$helper" ]]; then
+        "$helper" "$plugin_id" >/dev/null 2>&1 &
+        return 0
+    fi
+
     if [[ -z "${CAELESTIA_TEST_MODE:-}" && "$USER_CONFIG_DIR" != "/tmp/"* ]] && command -v qdbus6 >/dev/null 2>&1; then
         qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "
 var found = false;
@@ -272,6 +292,7 @@ for (var i = 0; i < desktops().length; i++) {
 " >/dev/null 2>&1 || true
     fi
 }
+
 
 export_visualizer() {
     echo "Exporting and syncing plasma-audio-visualizer widgets..."
