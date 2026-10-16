@@ -87,6 +87,46 @@ fn an_unknown_option_is_a_usage_error() {
 }
 
 #[test]
+fn help_names_the_flag_that_answers_an_option_without_being_asked() {
+    let output = run(&["--help"]);
+    assert_eq!(code(&output), 0);
+    assert!(
+        stdout(&output).contains("--set ID=value"),
+        "{}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn a_set_that_the_menu_cannot_answer_is_refused_before_anything_runs() {
+    // Refused at the command line, not silently dropped half way through an install: there is no
+    // bundle here, and the usage error still comes first.
+    let unknown = run(&["--set", "INSTALL_WIDGET=true"]);
+    assert_eq!(code(&unknown), 2, "{}", stderr(&unknown));
+    assert!(
+        stderr(&unknown).contains("INSTALL_WIDGET"),
+        "{}",
+        stderr(&unknown)
+    );
+
+    let impossible = run(&["--set", "DEFAULT_SHELL=tcsh"]);
+    assert_eq!(code(&impossible), 2, "{}", stderr(&impossible));
+    assert!(
+        stderr(&impossible).contains("fish"),
+        "the options it does take: {}",
+        stderr(&impossible)
+    );
+
+    let shapeless = run(&["--set", "INSTALL_SDDM"]);
+    assert_eq!(code(&shapeless), 2, "{}", stderr(&shapeless));
+    assert!(
+        stderr(&shapeless).contains("ID=value"),
+        "{}",
+        stderr(&shapeless)
+    );
+}
+
+#[test]
 fn a_bundle_without_step_scripts_is_reported_as_the_environment() {
     let bundle = Bundle::new("bare");
     let output = run(&[&bundle.path().to_string_lossy()]);
@@ -112,7 +152,7 @@ fn the_wizard_refuses_to_start_without_a_terminal() {
 
 #[cfg(unix)]
 #[test]
-fn cancelling_the_uninstall_leaves_the_install_alone() {
+fn canceling_the_uninstall_leaves_the_install_alone() {
     use std::io::Write;
     use std::process::Stdio;
 
@@ -142,7 +182,7 @@ fn cancelling_the_uninstall_leaves_the_install_alone() {
     let output = child.wait_with_output().expect("the installer finishes");
     assert_eq!(code(&output), 1, "{}", stdout(&output));
     assert!(
-        stderr(&output).contains("Uninstall cancelled."),
+        stderr(&output).contains("Uninstall canceled."),
         "{}",
         stderr(&output)
     );

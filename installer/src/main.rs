@@ -1,4 +1,5 @@
 mod app;
+mod apps;
 mod bundle;
 mod cli;
 mod copy;
@@ -62,18 +63,24 @@ Options:
   --unicode       draw with Unicode even where the locale suggests otherwise
   --light, --dark force the light or the dark theme instead of reading the terminal
   --no-animation  no spinner, no redraw beyond what changed
+  --set ID=value  answer one of the wizard's options and skip being asked
   --debug         write the phase trace to stderr
   --version       print the installer version and exit
   -h, --help      print this help and exit
 
 The wizard adapts to the terminal: it reads NO_COLOR, TERM, COLORTERM and COLORFGBG, and falls
-back to plain ASCII and to colours your terminal can actually show. Override it with
+back to plain ASCII and to colors your terminal can actually show. Override it with
 CAELESTIA_TUI_GLYPHS=ascii|unicode, CAELESTIA_TUI_THEME=light|dark or
 CAELESTIA_TUI_NO_ANIMATION=1.
 
+--set takes the id of an option, as the wizard names it, and a value it can hold: a switch takes
+true or false, a select takes one of its options. Repeat it for every answer a script needs.
+\"caelestia-install --set INSTALL_SDDM=false --set DEFAULT_SHELL=zsh\" answers two questions and
+leaves the rest at their defaults.
+
 Exit codes:
   0 finished                1 a step failed
-  2 bad arguments           3 cancelled by the user
+  2 bad arguments           3 canceled by the user
   4 wrong place, or missing scripts     5 installer bug
   130 interrupted
 ";
@@ -182,7 +189,8 @@ fn run(args: Args) -> Outcome {
                 return Outcome::Environment;
             }
             trace("phase 1: home");
-            let session = app::run(bundle.root().to_path_buf(), app::log_path(), look(&args));
+            let env = look(&args);
+            let session = app::run(bundle.root().to_path_buf(), app::log_path(), env, &args.set);
             handoff(&bundle, session)
         }
     }

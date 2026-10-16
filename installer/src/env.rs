@@ -54,8 +54,8 @@ impl Env {
             .is_some_and(|value| value.contains("256"))
     }
 
-    /// The background colour index a terminal advertises, when it advertises one. `COLORFGBG`
-    /// is written as `foreground;background` in the 16-colour palette, so a bright index is a
+    /// The background color index a terminal advertises, when it advertises one. `COLORFGBG`
+    /// is written as `foreground;background` in the 16-color palette, so a bright index is a
     /// light background.
     pub fn background_index(&self) -> Option<u8> {
         self.colorfgbg

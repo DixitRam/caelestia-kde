@@ -180,6 +180,14 @@ impl Glyphs {
         }
     }
 
+    /// The border the screen frame is drawn with: rounded where the terminal has the corners.
+    pub fn frame_border(self) -> border::Set<'static> {
+        match self.set {
+            Set::Unicode => border::ROUNDED,
+            Set::Ascii => self.border(),
+        }
+    }
+
     // Key names, which are words rather than symbols: they are only abbreviated when the
     // terminal can draw the abbreviation.
 
@@ -212,7 +220,7 @@ impl Glyphs {
     }
 }
 
-/// The state, spelled out. Colour is the third channel, the label is the one that always works.
+/// The state, spelled out. Color is the third channel, the label is the one that always works.
 pub fn status_label(status: Status) -> &'static str {
     match status {
         Status::Pending => "PENDING",

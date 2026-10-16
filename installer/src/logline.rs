@@ -2,7 +2,7 @@
 //
 // The steps already label their own output (`[INFO]`, `[OK]`, `[WARN]`, `[SKIP]`, `[ERR]`,
 // `[FATAL]`), so the view does not have to guess what a line means - it only has to carry the
-// meaning through to the screen as a glyph, a colour and a readable body.
+// meaning through to the screen as a glyph, a color and a readable body.
 
 use ratatui::style::Style;
 
@@ -171,7 +171,7 @@ mod tests {
             ("  [SKIP]  Thunar integration disabled", Kind::Skip),
             (" [WARN] Missing optional file: zed", Kind::Warn),
             ("[OK] KDE extra apps step complete.", Kind::Ok),
-            ("  [FATAL] Line ending normalisation failed.", Kind::Error),
+            ("  [FATAL] Line ending normalization failed.", Kind::Error),
         ] {
             let line = LogLine::parse(raw);
             assert_eq!(line.kind, kind, "{raw}");

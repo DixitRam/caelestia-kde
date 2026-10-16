@@ -61,7 +61,7 @@ const DEBIAN_DEPS: [&str; 5] = [
 // The posthook belongs to a JSON file that other tools own, so the edit is left to a JSON
 // reader rather than to a hand-written one: the sections are merged, not replaced, and a
 // key this installer has never heard of survives. python3 is a documented dependency of a
-// Caelestia install - the colour pipeline reads its scheme metadata with it.
+// Caelestia install - the color pipeline reads its scheme metadata with it.
 const POSTHOOK_EDITOR: &str = r##"
 import json, os, re, sys
 

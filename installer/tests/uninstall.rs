@@ -336,7 +336,7 @@ fn the_asking_happens_before_anything_is_removed() {
     let sandbox = Sandbox::new("cancel").install_footprint();
     let (status, _, stderr) = sandbox.run(&["n"]);
     assert_eq!(status, 1);
-    assert!(stderr.contains("Uninstall cancelled."), "{stderr}");
+    assert!(stderr.contains("Uninstall canceled."), "{stderr}");
     assert!(
         sandbox.home.join(".config/caelestia/shell.json").is_file(),
         "the answer comes first"

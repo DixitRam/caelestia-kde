@@ -11,9 +11,8 @@ const HELPER: &str = "askpass.sh";
 const PIPE: &str = "askpass.fifo";
 const WRAPPER: &str = "sudo";
 
-// How long a verification may take before the installer stops waiting for sudo, how often
-// that wait is looked at, and how long the helper waits for the installer to open the pipe
-// before giving up, so that sudo fails rather than hanging on a helper that never finishes.
+// How long a verification may take before the installer stops waiting for sudo, how often that
+// wait is looked at, and how long the helper waits for the pipe before sudo gives up on it.
 const VERIFY_TIMEOUT: Duration = Duration::from_secs(30);
 const VERIFY_TICK: Duration = Duration::from_millis(25);
 const SECRET_TIMEOUT: Duration = Duration::from_secs(15);
@@ -73,10 +72,9 @@ impl Credential {
     }
 }
 
-/// Whether sudo takes the password. The password goes in on stdin: `sudo -S` reads one line
-/// and gets end of file for any retry, so a wrong password costs one PAM exchange instead of
-/// three, and there is no helper process and no pipe to lose. The wait is bounded so a sudo
-/// that never answers cannot hold the installer hostage.
+/// Whether sudo takes the password. `sudo -S` reads one line and gets end of file for any retry,
+/// so a wrong password costs one PAM exchange instead of three, with no helper process and no pipe
+/// to lose. Bounded, so a sudo that never answers cannot hold the installer.
 pub fn accepts(secret: &str) -> bool {
     match sudo_binary() {
         Some(sudo) => sudo_accepts_with(&sudo, secret, VERIFY_TIMEOUT),
@@ -84,17 +82,14 @@ pub fn accepts(secret: &str) -> bool {
     }
 }
 
-// A refused password costs the account an entry in the PAM stack's own tally, and once enough
-// of them are spent the stack stops taking the right password for a while. Both the tally and
-// the rule that set it are readable without root, so the installer can use the budget the
-// machine actually has instead of picking a number and hoping: a host that allows five gets
-// five, and one that allows three is stopped before the entry that would lock it.
+// A refused password costs the account an entry in the PAM stack's tally, and once enough are
+// spent the stack stops taking the right password for a while. The tally and the rule that set it
+// are readable without root, so the installer uses the budget the machine actually has.
 const DEFAULT_DENY: usize = 3;
 const FAILLOCK_CONF: &str = "/etc/security/faillock.conf";
 
-/// How many more refused entries this account can take without being locked out.
-/// How many more refused entries are safe, and whether the system has already locked out.
-/// Read without root: the tally lives in `faillock --user`, the rule in faillock.conf.
+/// Whether the system has already locked this account out, read without root: the tally lives in
+/// `faillock --user`, the rule in faillock.conf.
 pub fn locked_out() -> bool {
     let (counted, deny) = lockout();
     counted >= deny
@@ -153,6 +148,10 @@ fn sudo_accepts_with(sudo: &Path, secret: &str, timeout: Duration) -> bool {
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+    // Its own process group, so a check that has to be killed takes everything it started with it,
+    // but the same session as the installer: the authorization obtained here is the one the steps
+    // then use, and a machine that keys that to the terminal will not hand it to a session of its
+    // own.
     detach(&mut command);
 
     let Ok(mut child) = command.spawn() else {
@@ -194,22 +193,15 @@ pub fn sudo_path() -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-// sudo reads the password from the helper, but questions it cannot answer through the helper
-// - "Sorry, try again." - it writes to /dev/tty, which is the terminal the installer is
-// drawing the frame on. A session of its own leaves it with no controlling terminal to reach,
-// and it also leads a process group of its own for end_group to signal.
+// sudo reads the password from the helper, but questions it cannot answer through the helper -
+// "Sorry, try again." - it writes to /dev/tty, which is the terminal the installer is drawing the
+// frame on. A session of its own leaves it with no controlling terminal to reach.
+//
+// This is for the askpass route; the password route does not need a new session, because `-S`
+// reports on stderr and staying in the installer's session keeps the authorization usable.
 fn detach(command: &mut std::process::Command) {
     use std::os::unix::process::CommandExt;
-    // SAFETY: setsid is async-signal-safe, which is all a pre_exec closure may be, and a
-    // freshly forked child is never a process group leader, so it cannot fail.
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() == -1 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    command.process_group(0);
 }
 
 // One signal to the group reaches sudo and the askpass helper it started; leaving the helper
@@ -279,7 +271,7 @@ fn have_askpass() -> bool {
 
 fn sudo_binary() -> Option<PathBuf> {
     // CAELESTIA_SUDO_BIN names the sudo to escalate through, the same override the shell
-    // resolver next to this honours.
+    // resolver next to this honors.
     if let Ok(explicit) = std::env::var("CAELESTIA_SUDO_BIN") {
         let explicit = PathBuf::from(explicit);
         if crate::process::is_executable(&explicit) {
@@ -393,9 +385,9 @@ pub fn read_secret(pipe: &Path) -> Result<String, String> {
     read_secret_within(pipe, SECRET_TIMEOUT)
 }
 
-// sudo waits for this helper to finish before it goes on, so a helper that waited forever
-// would hang the installer that is waiting for sudo. The thread left blocked in the open
-// below ends with this process, which exits as soon as this wait is over.
+// sudo waits for this helper to finish before it goes on, so a helper that waited forever would
+// hang the installer waiting for sudo. The thread left blocked in the open below ends with this
+// process, which exits as soon as this wait is over.
 fn read_secret_within(pipe: &Path, timeout: Duration) -> Result<String, String> {
     let (sender, receiver) = std::sync::mpsc::channel();
     let path = pipe.to_path_buf();
@@ -432,11 +424,10 @@ fn make_fifo(pipe: &Path) -> Result<(), String> {
     Ok(())
 }
 
-// One helper reads one secret, and sudo asks again for each attempt it makes, so the loop
-// waits for the next helper to appear on the pipe. A round that fails is a round nobody asked
-// for: leaving the loop would strand the next helper, and the sudo waiting behind it, on a
-// pipe that nothing feeds - which is how one wrong password used to hang the installer for
-// good, with sudo's own complaint left sitting in the middle of the frame.
+// One helper reads one secret, and sudo asks again for each attempt, so the loop waits for the
+// next helper to appear on the pipe. A failed round is a round nobody asked for: leaving the loop
+// would strand the next helper on a pipe nothing feeds - which is how one wrong password used to
+// hang the installer for good.
 fn serve(pipe: PathBuf, secret: String, stop: Arc<AtomicBool>) -> JoinHandle<()> {
     thread::spawn(move || {
         while !stop.load(Ordering::Relaxed) {
@@ -602,7 +593,7 @@ fn spawn_inhibitor() -> Option<libc::pid_t> {
 // Blocking sleep is a polkit action, and a client polkit cannot tie to an active session is
 // asked to authenticate for it. That question goes to whatever is holding the desktop - on a
 // Caelestia desktop, the shell the user is looking at - so sleep is only asked for where it is
-// already allowed and nothing will be raised. Idle inhibition needs no authorisation and is
+// already allowed and nothing will be raised. Idle inhibition needs no authorization and is
 // what keeps an install from being suspended out from under it.
 fn inhibit_what() -> &'static str {
     if may_block_sleep() {
@@ -664,8 +655,11 @@ mod tests {
         Credential::install("hunter2", &exe).expect("a credential")
     }
 
-    // A stand-in for sudo: it reads the password from stdin the way `sudo -S` does, answers as
-    // told, and leaves a note behind about the session it was run in and what it was given.
+    // A stand-in for sudo: it announces itself first, then reads the password from stdin the way
+    // `sudo -S` does, answers as told, and leaves a note behind about the session it was run in
+    // and what it was given. Announcing first is what lets a test about a check that has to be
+    // abandoned know the process it is looking for had started, rather than racing a deadline
+    // against the machine's scheduling.
     fn fake_sudo(work: &Path, name: &str, answer: &str) -> PathBuf {
         let path = work.join(name);
         let report = work.join(format!("{name}.report"));
@@ -673,9 +667,10 @@ mod tests {
             &path,
             &format!(
                 "#!/bin/bash\n\
-                 read -r secret\n\
                  echo \"pid=$$\" >> {report}\n\
                  echo \"sid=$(cut -d' ' -f6 /proc/$$/stat)\" >> {report}\n\
+                 echo \"pgid=$(cut -d' ' -f5 /proc/$$/stat)\" >> {report}\n\
+                 read -r secret\n\
                  echo \"secret=$secret\" >> {report}\n\
                  {answer}\n",
                 report = shell_quote(&report),
@@ -825,11 +820,11 @@ mod tests {
     }
 
     #[test]
-    fn sudo_is_run_in_a_session_of_its_own() {
-        // sudo asks on the terminal as well as through the helper, and the frame the installer
-        // is drawing lives on that terminal. Only a session leader has a session id equal to
-        // its own pid, which is what the setsid in detach leaves behind, and a session of its
-        // own is what takes /dev/tty out of sudo's reach.
+    fn sudo_is_run_in_a_group_of_its_own_but_the_installers_session() {
+        // A check that has to be killed must take its children with it, so it leads a process
+        // group. It must NOT take a session of its own: the authorization it obtains is the one
+        // the steps then use, and a machine that keys that to the terminal hands it only to a
+        // check that shares the installer's session. It also keeps /dev/tty out of sudo's reach.
         let work = a_work_dir();
         let sudo = fake_sudo(work.path(), "sudo", "exit 0");
         assert!(sudo_accepts_with(&sudo, "hunter2", Duration::from_secs(20)));
@@ -837,16 +832,12 @@ mod tests {
         let report = work.path().join("sudo.report");
         let pid = reported(&report, "pid=");
         let session = reported(&report, "sid=");
+        let group = reported(&report, "pgid=");
+        assert_eq!(group, pid, "sudo leads a process group of its own");
         assert_eq!(
             session,
-            pid,
-            "sudo was left in the installer's session:\n{}",
-            fs::read_to_string(&report).unwrap_or_default()
-        );
-        assert_ne!(
-            session,
             unsafe { libc::getsid(0) },
-            "sudo shares the installer's session"
+            "and stays in the installer's session, so the authorization is shared"
         );
     }
 
@@ -857,11 +848,12 @@ mod tests {
         let sudo = fake_sudo(work.path(), "sudo", "exec sleep 60");
 
         let started = Instant::now();
-        assert!(!sudo_accepts_with(
-            &sudo,
-            "hunter2",
-            Duration::from_millis(300)
-        ));
+        // Long enough that the stand-in has been scheduled and has announced itself, and short
+        // enough that a check which actually waited for it to finish would fail the bound below.
+        // A deadline much tighter than this measures the machine's scheduling under a loaded
+        // test run rather than the check's behavior: killed before its first line, the
+        // stand-in never reports and there is nothing to say it was taken with it.
+        assert!(!sudo_accepts_with(&sudo, "hunter2", Duration::from_secs(4)));
         assert!(
             started.elapsed() < Duration::from_secs(20),
             "the wait outlived its own deadline by {:?}",

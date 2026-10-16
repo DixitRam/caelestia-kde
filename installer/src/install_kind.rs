@@ -20,10 +20,15 @@ pub fn kind() -> Kind {
         }
     }
 
-    if std::env::current_exe()
-        .map(|exe| exe.starts_with("/usr"))
-        .unwrap_or(false)
-    {
+    // A packaged install puts its files under the distribution's prefixes, and `/usr/local` is not
+    // one of them: it is where a source build that ran `make install` lands.
+    let packaged = std::env::current_exe()
+        .map(|exe| {
+            let exe = exe.to_string_lossy().replace('\\', "/");
+            exe.starts_with("/usr/") && !exe.starts_with("/usr/local/")
+        })
+        .unwrap_or(false);
+    if packaged {
         Kind::Package
     } else {
         Kind::Source
@@ -34,11 +39,13 @@ pub fn is_packaged() -> bool {
     kind() == Kind::Package
 }
 
-/// What to call this install's layout on screen.
-pub fn label() -> &'static str {
-    match kind() {
-        Kind::Source => "source",
-        Kind::Package => "package",
+impl Kind {
+    /// What to call this install's layout on screen.
+    pub fn label(self) -> &'static str {
+        match self {
+            Kind::Source => "source",
+            Kind::Package => "package",
+        }
     }
 }
 
@@ -107,6 +114,29 @@ fn shell_config_for(kind: Kind) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The rule the environment and the binary's own location decide, kept apart from the
+    /// reading of either so both cases can be asked about.
+    fn packaged_from(exe: &str) -> bool {
+        let exe = exe.replace('\\', "/");
+        exe.starts_with("/usr/") && !exe.starts_with("/usr/local/")
+    }
+
+    #[test]
+    fn a_packaged_install_is_the_distributions_own_prefixes() {
+        assert!(packaged_from("/usr/bin/caelestia-install"));
+        assert!(packaged_from("/usr/lib/caelestia/caelestia-install"));
+        assert!(packaged_from("/usr/share/caelestia/bin/caelestia-install"));
+    }
+
+    #[test]
+    fn a_build_installed_anywhere_else_is_a_source_install() {
+        // The same rule as above, asked of the binary's own location.
+        assert!(!packaged_from("/usr/local/bin/caelestia-install"));
+        assert!(!packaged_from("/home/someone/.local/bin/caelestia-install"));
+        assert!(!packaged_from("/opt/caelestia/caelestia-install"));
+        assert!(!packaged_from("caelestia-install"));
+    }
 
     #[test]
     fn a_packaged_install_reads_and_writes_the_system_locations() {

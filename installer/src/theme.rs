@@ -1,12 +1,5 @@
-// The visual language: roles rather than colours, and a palette per terminal capability. The
-// values are deliberately plain - neutral greys, a single blue accent, and colour kept for
-// what it means (green ran, amber warned, red failed) rather than for decoration. It has to
-// look considered on an administrator's terminal next to their other tools, and it has to
-// carry in a dark and in a light terminal alike.
-//
-// Contrast is part of the contract, not a detail: every role used for text clears 4.5:1 against
-// its own surface, and the rule role clears 3:1, because it is the only structural channel the
-// TUI has. The tests hold that line.
+// The visual language: roles rather than colors, and a palette per terminal capability. Every
+// role used for text clears 4.5:1 against its own surface; the tests hold that line.
 
 use ratatui::style::{Color, Modifier, Style};
 
@@ -18,15 +11,15 @@ pub const TAGLINE: &str = "A Material You desktop for KDE Plasma 6";
 pub const AUTHOR: &str = "By @ladybug-me";
 pub const CO_AUTHOR: &str = "Co-maintainer: 0xSolanaceae";
 
-/// The brand mark, drawn only where there is room for it: clipped art reads as a rendering bug,
-/// so a screen that cannot fit it uses the wordmark alone.
+/// The brand mark, drawn only where the whole of it fits. Full-cell blocks and box characters,
+/// not the `_`, `|` and `/` of line art, which leave gaps wherever a font does not join them.
 pub const SPLASH: [&str; 6] = [
-    "   _____            _           _   _       ",
-    "  / ____|          | |         | | (_)      ",
-    " | |     __ _  ___ | | ___  ___| |_ _  __ _ ",
-    " | |    / _` |/ _ \\| |/ _ \\/ __| __| |/ _` |",
-    " | |___| (_| | (_) | |  __/\\__ \\ |_| | (_| |",
-    "  \\_____\\__,_|\\___/|_|\\___||___/\\__|_|\\__,_|",
+    " ██████╗  █████╗  ███████╗ ██╗      ███████╗ ███████╗ ████████╗ ██╗  █████╗ ",
+    "██╔════╝ ██╔══██╗ ██╔════╝ ██║      ██╔════╝ ██╔════╝ ╚══██╔══╝ ██║ ██╔══██╗",
+    "██║      ███████║ █████╗   ██║      █████╗   ███████╗    ██║    ██║ ███████║",
+    "██║      ██╔══██║ ██╔══╝   ██║      ██╔══╝   ╚════██║    ██║    ██║ ██╔══██║",
+    "╚██████╗ ██║  ██║ ███████╗ ███████╗ ███████╗ ███████║    ██║    ██║ ██║  ██║",
+    " ╚═════╝ ╚═╝  ╚═╝ ╚══════╝ ╚══════╝ ╚══════╝ ╚══════╝    ╚═╝    ╚═╝ ╚═╝  ╚═╝",
 ];
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -71,6 +64,10 @@ pub enum Depth {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Role {
     Surface,
+    /// A block that stands off the surface, so a group of rows reads as one thing.
+    Panel,
+    /// Text drawn on a filled accent: the footer bar, and the row the cursor is on.
+    OnAccent,
     Foreground,
     Muted,
     Rule,
@@ -88,6 +85,8 @@ struct Rgb(u8, u8, u8);
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 struct Roles {
     surface: Rgb,
+    panel: Rgb,
+    on_accent: Rgb,
     foreground: Rgb,
     muted: Rgb,
     rule: Rgb,
@@ -103,6 +102,8 @@ impl Roles {
     fn get(&self, role: Role) -> Rgb {
         match role {
             Role::Surface => self.surface,
+            Role::Panel => self.panel,
+            Role::OnAccent => self.on_accent,
             Role::Foreground => self.foreground,
             Role::Muted => self.muted,
             Role::Rule => self.rule,
@@ -118,6 +119,8 @@ impl Roles {
 
 const DARK: Roles = Roles {
     surface: Rgb(0x0d, 0x11, 0x17),
+    panel: Rgb(0x16, 0x1b, 0x22),
+    on_accent: Rgb(0x0d, 0x11, 0x17),
     foreground: Rgb(0xc9, 0xd1, 0xd9),
     muted: Rgb(0x8b, 0x94, 0x9e),
     rule: Rgb(0x6e, 0x76, 0x81),
@@ -131,6 +134,8 @@ const DARK: Roles = Roles {
 
 const LIGHT: Roles = Roles {
     surface: Rgb(0xff, 0xff, 0xff),
+    panel: Rgb(0xf6, 0xf8, 0xfa),
+    on_accent: Rgb(0xff, 0xff, 0xff),
     foreground: Rgb(0x1f, 0x23, 0x28),
     muted: Rgb(0x59, 0x63, 0x6e),
     rule: Rgb(0x8c, 0x95, 0x9f),
@@ -165,7 +170,7 @@ impl Theme {
         self.roles = roles(self.mode);
     }
 
-    pub fn colour(&self, role: Role) -> Color {
+    pub fn color(&self, role: Role) -> Color {
         match self.depth {
             Depth::True => {
                 let Rgb(r, g, b) = self.roles.get(role);
@@ -179,14 +184,50 @@ impl Theme {
 
     pub fn style(&self, role: Role) -> Style {
         Style::default()
-            .fg(self.colour(role))
+            .fg(self.color(role))
             .add_modifier(modifier(role, self.depth))
     }
 
     /// The surface itself, so every screen starts from the brand background rather than from
     /// whatever the terminal was showing.
     pub fn surface(&self) -> Style {
-        Style::default().bg(self.colour(Role::Surface))
+        Style::default().bg(self.color(Role::Surface))
+    }
+
+    /// A raised block: the background a group of rows sits on where a border would cost two lines
+    /// to say the same thing.
+    pub fn panel(&self) -> Style {
+        Style::default().bg(self.color(Role::Panel))
+    }
+
+    /// The one filled surface in the program: the footer bar, and the row the cursor is on. Text
+    /// on it uses `OnAccent`, which swaps with the accent, so the fill carries its own text in
+    /// either theme. A terminal with no color gets weight instead of a fill it cannot draw.
+    pub fn bar(&self) -> Style {
+        if self.depth == Depth::Mono {
+            return Style::default().add_modifier(Modifier::BOLD);
+        }
+        Style::default()
+            .bg(self.color(Role::Accent))
+            .fg(self.color(Role::OnAccent))
+    }
+
+    /// The text on the filled bar, for everything that is not a key name.
+    pub fn on_bar(&self) -> Style {
+        if self.depth == Depth::Mono {
+            return Style::default();
+        }
+        self.style(Role::OnAccent)
+    }
+
+    /// A key name on the filled bar: the bold half of it.
+    pub fn bar_key(&self) -> Style {
+        self.on_bar().add_modifier(Modifier::BOLD)
+    }
+
+    /// The frame around the whole screen, in the accent.
+    pub fn frame(&self) -> Style {
+        self.style(Role::Accent)
     }
 
     pub fn status(&self, status: Status) -> Style {
@@ -258,22 +299,29 @@ fn role_of(status: Status) -> Role {
     }
 }
 
-/// A terminal with no colour at all still has to say what happened, so the states fall back to
-/// weight: loud things are bold, quiet things are dim, and the glyph and the label carry the rest.
+/// A terminal with no color falls back to weight: loud things bold, quiet things dim.
 fn modifier(role: Role, depth: Depth) -> Modifier {
     if depth != Depth::Mono {
         return Modifier::empty();
     }
     match role {
-        Role::Accent | Role::Ok | Role::Warn | Role::Error | Role::Ignored => Modifier::BOLD,
+        Role::Accent | Role::Ok | Role::Warn | Role::Error | Role::Ignored | Role::OnAccent => {
+            Modifier::BOLD
+        }
         Role::Muted | Role::Rule | Role::Skipped => Modifier::DIM,
-        Role::Surface | Role::Foreground => Modifier::empty(),
+        Role::Surface | Role::Panel | Role::Foreground => Modifier::empty(),
     }
 }
 
 fn ansi(role: Role, mode: Mode) -> Color {
     match (mode, role) {
-        (_, Role::Surface) => Color::Reset,
+        // Neither a fill nor a raised panel survives a basic sixteen, so both borrow the
+        // terminal's own background and the frame carries the structure instead.
+        (_, Role::Surface | Role::Panel) => Color::Reset,
+        // The accent is the bright blue in the dark theme and the dark one in the light, so the
+        // text on it has to swap with it.
+        (Mode::Dark, Role::OnAccent) => Color::Black,
+        (Mode::Light, Role::OnAccent) => Color::White,
         (Mode::Dark, Role::Foreground | Role::Muted) => Color::Reset,
         (Mode::Dark, Role::Rule | Role::Skipped) => Color::DarkGray,
         (Mode::Dark, Role::Accent) => Color::Cyan,
@@ -289,21 +337,20 @@ fn ansi(role: Role, mode: Mode) -> Color {
     }
 }
 
-/// The nearest of the 256-colour palette, searched over the cube and the grey ramp but not over
-/// the sixteen system colours: those belong to the user's theme, and borrowing one would make the
-/// brand palette depend on somebody else's.
+/// The nearest of the 256-color palette, over the cube and the gray ramp but not the sixteen:
+/// those belong to the user's theme.
 fn indexed(rgb: Rgb) -> u8 {
     let Rgb(r, g, b) = rgb;
     let cube = (16 + 36 * cube_level(r) + 6 * cube_level(g) + cube_level(b)) as u8;
     let average = (u16::from(r) + u16::from(g) + u16::from(b)) / 3;
     // The ramp is 8, 18, 28, ...: the nearest step, not the one below.
-    let grey_step = (average.saturating_sub(8) + 5) / 10;
-    let grey = 232 + grey_step.min(23) as u8;
+    let gray_step = (average.saturating_sub(8) + 5) / 10;
+    let gray = 232 + gray_step.min(23) as u8;
 
-    if distance(rgb, from_index(cube)) <= distance(rgb, from_index(grey)) {
+    if distance(rgb, from_index(cube)) <= distance(rgb, from_index(gray)) {
         cube
     } else {
-        grey
+        gray
     }
 }
 
@@ -434,10 +481,39 @@ mod tests {
     }
 
     #[test]
+    fn the_filled_bar_carries_its_own_text() {
+        // The footer is drawn *on* the accent, so its text is measured against the accent rather
+        // than against the surface the rest of the program is read on.
+        for mode in [Mode::Dark, Mode::Light] {
+            let roles = roles(mode);
+            let contrast = ratio(roles.on_accent, roles.accent);
+            assert!(
+                contrast >= 4.5,
+                "{mode:?} on-accent is {contrast:.2}:1 on the accent"
+            );
+        }
+    }
+
+    #[test]
+    fn a_raised_panel_is_a_different_tone_that_still_carries_text() {
+        for mode in [Mode::Dark, Mode::Light] {
+            let roles = roles(mode);
+            assert_ne!(roles.panel, roles.surface, "{mode:?} panel is invisible");
+            for role in [Role::Foreground, Role::Muted] {
+                let contrast = ratio(roles.get(role), roles.panel);
+                assert!(
+                    contrast >= 4.5,
+                    "{mode:?} {role:?} is {contrast:.2}:1 on a panel"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn the_palette_is_plain_and_reserves_colour_for_what_it_means() {
         // Not the desktop's own scheme and not a decorative one: an installer is read next to
         // an administrator's other tools, so the tones stay neutral and only the accent and the
-        // status roles carry any colour at all.
+        // status roles carry any color at all.
         assert_eq!(roles(Mode::Dark).accent, Rgb(0x58, 0xa6, 0xff));
         assert_eq!(roles(Mode::Dark).surface, Rgb(0x0d, 0x11, 0x17));
         assert_eq!(roles(Mode::Light).accent, Rgb(0x09, 0x69, 0xda));
@@ -508,7 +584,7 @@ mod tests {
         subject.cycle();
         assert_eq!(subject.mode, Mode::Light);
         assert_eq!(subject.depth, Depth::True);
-        assert_eq!(subject.colour(Role::Accent), Color::Rgb(0x09, 0x69, 0xda));
+        assert_eq!(subject.color(Role::Accent), Color::Rgb(0x09, 0x69, 0xda));
         subject.cycle();
         assert_eq!(subject.mode, Mode::Dark);
     }
@@ -516,7 +592,7 @@ mod tests {
     #[test]
     fn a_terminal_without_colour_falls_back_to_weight() {
         let theme = Theme::resolve(&env("dumb", None));
-        assert_eq!(theme.colour(Role::Error), Color::Reset);
+        assert_eq!(theme.color(Role::Error), Color::Reset);
         assert!(
             theme
                 .status(Status::Failed)
@@ -536,10 +612,10 @@ mod tests {
         assert_eq!(theme.depth, Depth::True);
         let mut seen = std::collections::BTreeSet::new();
         for status in Status::ALL {
-            let colour = theme.status(status).fg;
+            let color = theme.status(status).fg;
             assert!(
-                seen.insert(format!("{colour:?}")),
-                "{status:?} borrows another state's colour"
+                seen.insert(format!("{color:?}")),
+                "{status:?} borrows another state's color"
             );
         }
     }
@@ -554,8 +630,8 @@ mod tests {
             theme.status(Status::Ignored).fg,
             theme.status(Status::Failed).fg
         );
-        assert_ne!(theme.colour(Role::Error), theme.colour(Role::Accent));
-        assert_ne!(theme.colour(Role::Ok), theme.colour(Role::Warn));
+        assert_ne!(theme.color(Role::Error), theme.color(Role::Accent));
+        assert_ne!(theme.color(Role::Ok), theme.color(Role::Warn));
     }
 
     #[test]

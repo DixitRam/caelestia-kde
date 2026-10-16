@@ -1,8 +1,7 @@
 // The app: what the wizard knows, and what a key does to it.
 //
-// The shape is one stage at a time with overlays on top of it, and one meaning per key: `esc`
-// always steps back, `q` always leaves, `ctrl+c` always stops. A failure is never dismissed by
-// accident, and a step that is running is never abandoned without being stopped first.
+// One stage at a time with overlays on top of it, and one meaning per key: `esc` always steps
+// back, `q` always leaves, `ctrl+c` always stops.
 
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -34,9 +33,8 @@ pub fn log_path() -> PathBuf {
         .unwrap_or_else(|| std::env::temp_dir().join("caelestia-install.log"))
 }
 
-/// What the wizard is here to do. Update and Uninstall leave the TUI: `update.rs` and
-/// `uninstall.rs` own their own prompts, and running them over a terminal the TUI is holding
-/// would have the two fight over it.
+/// What the wizard is here to do. Update and Uninstall leave the TUI: their own prompts would
+/// otherwise fight the TUI for the terminal.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Install,
@@ -55,7 +53,7 @@ impl Action {
         }
     }
 
-    /// One plain line per action, in the voice the installer this is modelled on uses: a short
+    /// One plain line per action, in the voice the installer this is modeled on uses: a short
     /// factual description, no sell.
     pub fn help(self) -> &'static str {
         match self {
@@ -73,6 +71,17 @@ impl Action {
         }
     }
 
+    /// Why an action is not on offer here, said in terms of the action itself. Install is always
+    /// on offer - a reinstall is a thing people do - so that arm exists to keep the match total
+    /// rather than to be shown.
+    pub fn unavailable(self) -> &'static str {
+        match self {
+            Action::Update => "Caelestia is not installed, so there is nothing to update",
+            Action::Uninstall => "Caelestia is not installed, so there is nothing to remove",
+            Action::Install => "Caelestia is installed, so there is nothing to install",
+        }
+    }
+
     fn handoff(self) -> Option<Handoff> {
         match self {
             Action::Install => None,
@@ -82,14 +91,16 @@ impl Action {
     }
 }
 
-/// Where the wizard has got to. Overlays are not stages: closing one returns to the stage it was
-/// opened over.
+/// Where the wizard has got to, in the order it works through. Overlays are not stages: closing
+/// one returns to the stage it was opened over.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Stage {
     Home,
-    Privilege,
+    Detect,
     Options,
     Review,
+    Auth,
+    Privilege,
     Run,
     Done,
 }
@@ -106,7 +117,35 @@ pub enum Overlay {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Confirm {
     Handoff(Action),
+    Install,
     Quit,
+}
+
+/// How the wizard will become root: its own helper can ask, or the user can authorize elsewhere.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum AuthMethod {
+    /// Ask for the password here and pass it to sudo.
+    Password,
+    /// Let the user run `sudo -v` in their own terminal.
+    External,
+}
+
+impl AuthMethod {
+    pub fn title(self) -> &'static str {
+        match self {
+            AuthMethod::Password => "Type your password here",
+            AuthMethod::External => "Authorize in another terminal",
+        }
+    }
+
+    pub fn help(self) -> Option<&'static str> {
+        match self {
+            AuthMethod::Password => None,
+            AuthMethod::External => {
+                Some("For when it cannot ask: run `sudo -v` in your own terminal, then continue.")
+            }
+        }
+    }
 }
 
 /// The two actions that hand the terminal back to another program.
@@ -116,11 +155,75 @@ pub enum Handoff {
     Uninstall,
 }
 
-/// What the TUI leaves behind: an exit code, and possibly work for the caller to do in the
-/// terminal it just gave back.
+/// What the TUI leaves behind: an exit code, and work for the caller once the terminal is back.
 pub struct Session {
     pub outcome: Outcome,
     pub handoff: Option<Handoff>,
+}
+
+/// What the installer found, read before anything is decided and again at the point of no return:
+/// a machine that changed while the wizard was open must not be overwritten on an old answer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Detection {
+    /// The family, kept as the enum it is: a precondition is decided by asking what the machine
+    /// is, not by comparing a label written for a human to a string.
+    pub distro: crate::distro::Distro,
+    pub kind: crate::install_kind::Kind,
+    /// Caelestia's shell configuration is already where this install kind keeps it.
+    pub installed: bool,
+    /// The package manager this distribution installs with, if there is one.
+    pub package_manager: Option<&'static str>,
+    pub quickshell: bool,
+    pub git: bool,
+}
+
+impl Detection {
+    pub fn read() -> Self {
+        let distro = crate::distro::detect();
+        let package_manager = match distro {
+            crate::distro::Distro::Arch => Some("pacman"),
+            crate::distro::Distro::Fedora => Some("dnf"),
+            crate::distro::Distro::Debian => Some("apt"),
+            crate::distro::Distro::Unknown => None,
+        }
+        .filter(|name| crate::process::available(name));
+        Self {
+            distro,
+            kind: crate::install_kind::kind(),
+            installed: crate::install_kind::shell_config().exists(),
+            package_manager,
+            quickshell: crate::process::available("quickshell"),
+            git: crate::process::available("git"),
+        }
+    }
+
+    /// What to call the distribution and the layout on screen.
+    pub fn distro_label(&self) -> &'static str {
+        self.distro.label()
+    }
+
+    pub fn kind_label(&self) -> &'static str {
+        self.kind.label()
+    }
+
+    /// The things that will stop an install, as opposed to the things that are merely true.
+    /// Each one is the condition its own sentence describes, so a blocker never fires on a
+    /// machine where what it says is missing is not needed - and a distribution that is unknown
+    /// is said once, rather than also blaming the package manager it was never going to find.
+    pub fn blockers(&self) -> Vec<&'static str> {
+        let mut blockers = Vec::new();
+        if self.distro == crate::distro::Distro::Unknown {
+            blockers.push("This distribution is not one the installer knows how to install on.");
+            return blockers;
+        }
+        if self.package_manager.is_none() {
+            blockers.push("No supported package manager was found on PATH.");
+        }
+        if !self.git && self.kind == crate::install_kind::Kind::Source {
+            blockers.push("git is missing, and a source install needs it.");
+        }
+        blockers
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -190,17 +293,34 @@ pub struct App {
     pub env: Env,
     pub theme: Theme,
     pub glyphs: Glyphs,
-    pub distro: String,
-    pub kind: &'static str,
-    pub installed: bool,
+    /// Which of the themeable apps are on this machine. Read once, and the reason a question can
+    /// ask about the apps somebody has instead of listing the ones they might install.
+    pub apps: crate::apps::Apps,
+    /// Read from the machine when the wizard starts and re-read at the confirmation. What the
+    /// machine is, and whether Caelestia is already on it, are asked of this rather than kept in
+    /// fields of their own: two records of one fact are two records that can disagree.
+    pub detection: Detection,
+    /// Set when the user has been shown that Caelestia is already installed and chose to carry
+    /// on anyway. Without it, the confirmation refuses to overwrite something nobody mentioned.
+    pub reinstall_acknowledged: bool,
+    /// Whether Caelestia was already there when the wizard started, which is what tells "you
+    /// were told and said yes" apart from "this appeared while you were deciding".
+    pub installed_when_started: bool,
     pub stage: Stage,
     pub overlay: Option<Overlay>,
     pub confirm: Option<Confirm>,
     pub action: Action,
     pub home: usize,
     pub answers: Answers,
-    pub menu_path: Vec<usize>,
+    /// The answers the wizard was seeded with on this machine: what "changed" is measured against
+    /// and what "reset" goes back to. A machine that already has the apps starts with them on, so
+    /// the table's defaults alone would report a change nobody made.
+    baseline: Answers,
+    /// Which question the wizard is asking: one screen per question, in order.
+    pub question: usize,
     pub cursor: usize,
+    /// Which privilege route the user picked, once they have picked one.
+    pub auth: Option<AuthMethod>,
     pub password: String,
     /// A password that is with sudo. The answer arrives on a later tick, so the frame can show
     /// that something is happening while PAM takes its time over it.
@@ -234,26 +354,40 @@ pub struct App {
 impl App {
     pub fn new(bundle: PathBuf, log_path: PathBuf, env: Env) -> Self {
         let mut answers = Answers::new();
-        menu::seed_answers(&menu::ROOT, &mut answers);
+        menu::seed_answers(&menu::QUESTIONS, &mut answers);
+        // Only the apps this machine has are offered, and the ones it has start on: the answer to
+        // "theme this app you have" is the app, not a prompt. An app that is not here answers no,
+        // so a row nobody ever saw can never be the reason a step runs.
+        let apps = crate::apps::Apps::here();
+        for (id, answer) in apps.answers() {
+            answers.insert(id, answer.to_string());
+        }
+        // What this machine started at, which is what "changed" and "reset" are measured against:
+        // the apps it already has are on from the first screen, so nothing reads as switched on
+        // before the user has touched anything.
+        let baseline = answers.clone();
         Self {
             bundle,
             log_path,
             theme: Theme::resolve(&env),
             glyphs: Glyphs::resolve(&env),
+            apps,
             env,
-            // Asked once, at startup: detection reads the filesystem, and the header is drawn
-            // thirty times a second.
-            distro: crate::distro::detect().label().to_string(),
-            kind: crate::install_kind::label(),
-            installed: crate::install_kind::shell_config().exists(),
+            // Read once, here, and again when it matters. The header is drawn thirty times a
+            // second, and detection reads the filesystem and the PATH.
+            detection: Detection::read(),
+            reinstall_acknowledged: false,
+            installed_when_started: crate::install_kind::shell_config().exists(),
             stage: Stage::Home,
             overlay: None,
             confirm: None,
             action: Action::Install,
             home: 0,
             answers,
-            menu_path: Vec::new(),
+            baseline,
+            question: 0,
             cursor: 0,
+            auth: None,
             password: String::new(),
             checking: None,
             pretend: false,
@@ -281,6 +415,28 @@ impl App {
         }
     }
 
+    /// Point the wizard at a machine with a known set of apps, and take the answers it would have
+    /// started with there. Which apps a machine has is read from the machine, so this is the only
+    /// way to say what the app rows are about.
+    #[cfg(test)]
+    pub fn with_apps(mut self, apps: crate::apps::Apps) -> Self {
+        let seeded: Vec<(&'static str, &'static str)> = apps.answers().collect();
+        self.apps = apps;
+        for (id, answer) in seeded {
+            self.answers.insert(id, answer.to_string());
+        }
+        self.baseline = self.answers.clone();
+        self
+    }
+
+    /// The answers a script gave rather than the wizard asking. They are where the wizard starts,
+    /// so they are the baseline as well: a script that switched something on is not a change the
+    /// user made, and resetting goes back to what the script asked for.
+    pub fn apply_settings(&mut self, settings: &[(&'static str, String)]) {
+        menu::apply_set(settings, &mut self.answers);
+        self.baseline = self.answers.clone();
+    }
+
     // What the view asks -------------------------------------------------------------
 
     pub fn header(&self) -> ui::Header {
@@ -289,13 +445,26 @@ impl App {
                 Stage::Home => "installer".to_string(),
                 _ => self.action.header().to_string(),
             },
-            right: format!("{} · {} install", self.distro, self.kind),
+            right: format!(
+                "{} · {} install",
+                self.detection.distro_label(),
+                self.detection.kind_label()
+            ),
         }
     }
 
     pub fn counter(&self) -> Option<String> {
         match self.stage {
-            Stage::Run | Stage::Review => Some(format!("step {}/{}", self.finished(), STEPS.len())),
+            // Progress, where there is progress to report. The review screen used to show the
+            // same counter as the run screen and always read "step 0 of 17", which is a
+            // progress bar for something that has not started; its summary already says how
+            // many steps will run.
+            Stage::Run => Some(format!("step {}/{}", self.finished(), STEPS.len())),
+            Stage::Options => Some(format!(
+                "question {}/{}",
+                self.question + 1,
+                menu::question_count()
+            )),
             _ => None,
         }
     }
@@ -380,58 +549,76 @@ impl App {
         }
     }
 
-    pub fn current_entries(&self) -> &'static [Entry] {
-        let mut entries: &'static [Entry] = &menu::ROOT;
-        for index in &self.menu_path {
-            match &entries[*index] {
-                Entry::Submenu { items, .. } => entries = items,
-                _ => break,
-            }
-        }
-        entries
+    /// The rows of the question on screen, with the ones that are not worth showing left out: an
+    /// app this machine does not have has nothing here to theme. This is the list the cursor
+    /// indexes, so what is drawn and what a key moves over cannot disagree.
+    pub fn current_entries(&self) -> Vec<&'static Entry> {
+        menu::items_of(self.question)
+            .iter()
+            .filter(|entry| menu::shows(entry, &self.answers, &self.apps))
+            .collect()
     }
 
     pub fn selected(&self) -> Option<&'static Entry> {
-        self.current_entries().get(self.cursor)
+        self.current_entries().into_iter().nth(self.cursor)
     }
 
-    pub fn breadcrumb(&self) -> String {
-        let mut trail = vec![
-            crate::theme::NAME.to_string(),
-            self.stage_name().to_string(),
-        ];
-        let mut entries: &'static [Entry] = &menu::ROOT;
-        for index in &self.menu_path {
-            match entries.get(*index) {
-                Some(Entry::Submenu {
-                    items, title: name, ..
-                }) => {
-                    trail.push(name.to_string());
-                    entries = items;
-                }
-                _ => break,
-            }
-        }
-        trail.join(" › ")
+    /// Whether a row's answer differs from the one this machine started at.
+    pub fn is_changed(&self, entry: &Entry) -> bool {
+        menu::is_changed(entry, &self.apps, &self.answers, &self.baseline)
     }
 
-    /// What the header calls this stage.
-    fn stage_name(&self) -> &'static str {
-        match self.stage {
-            Stage::Home => "welcome",
-            Stage::Privilege => "privileges",
-            Stage::Options => "configure",
-            Stage::Review => "review",
-            Stage::Run => "install",
-            Stage::Done => "finished",
-        }
+    /// Whether a bulk row's apps are all on.
+    pub fn preset_on(&self, entry: &Entry) -> bool {
+        menu::preset_on(entry, &self.apps, &self.answers)
     }
 
     pub fn action_enabled(&self, action: Action) -> bool {
         match action {
-            Action::Install | Action::Update => true,
-            Action::Uninstall => self.installed,
+            // Both of these work on an install that is already here. Offering one on a machine
+            // with nothing on it offers work that cannot be done.
+            Action::Install => true,
+            Action::Update | Action::Uninstall => self.installed(),
         }
+    }
+
+    /// Whether this machine already has Caelestia on it: what the wizard reads, not what it
+    /// remembers. One answer, so the screens, the action list and the confirmation cannot
+    /// disagree about it.
+    pub fn installed(&self) -> bool {
+        self.detection.installed
+    }
+
+    /// Whether this machine already has Caelestia on it, read now rather than remembered. A
+    /// pretend run reads nothing: it has no machine to read, and the tests set the detection
+    /// they want to reason about.
+    pub fn refresh_detection(&mut self) {
+        if self.pretend {
+            return;
+        }
+        self.detection = Detection::read();
+        // A new reading is a new answer to whatever the last one was asked about, so a sentence
+        // written about the old one is no longer true of the machine.
+        self.problem = None;
+    }
+
+    /// The questions whose answers differ from a fresh install: what "changed" is counted over.
+    /// A bulk row is a view of the switches it stands for and holds no answer, so counting it
+    /// would report seven changes for one decision.
+    pub fn question_changed(&self, question: usize) -> bool {
+        menu::items_of(question)
+            .iter()
+            .any(|entry| menu::holds_an_answer(entry) && self.is_changed(entry))
+    }
+
+    /// How many answers differ from what this machine started at, across every question. A bulk
+    /// row is a view of the switches it stands for and holds no answer, so counting it would
+    /// report seven changes for one decision.
+    pub fn changed_answers(&self) -> usize {
+        menu::every_entry()
+            .into_iter()
+            .filter(|entry| menu::holds_an_answer(entry) && self.is_changed(entry))
+            .count()
     }
 
     /// The lines the log pane shows, in order: everything, or only what went wrong.
@@ -516,7 +703,7 @@ impl App {
     }
 
     /// A step that is stopped is a step that is stopped: leaving the child behind would let a
-    /// package manager carry on writing while the user believes they cancelled.
+    /// package manager carry on writing while the user believes they canceled.
     fn stop_running(&mut self) {
         if let Some(mut running) = self.running.take() {
             running.stop();
@@ -549,11 +736,20 @@ impl App {
         if let Some(overlay) = self.overlay {
             return self.overlay_key(overlay, key);
         }
+        // The keymap offers `t` everywhere, so it works everywhere. Not on the password
+        // screen, where a letter is a letter.
+        if key.code == KeyCode::Char('t') && self.stage != Stage::Privilege {
+            self.theme.cycle();
+            self.notice = Some(format!("{} theme", self.theme.mode.name()));
+            return Flow::Continue;
+        }
         match self.stage {
             Stage::Home => self.home_key(key),
-            Stage::Privilege => self.privilege_key(key),
+            Stage::Detect => self.detect_key(key),
             Stage::Options => self.options_key(key),
             Stage::Review => self.review_key(key),
+            Stage::Auth => self.auth_key(key),
+            Stage::Privilege => self.privilege_key(key),
             Stage::Run => self.run_key(key),
             Stage::Done => self.done_key(key),
         }
@@ -585,6 +781,25 @@ impl App {
                     ui::key("?", "keys"),
                     ui::key("q", "quit"),
                 ],
+                Stage::Detect => {
+                    let mut keys = vec![
+                        ui::key(glyphs.enter(), "continue"),
+                        ui::key(glyphs.escape(), "back"),
+                    ];
+                    if self.installed() {
+                        keys.insert(1, ui::key("u", "update instead"));
+                    }
+                    keys
+                }
+                Stage::Auth if self.auth == Some(AuthMethod::External) => vec![
+                    ui::key(glyphs.enter(), "I have done it"),
+                    ui::key(glyphs.escape(), "back"),
+                ],
+                Stage::Auth => vec![
+                    ui::key(glyphs.up_down(), "move"),
+                    ui::key(glyphs.enter(), "choose"),
+                    ui::key(glyphs.escape(), "back"),
+                ],
                 Stage::Privilege if self.checking.is_some() => Vec::new(),
                 Stage::Privilege if self.attempts > 0 => vec![
                     ui::key(glyphs.enter(), "continue"),
@@ -596,12 +811,14 @@ impl App {
                     ui::key(glyphs.escape(), "back"),
                 ],
                 Stage::Options => vec![
+                    ui::key(glyphs.enter(), "next"),
                     ui::key(glyphs.up_down(), "move"),
                     ui::key(glyphs.left_right(), "change"),
-                    ui::key(glyphs.enter(), "choose"),
+                    ui::key(glyphs.escape(), "back"),
+                    // The resets come last because they are what a narrow footer can afford to
+                    // lose: the way on and the way back belong ahead of them.
                     ui::key("r", "reset"),
                     ui::key("R", "reset all"),
-                    ui::key(glyphs.escape(), "back"),
                 ],
                 Stage::Review => vec![
                     ui::key(glyphs.up_down(), "scroll"),
@@ -644,13 +861,9 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => {
                 self.home = (self.home + 1) % Action::ALL.len();
             }
-            KeyCode::Char('t') => {
-                self.theme.cycle();
-                self.notice = Some(format!("{} theme", self.theme.mode.name()));
-            }
             KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
             KeyCode::Enter | KeyCode::Char(' ') => return self.choose_action(),
-            KeyCode::Esc | KeyCode::Char('q') => return Flow::Done(Outcome::Cancelled),
+            KeyCode::Esc | KeyCode::Char('q') => return Flow::Done(Outcome::Canceled),
             _ => {}
         }
         Flow::Continue
@@ -659,23 +872,74 @@ impl App {
     fn choose_action(&mut self) -> Flow {
         let action = Action::ALL[self.home];
         if !self.action_enabled(action) {
-            self.notice =
-                Some("Caelestia is not installed, so there is nothing to remove".to_string());
+            self.notice = Some(Action::unavailable(action).to_string());
             return Flow::Continue;
         }
         self.action = action;
         match action {
+            // What is on the machine comes before what to do with it: the answer decides
+            // whether this is an install at all.
             Action::Install => {
-                self.stage = if needs_password() {
-                    Stage::Privilege
-                } else {
-                    Stage::Options
-                };
+                self.show_detection();
+                self.stage = Stage::Detect;
             }
             Action::Update | Action::Uninstall => {
                 self.confirm = Some(Confirm::Handoff(action));
                 self.overlay = Some(Overlay::Confirm);
             }
+        }
+        Flow::Continue
+    }
+
+    /// Read the machine again and forget the acknowledgment that went with the old reading: a
+    /// warning about an install that has since been removed must not keep saying so, and one
+    /// that has since appeared must stop being silent.
+    fn show_detection(&mut self) {
+        self.refresh_detection();
+        self.reinstall_acknowledged = false;
+    }
+
+    // This machine -------------------------------------------------------------------
+
+    fn detect_key(&mut self, key: KeyEvent) -> Flow {
+        match key.code {
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                // A machine the installer cannot install on is said so here rather than after
+                // five screens of questions: the answer is not going to change by asking more.
+                // The reason is already on screen above, so the answer to the key is the fact
+                // that nothing moved.
+                if !self.detection.blockers().is_empty() {
+                    self.problem = Some(
+                        "The installer cannot go on until the above is sorted out.".to_string(),
+                    );
+                    return Flow::Continue;
+                }
+                if self.installed() {
+                    // Carrying on here is the deliberate act: it is the only place the user is
+                    // told that this overwrites what is already there.
+                    self.reinstall_acknowledged = true;
+                }
+                self.problem = None;
+                self.question = 0;
+                self.cursor = 0;
+                self.stage = Stage::Options;
+            }
+            KeyCode::Char('u') if self.installed() => {
+                self.home = Action::ALL
+                    .iter()
+                    .position(|action| *action == Action::Update)
+                    .unwrap_or(self.home);
+                self.action = Action::Update;
+                self.confirm = Some(Confirm::Handoff(Action::Update));
+                self.overlay = Some(Overlay::Confirm);
+            }
+            KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
+            KeyCode::Esc => {
+                // The screen's own message goes with the screen.
+                self.problem = None;
+                self.stage = Stage::Home;
+            }
+            _ => {}
         }
         Flow::Continue
     }
@@ -705,7 +969,8 @@ impl App {
                 self.password.clear();
                 self.problem = None;
                 self.attempts = 0;
-                self.stage = Stage::Home;
+                self.auth = None;
+                self.stage = Stage::Auth;
                 Flow::Continue
             }
             // A chord is not a character of a password. A terminal that sends one for enter,
@@ -783,8 +1048,7 @@ impl App {
         }
     }
 
-    /// The password sudo accepted: publish it for the steps to escalate with, and keep the
-    /// session awake for the work that follows.
+    /// The password sudo accepted: publish it for the steps to escalate with.
     fn accept_password(&mut self) {
         if !self.pretend {
             let exe =
@@ -798,109 +1062,164 @@ impl App {
                     return;
                 }
             }
-            if self.inhibitor.is_none() {
-                self.inhibitor = Some(Inhibitor::acquire());
-            }
         }
         self.password.clear();
         self.attempts = 0;
         self.problem = None;
-        self.stage = Stage::Options;
+        self.begin_install();
+    }
+
+    // Privileges --------------------------------------------------------------------
+
+    /// The route to root, offered only where there is a route to choose. A machine that is
+    /// already authorized has nothing to ask about, so it is not asked.
+    fn need_auth(&mut self) {
+        if !needs_password() {
+            self.begin_install();
+            return;
+        }
+        self.auth = None;
+        self.problem = None;
+        self.cursor = 0;
+        // A gate entered again is asked again from a clean slate: a count left over from the
+        // last visit would report refusals this visit never made.
+        self.attempts = 0;
+        self.stage = Stage::Auth;
+    }
+
+    /// The routes that would actually work here, in the order they are offered.
+    pub fn auth_methods(&self) -> Vec<AuthMethod> {
+        vec![AuthMethod::Password, AuthMethod::External]
+    }
+
+    fn auth_key(&mut self, key: KeyEvent) -> Flow {
+        // Waiting on the user's own terminal: nothing to navigate, only to carry on from.
+        if self.auth == Some(AuthMethod::External) {
+            match key.code {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    if privileges::sudo_cached() {
+                        self.begin_install();
+                    } else {
+                        self.problem =
+                            Some("sudo is still not authorized. Run `sudo -v` first.".to_string());
+                    }
+                }
+                KeyCode::Esc => {
+                    self.auth = None;
+                    self.problem = None;
+                }
+                _ => {}
+            }
+            return Flow::Continue;
+        }
+
+        let methods = self.auth_methods();
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.cursor = if self.cursor == 0 {
+                    methods.len() - 1
+                } else {
+                    self.cursor - 1
+                };
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.cursor = (self.cursor + 1) % methods.len().max(1);
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                let Some(method) = methods.get(self.cursor).copied() else {
+                    return Flow::Continue;
+                };
+                self.auth = Some(method);
+                self.problem = None;
+                match method {
+                    AuthMethod::Password => self.stage = Stage::Privilege,
+                    AuthMethod::External => {}
+                }
+            }
+            KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
+            KeyCode::Esc => self.stage = Stage::Review,
+            _ => {}
+        }
+        Flow::Continue
     }
 
     // Options -----------------------------------------------------------------------
 
     fn options_key(&mut self, key: KeyEvent) -> Flow {
         let entries = self.current_entries();
-        if entries.is_empty() {
-            return Flow::Continue;
-        }
+        let rows = entries.len();
+        // Rows come and go with the answers — a login screen style goes when the login screen is
+        // left alone — so the cursor is pulled back onto the list before it is moved, and entering
+        // and leaving keep working on a question whose rows have all gone.
+        self.cursor = self.cursor.min(rows.saturating_sub(1));
         match key.code {
-            KeyCode::Up | KeyCode::Char('k') => {
+            KeyCode::Up | KeyCode::Char('k') if rows > 0 => {
                 self.cursor = if self.cursor == 0 {
-                    entries.len() - 1
+                    rows - 1
                 } else {
                     self.cursor - 1
                 };
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.cursor = (self.cursor + 1) % entries.len();
+            KeyCode::Down | KeyCode::Char('j') if rows > 0 => {
+                self.cursor = (self.cursor + 1) % rows;
             }
             KeyCode::Char('r') => self.reset_highlighted(),
             KeyCode::Char('R') => self.reset_all(),
             KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
-            KeyCode::Right | KeyCode::Char('l') => {
+            // Changing a value is its own gesture, so enter is free to mean "onward" and never
+            // does two things depending on which row is under the cursor.
+            KeyCode::Char(' ') | KeyCode::Right | KeyCode::Char('l') => {
                 if let Some(entry) = self.selected() {
-                    menu::cycle(entry, &mut self.answers, true);
+                    menu::change(entry, &self.apps, &mut self.answers);
                 }
             }
             KeyCode::Left | KeyCode::Char('h') => {
                 if let Some(entry) = self.selected() {
-                    menu::cycle(entry, &mut self.answers, false);
+                    menu::change(entry, &self.apps, &mut self.answers);
                 }
             }
-            KeyCode::Enter | KeyCode::Char(' ') => return self.choose(),
-            KeyCode::Esc => return self.go_back(),
+            KeyCode::Enter => self.next_question(),
+            KeyCode::Esc => self.previous_question(),
             _ => {}
         }
         Flow::Continue
     }
 
-    pub fn choose(&mut self) -> Flow {
-        let Some(entry) = self.selected() else {
-            return Flow::Continue;
-        };
-        match entry {
-            Entry::Submenu { .. } => {
-                self.menu_path.push(self.cursor);
-                self.cursor = 0;
-            }
-            Entry::Toggle { .. } => {
-                menu::toggle(entry, &mut self.answers);
-            }
-            Entry::Preset { .. } => {
-                let on = menu::preset_on(entry, &self.answers);
-                menu::preset_set(entry, &mut self.answers, !on);
-                self.notice = Some(format!(
-                    "{}: {}",
-                    entry.title(),
-                    if on { "off" } else { "on" }
-                ));
-            }
-            Entry::Choice { .. } => {
-                menu::cycle(entry, &mut self.answers, true);
-            }
-            Entry::Action { .. } if entry.id() == menu::REVIEW => {
-                self.stage = Stage::Review;
-                self.review_scroll = 0;
-            }
-            Entry::Action { .. } => return self.go_back(),
+    /// Onward: the next question, or the review once there is nothing left to ask.
+    pub fn next_question(&mut self) {
+        if self.question + 1 < menu::question_count() {
+            self.question += 1;
+            self.cursor = 0;
+        } else {
+            self.stage = Stage::Review;
+            self.review_scroll = 0;
         }
-        Flow::Continue
+    }
+
+    /// Back one question, and off the start of the wizard it is the detection screen: there is
+    /// no way to walk past the point where the machine was read.
+    pub fn previous_question(&mut self) {
+        if self.question == 0 {
+            self.stage = Stage::Detect;
+        } else {
+            self.question -= 1;
+            self.cursor = 0;
+        }
     }
 
     fn reset_highlighted(&mut self) {
         let Some(entry) = self.selected() else {
             return;
         };
-        if menu::reset(entry, &mut self.answers) {
+        if menu::reset(entry, &self.apps, &mut self.answers, &self.baseline) {
             self.notice = Some(format!("{} reset", entry.title()));
         }
     }
 
+    /// Every row back to what this machine started at, apps and all.
     fn reset_all(&mut self) {
-        self.answers.clear();
-        menu::seed_answers(&menu::ROOT, &mut self.answers);
+        self.answers = self.baseline.clone();
         self.notice = Some("every option is back at its default".to_string());
-    }
-
-    fn go_back(&mut self) -> Flow {
-        if self.menu_path.pop().is_some() {
-            self.cursor = 0;
-        } else {
-            self.stage = Stage::Home;
-        }
-        Flow::Continue
     }
 
     // Review ------------------------------------------------------------------------
@@ -922,8 +1241,17 @@ impl App {
             KeyCode::Home | KeyCode::Char('g') => self.review_scroll = 0,
             KeyCode::End | KeyCode::Char('G') => self.review_scroll = limit,
             KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
-            KeyCode::Enter | KeyCode::Char(' ') => self.begin_install(),
-            KeyCode::Esc => self.stage = Stage::Options,
+            // Nothing is deployed on the strength of the key that walked into the screen: the
+            // confirmation is its own deliberate step, separate from editing the answers.
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                self.confirm = Some(Confirm::Install);
+                self.overlay = Some(Overlay::Confirm);
+            }
+            KeyCode::Esc => {
+                self.question = menu::question_count().saturating_sub(1);
+                self.cursor = 0;
+                self.stage = Stage::Options;
+            }
             _ => {}
         }
         Flow::Continue
@@ -1128,12 +1456,44 @@ impl App {
                 self.handoff = action.handoff();
                 Flow::Done(Outcome::Ok)
             }
+            Confirm::Install => self.confirm_install(),
         }
+    }
+
+    /// The point of no return. The machine is read one last time here, because every question
+    /// about whether it is safe to install was answered minutes ago and the answer to "is
+    /// Caelestia already here" is the one nobody should be surprised by.
+    fn confirm_install(&mut self) -> Flow {
+        self.refresh_detection();
+        if self.detection.installed && !self.reinstall_acknowledged {
+            self.problem = Some(if self.installed_when_started {
+                "Caelestia is already installed on this machine.".to_string()
+            } else {
+                "Caelestia was installed while the wizard was open. Read this screen, then \
+                 continue."
+                    .to_string()
+            });
+            self.stage = Stage::Detect;
+            return Flow::Continue;
+        }
+        if let Some(blocker) = self.detection.blockers().first() {
+            self.problem = Some((*blocker).to_string());
+            self.stage = Stage::Detect;
+            return Flow::Continue;
+        }
+        self.need_auth();
+        Flow::Continue
     }
 
     // The install itself ------------------------------------------------------------
 
     pub fn begin_install(&mut self) {
+        // Keeping the session awake belongs to the install, not to one of the routes into it:
+        // a machine that needed no password, or one authorized in another terminal, must be
+        // held awake just the same.
+        if !self.pretend && self.inhibitor.is_none() {
+            self.inhibitor = Some(Inhibitor::acquire());
+        }
         self.stage = Stage::Run;
         self.statuses = vec![Status::Pending; STEPS.len()];
         self.durations = vec![None; STEPS.len()];
@@ -1314,7 +1674,12 @@ fn needs_password() -> bool {
     !privileges::is_root() && !privileges::sudo_cached()
 }
 
-pub fn run(bundle: PathBuf, log_path: PathBuf, env: Env) -> Session {
+pub fn run(
+    bundle: PathBuf,
+    log_path: PathBuf,
+    env: Env,
+    settings: &[(&'static str, String)],
+) -> Session {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         eprintln!("caelestia-install: the installer needs a terminal to run");
         return Session {
@@ -1334,6 +1699,7 @@ pub fn run(bundle: PathBuf, log_path: PathBuf, env: Env) -> Session {
         }
     };
     let mut app = App::new(bundle, log_path, env);
+    app.apply_settings(settings);
     let outcome = event_loop(&mut terminal, &mut app);
     ratatui::try_restore().ok();
     app.session(outcome)
@@ -1375,7 +1741,10 @@ mod tests {
             PathBuf::from("/tmp/caelestia"),
             PathBuf::from("/tmp/install.log"),
             Env::default(),
-        );
+        )
+        // Which apps a machine has is read from the machine, so the host's own apps would leak
+        // into every assertion. A known set: all of them, so the app rows are on screen.
+        .with_apps(crate::apps::Apps::all());
         // The screens and the page keys agree on a size; the tests have to give them one.
         app.area = Rect::new(0, 0, 100, 30);
         app.pretend = true;
@@ -1388,6 +1757,26 @@ mod tests {
 
     fn char_key(app: &mut App, character: char) -> Flow {
         press(app, KeyCode::Char(character))
+    }
+
+    /// Which question a row lives in, by the row's id.
+    fn question_of(id: &str) -> usize {
+        (0..menu::question_count())
+            .find(|index| menu::items_of(*index).iter().any(|entry| entry.id() == id))
+            .unwrap_or_else(|| panic!("{id} is not in a question"))
+    }
+
+    /// A machine the installer can install on, so a test about the flow is not also a test
+    /// about what happens to be installed on the machine running it.
+    fn installable() -> Detection {
+        Detection {
+            distro: crate::distro::Distro::Arch,
+            kind: crate::install_kind::Kind::Source,
+            installed: false,
+            package_manager: Some("pacman"),
+            quickshell: true,
+            git: true,
+        }
     }
 
     /// Everything the run screen shows, as a state without any of the work.
@@ -1417,12 +1806,373 @@ mod tests {
     }
 
     #[test]
-    fn choosing_install_asks_for_a_password_before_the_options() {
+    fn choosing_install_reports_this_machine_before_anything_else() {
         let mut app = app();
+        app.detection = installable();
         press(&mut app, KeyCode::Enter);
-        // A test process is not root and has no cached sudo, so the password comes first here;
-        // the point is that the wizard never skips the stage it needs.
-        assert!(matches!(app.stage, Stage::Privilege | Stage::Options));
+        assert_eq!(
+            app.stage,
+            Stage::Detect,
+            "what is on the machine is read before anything is decided"
+        );
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.stage, Stage::Options, "and then the questions start");
+        assert_eq!(app.question, 0);
+        assert_eq!(app.cursor, 0);
+    }
+
+    #[test]
+    fn a_machine_that_cannot_be_installed_on_does_not_start_the_questions() {
+        // Answering five screens of questions and then being refused is worse than being told
+        // at the first screen why it will not work.
+        let mut app = app();
+        app.detection = Detection {
+            package_manager: None,
+            ..installable()
+        };
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.stage, Stage::Detect);
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.stage, Stage::Detect, "it stays where the reason is");
+        assert!(
+            app.problem
+                .as_deref()
+                .unwrap_or_default()
+                .contains("cannot go on"),
+            "the answer to the key, in words the blocker above does not already use: {:?}",
+            app.problem
+        );
+
+        // And the way out is still a way out.
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.stage, Stage::Home);
+        assert_eq!(app.problem, None, "the screen's message goes with it");
+    }
+
+    #[test]
+    fn a_bulk_choice_counts_as_the_answers_it_sets_and_not_as_itself() {
+        let mut app = app();
+        app.stage = Stage::Options;
+        app.question = question_of(menu::PRESET_THEME_APPS);
+        app.cursor = 0;
+        assert_eq!(app.changed_answers(), 0);
+
+        // One decision, six answers: the bulk row is a view of them and holds none of its own.
+        char_key(&mut app, ' ');
+        assert_eq!(
+            app.changed_answers(),
+            6,
+            "six apps, not seven options: the row is not an answer"
+        );
+
+        // And undoing it leaves nothing changed.
+        char_key(&mut app, ' ');
+        assert_eq!(app.changed_answers(), 0);
+    }
+
+    #[test]
+    fn every_route_into_the_install_arrives_at_the_same_place() {
+        let mut app = app();
+        app.detection = installable();
+        app.stage = Stage::Privilege;
+        app.password = "hunter2".to_string();
+        press(&mut app, KeyCode::Enter);
+        app.tick();
+        assert!(
+            matches!(app.stage, Stage::Run | Stage::Done),
+            "the password route starts the install like any other, got {:?}",
+            app.stage
+        );
+    }
+
+    #[test]
+    fn an_update_is_not_offered_where_there_is_nothing_to_update() {
+        let mut app = app();
+        app.detection = installable();
+        app.home = 1;
+        assert_eq!(Action::ALL[app.home], Action::Update);
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.stage, Stage::Home, "nothing starts");
+        assert_eq!(app.overlay, None, "and nothing is offered to confirm");
+        assert!(
+            app.notice
+                .as_deref()
+                .unwrap_or_default()
+                .contains("nothing to update"),
+            "{:?}",
+            app.notice
+        );
+
+        // With an install on the machine it is offered, and it confirms before handing over.
+        app.detection.installed = true;
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.overlay, Some(Overlay::Confirm));
+        assert_eq!(app.confirm, Some(Confirm::Handoff(Action::Update)));
+    }
+
+    #[test]
+    fn the_theme_key_works_on_every_screen_but_the_password_one() {
+        // The keymap offers it everywhere, so it does what it says everywhere.
+        for stage in [
+            Stage::Home,
+            Stage::Detect,
+            Stage::Options,
+            Stage::Review,
+            Stage::Auth,
+            Stage::Run,
+            Stage::Done,
+        ] {
+            let mut app = app();
+            app.stage = stage;
+            let before = app.theme.mode;
+            char_key(&mut app, 't');
+            assert_ne!(app.theme.mode, before, "{stage:?} should flip the theme");
+        }
+
+        // Except where a letter is a letter.
+        let mut app = app();
+        app.stage = Stage::Privilege;
+        let before = app.theme.mode;
+        char_key(&mut app, 't');
+        assert_eq!(app.theme.mode, before, "a password may contain a t");
+        assert_eq!(app.password, "t", "and it is typed, not swallowed");
+    }
+
+    #[test]
+    fn the_options_footer_keeps_the_way_on_and_loses_the_resets_first() {
+        // The footer drops whole groups from its end, so its order is the priority: a narrow
+        // terminal must still show how to move on and how to get back.
+        let mut app = app();
+        app.stage = Stage::Options;
+        let footer: Vec<&str> = app.keys().iter().map(|key| key.what).collect();
+        let at = |needle: &str| {
+            footer
+                .iter()
+                .position(|what| *what == needle)
+                .unwrap_or_else(|| panic!("{needle} is missing from {footer:?}"))
+        };
+        assert!(at("next") < at("reset"), "{footer:?}");
+        assert!(at("back") < at("reset"), "{footer:?}");
+        assert_eq!(
+            footer.last(),
+            Some(&"reset all"),
+            "the least important hint is the one a narrow footer drops: {footer:?}"
+        );
+    }
+
+    #[test]
+    fn a_machine_that_already_has_caelestia_says_so_before_it_is_overwritten() {
+        let mut app = app();
+        app.detection = Detection {
+            installed: true,
+            ..installable()
+        };
+        app.detection.installed = true;
+        app.installed_when_started = true;
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.stage, Stage::Detect);
+        assert!(
+            app.detection.installed,
+            "the screen has something to report"
+        );
+        assert!(
+            !app.reinstall_acknowledged,
+            "and nothing has been acknowledged yet"
+        );
+
+        // Carrying on from that screen is the acknowledgment: it is the only place the user is
+        // told, so it is the only place that may grant it.
+        press(&mut app, KeyCode::Enter);
+        assert!(app.reinstall_acknowledged);
+        assert_eq!(app.stage, Stage::Options);
+
+        // And the confirmation now lets it through rather than stopping it again.
+        app.stage = Stage::Review;
+        press(&mut app, KeyCode::Enter);
+        char_key(&mut app, 'y');
+        assert_ne!(app.stage, Stage::Detect);
+    }
+
+    #[test]
+    fn an_install_that_appeared_while_the_wizard_was_open_stops_at_the_confirmation() {
+        // The answers about this machine were taken minutes ago. The one that decides whether
+        // this overwrites something is worth asking again at the point it matters.
+        let mut app = app();
+        app.detection = installable();
+        app.installed_when_started = false;
+        app.stage = Stage::Review;
+        press(&mut app, KeyCode::Enter);
+
+        app.detection.installed = true;
+        char_key(&mut app, 'y');
+
+        assert_eq!(
+            app.stage,
+            Stage::Detect,
+            "the wizard goes back to what it found rather than carrying on"
+        );
+        assert!(
+            app.problem
+                .as_deref()
+                .unwrap_or_default()
+                .contains("while the wizard was open"),
+            "{:?}",
+            app.problem
+        );
+    }
+
+    #[test]
+    fn a_machine_the_installer_cannot_install_on_says_why_and_stops() {
+        let mut app = app();
+        app.detection = Detection {
+            package_manager: None,
+            ..installable()
+        };
+        app.stage = Stage::Review;
+        press(&mut app, KeyCode::Enter);
+        app.reinstall_acknowledged = true;
+
+        char_key(&mut app, 'y');
+        assert_eq!(app.stage, Stage::Detect, "it stops rather than starting");
+        assert!(
+            app.problem
+                .as_deref()
+                .unwrap_or_default()
+                .contains("package manager"),
+            "{:?}",
+            app.problem
+        );
+    }
+
+    #[test]
+    fn the_detection_screen_offers_the_update_route_when_there_is_one() {
+        let mut app = app();
+        app.detection = Detection {
+            installed: true,
+            ..installable()
+        };
+        app.detection.installed = true;
+        app.stage = Stage::Detect;
+
+        char_key(&mut app, 'u');
+        assert_eq!(app.action, Action::Update);
+        assert_eq!(app.overlay, Some(Overlay::Confirm));
+        assert_eq!(app.confirm, Some(Confirm::Handoff(Action::Update)));
+    }
+
+    #[test]
+    fn a_machine_with_nothing_installed_is_not_offered_an_update() {
+        let mut app = app();
+        app.detection = installable();
+        app.stage = Stage::Detect;
+
+        char_key(&mut app, 'u');
+        assert_eq!(
+            app.stage,
+            Stage::Detect,
+            "nothing to update, nothing to offer"
+        );
+        assert_eq!(app.overlay, None);
+    }
+
+    #[test]
+    fn detection_reports_every_precondition_the_install_depends_on() {
+        assert!(installable().blockers().is_empty());
+
+        let no_manager = Detection {
+            package_manager: None,
+            ..installable()
+        };
+        assert_eq!(no_manager.blockers().len(), 1);
+
+        let no_git = Detection {
+            git: false,
+            ..installable()
+        };
+        assert!(
+            no_git
+                .blockers()
+                .iter()
+                .any(|blocker| blocker.contains("git")),
+            "{:?}",
+            no_git.blockers()
+        );
+
+        // git is a source install's precondition and nobody else's: a packaged install that
+        // never touches a checkout must not be stopped for want of it.
+        let packaged_without_git = Detection {
+            git: false,
+            kind: crate::install_kind::Kind::Package,
+            ..installable()
+        };
+        assert!(
+            packaged_without_git.blockers().is_empty(),
+            "a package install does not need git: {:?}",
+            packaged_without_git.blockers()
+        );
+
+        let unknown = Detection {
+            distro: crate::distro::Distro::Unknown,
+            ..installable()
+        };
+        assert_eq!(unknown.blockers().len(), 1);
+    }
+
+    #[test]
+    fn the_password_is_asked_for_last_because_it_is_needed_last() {
+        let mut app = app();
+        app.detection = installable();
+        app.stage = Stage::Review;
+
+        // Enter asks before it acts: nothing starts on the key that arrived at the screen.
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.overlay, Some(Overlay::Confirm));
+        assert_eq!(app.confirm, Some(Confirm::Install));
+        assert_eq!(app.stage, Stage::Review, "and nothing has started yet");
+
+        char_key(&mut app, 'y');
+        // A test process is not root and has no cached sudo, so there is a route to choose. The
+        // wizard offers the choice rather than assuming the password.
+        assert_eq!(app.stage, Stage::Auth);
+        assert_eq!(app.auth, None, "no route is taken until one is picked");
+        assert!(app.auth_methods().contains(&AuthMethod::Password));
+    }
+
+    #[test]
+    fn the_password_screen_is_only_reached_by_picking_the_password_route() {
+        let mut app = app();
+        app.detection = installable();
+        app.stage = Stage::Auth;
+        app.cursor = 0;
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.auth, Some(AuthMethod::Password));
+        assert_eq!(app.stage, Stage::Privilege);
+    }
+
+    #[test]
+    fn the_route_the_user_did_not_pick_still_works_after_they_take_it() {
+        let mut app = app();
+        app.stage = Stage::Auth;
+        app.cursor = 1;
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.auth, Some(AuthMethod::External), "the second route");
+        assert_eq!(app.stage, Stage::Auth, "and it waits there for the user");
+
+        // Nothing is authorized yet, so saying "I have done it" is refused rather than
+        // believed: the wizard checks rather than takes the word for it.
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.stage, Stage::Auth);
+        assert!(
+            app.problem.is_some(),
+            "{}",
+            app.problem.clone().unwrap_or_default()
+        );
+        assert_eq!(app.leaving(), None);
     }
 
     #[test]
@@ -1432,7 +2182,7 @@ mod tests {
             (2, Action::Uninstall, Handoff::Uninstall),
         ] {
             let mut app = app();
-            app.installed = true;
+            app.detection.installed = true;
             app.home = index;
             assert_eq!(Action::ALL[app.home], action);
 
@@ -1456,7 +2206,7 @@ mod tests {
     #[test]
     fn uninstall_is_refused_where_there_is_nothing_installed() {
         let mut app = app();
-        app.installed = false;
+        app.detection.installed = false;
         app.home = 2;
         char_key(&mut app, ' ');
         assert_eq!(app.stage, Stage::Home);
@@ -1467,22 +2217,29 @@ mod tests {
     #[test]
     fn esc_steps_back_rather_than_leaving() {
         let mut app = app();
+        app.stage = Stage::Auth;
+        app.auth = Some(AuthMethod::Password);
         app.stage = Stage::Privilege;
         char_key(&mut app, 'x');
         press(&mut app, KeyCode::Esc);
-        assert_eq!(app.stage, Stage::Home);
+        assert_eq!(app.stage, Stage::Auth, "the gate hands back to the methods");
         assert_eq!(app.password, "", "and it forgets the password");
         assert_eq!(app.leaving(), None);
 
+        // The review is one step behind the answers, and the last question is one step behind
+        // the review.
         app.stage = Stage::Review;
         press(&mut app, KeyCode::Esc);
         assert_eq!(app.stage, Stage::Options);
+        assert_eq!(app.question, menu::question_count() - 1);
 
-        app.menu_path = vec![0];
+        // Back through the questions, and off the front of the wizard.
+        for expected in (0..menu::question_count() - 1).rev() {
+            press(&mut app, KeyCode::Esc);
+            assert_eq!(app.question, expected);
+        }
         press(&mut app, KeyCode::Esc);
-        assert!(app.menu_path.is_empty());
-        assert_eq!(app.stage, Stage::Options);
-
+        assert_eq!(app.stage, Stage::Detect);
         press(&mut app, KeyCode::Esc);
         assert_eq!(app.stage, Stage::Home);
         assert_eq!(app.leaving(), None);
@@ -1491,11 +2248,8 @@ mod tests {
     #[test]
     fn quitting_from_home_is_a_cancel_and_not_an_interruption() {
         let mut app = app();
-        assert_eq!(
-            press(&mut app, KeyCode::Esc),
-            Flow::Done(Outcome::Cancelled)
-        );
-        assert_eq!(char_key(&mut app, 'q'), Flow::Done(Outcome::Cancelled));
+        assert_eq!(press(&mut app, KeyCode::Esc), Flow::Done(Outcome::Canceled));
+        assert_eq!(char_key(&mut app, 'q'), Flow::Done(Outcome::Canceled));
     }
 
     #[test]
@@ -1538,7 +2292,15 @@ mod tests {
         assert_eq!(app.password, "hunter2");
 
         app.tick();
-        assert_eq!(app.stage, Stage::Options);
+        assert!(
+            matches!(app.stage, Stage::Run | Stage::Done),
+            "the password was the last thing asked for, so the work starts, got {:?}",
+            app.stage
+        );
+        assert!(
+            app.statuses.iter().any(|status| *status != Status::Pending),
+            "and the steps are under way"
+        );
         assert_eq!(
             app.password, "",
             "the password leaves the field once it is used"
@@ -1738,17 +2500,22 @@ mod tests {
     fn options_reset_one_row_or_all_of_them() {
         let mut app = app();
         app.stage = Stage::Options;
+        // The bulk row sits at the top of the question it answers.
+        app.question = question_of(menu::PRESET_THEME_APPS);
         app.cursor = 0;
+        assert!(
+            matches!(app.selected(), Some(Entry::Preset { .. })),
+            "the bulk row is the one under the cursor"
+        );
 
-        // The preset turns the app theming on, and the row knows it was changed.
-        press(&mut app, KeyCode::Enter);
+        char_key(&mut app, ' ');
         let preset = app.selected().expect("a row");
-        assert!(menu::is_changed(preset, &app.answers));
+        assert!(app.is_changed(preset));
 
-        // `r` puts that row back.
+        // `r` puts that row back, and a bulk row takes its members with it.
         char_key(&mut app, 'r');
         let preset = app.selected().expect("a row");
-        assert!(!menu::is_changed(preset, &app.answers));
+        assert!(!app.is_changed(preset));
 
         // `R` puts everything back, including a row that was changed by hand.
         app.answers.insert("SKIP_SYSTEM_UPDATE", "true".to_string());
@@ -1756,24 +2523,65 @@ mod tests {
         assert_eq!(
             app.answers.get("SKIP_SYSTEM_UPDATE").map(String::as_str),
             Some("false"),
-            "reset all put the whole tree back"
+            "reset all put every question back"
         );
         assert!(app.notice.is_some());
     }
 
     #[test]
-    fn the_options_tree_walks_in_and_out() {
+    fn a_question_is_answered_then_left_behind() {
         let mut app = app();
         app.stage = Stage::Options;
-        app.cursor = 1;
-        let title = app.current_entries()[1].title();
+        let first = app.selected().map(Entry::id).expect("a row");
+
+        // Enter advances; it does not change the answer under the cursor.
         press(&mut app, KeyCode::Enter);
-        assert_eq!(app.menu_path, vec![1]);
+        assert_eq!(app.question, 1);
         assert_eq!(app.cursor, 0);
-        assert!(app.breadcrumb().contains(title), "{}", app.breadcrumb());
-        press(&mut app, KeyCode::Esc);
-        assert!(app.menu_path.is_empty());
-        assert_eq!(app.stage, Stage::Options);
+        assert!(app.stage == Stage::Options);
+        assert_eq!(
+            app.answers.get(first).map(String::as_str),
+            crate::menu::baseline_of(
+                menu::items_of(0)
+                    .iter()
+                    .find(|entry| entry.id() == first)
+                    .expect("the first row"),
+                &app.answers
+            ),
+            "walking through the questions leaves the answers alone"
+        );
+
+        // The last one leads to the review rather than off the end.
+        for _ in 1..menu::question_count() {
+            press(&mut app, KeyCode::Enter);
+        }
+        assert_eq!(app.stage, Stage::Review);
+    }
+
+    #[test]
+    fn a_change_key_changes_whatever_row_is_under_it() {
+        let mut app = app();
+        app.stage = Stage::Options;
+        app.question = 0;
+        app.cursor = 0;
+        let switch = app.selected().map(Entry::id).expect("a switch");
+
+        char_key(&mut app, ' ');
+        assert_eq!(
+            app.answers.get(switch).map(String::as_str),
+            Some("false"),
+            "a switch flips"
+        );
+        press(&mut app, KeyCode::Right);
+        assert_eq!(app.answers.get(switch).map(String::as_str), Some("true"));
+
+        // And on a select it steps through the options rather than doing nothing.
+        app.question = question_of("DEFAULT_SHELL");
+        app.cursor = 0;
+        let select = app.selected().map(Entry::id).expect("a select");
+        assert_eq!(app.answers.get(select).map(String::as_str), Some("fish"));
+        char_key(&mut app, ' ');
+        assert_eq!(app.answers.get(select).map(String::as_str), Some("zsh"));
     }
 
     #[test]
@@ -1947,6 +2755,95 @@ mod tests {
     }
 
     #[test]
+    fn a_scripted_answer_is_where_the_wizard_starts_rather_than_a_change() {
+        let mut app = app();
+        app.apply_settings(&[
+            ("INSTALL_SDDM", "false".to_string()),
+            ("DEFAULT_SHELL", "zsh".to_string()),
+        ]);
+
+        assert_eq!(
+            app.answers.get("DEFAULT_SHELL").map(String::as_str),
+            Some("zsh")
+        );
+        assert_eq!(
+            app.answers.get("INSTALL_FISH").map(String::as_str),
+            Some("false"),
+            "a scripted shell still decides fish"
+        );
+        assert_eq!(
+            app.changed_answers(),
+            0,
+            "the user has not touched anything"
+        );
+
+        // And what was answered reaches the steps, which is the whole point of answering it.
+        assert!(
+            app.step_environment()
+                .iter()
+                .any(|(key, value)| *key == "DEFAULT_SHELL" && value == "zsh")
+        );
+
+        // Reset goes back to what the script asked for, not to the table's own defaults.
+        app.stage = Stage::Options;
+        char_key(&mut app, ' ');
+        assert!(app.changed_answers() > 0);
+        char_key(&mut app, 'R');
+        assert_eq!(
+            app.answers.get("DEFAULT_SHELL").map(String::as_str),
+            Some("zsh")
+        );
+        assert_eq!(app.changed_answers(), 0);
+    }
+
+    #[test]
+    fn a_question_whose_rows_have_all_gone_can_still_be_left() {
+        // The app rows go when the machine has none of the apps, and the login screen style goes
+        // when the login screen is left alone. Neither leaves the user stuck on a screen.
+        let mut app = app();
+        app.stage = Stage::Options;
+        app.question = question_of(menu::PRESET_THEME_APPS);
+        app.apps = crate::apps::Apps::default();
+        for (id, answer) in crate::apps::Apps::default().answers() {
+            app.answers.insert(id, answer.to_string());
+        }
+
+        assert!(app.current_entries().is_empty());
+        assert!(app.selected().is_none());
+
+        // A key that would change a row does nothing rather than panicking.
+        char_key(&mut app, ' ');
+        char_key(&mut app, 'j');
+        assert_eq!(app.cursor, 0);
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.question, 3, "onward still works");
+        assert_eq!(app.stage, Stage::Options);
+
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.question, 2, "and back does too");
+    }
+
+    #[test]
+    fn leaving_a_question_hides_a_row_without_moving_the_cursor_off_its_neighbour() {
+        let mut app = app();
+        app.stage = Stage::Options;
+        app.question = question_of("INSTALL_SDDM");
+        app.cursor = 0;
+        let rows = app.current_entries().len();
+
+        // Turning the login screen off takes the style under it with it.
+        char_key(&mut app, ' ');
+        assert_eq!(app.current_entries().len(), rows - 1);
+        assert_eq!(
+            app.selected().map(Entry::id),
+            Some("INSTALL_SDDM"),
+            "the cursor is still on the row that was changed"
+        );
+        assert!(app.cursor < app.current_entries().len());
+    }
+
+    #[test]
     fn the_header_says_which_action_is_running_and_where() {
         let mut app = app();
         assert_eq!(app.header().left, "installer");
@@ -1954,6 +2851,11 @@ mod tests {
         app.action = Action::Install;
         assert_eq!(app.header().left, "install");
         assert!(app.header().right.contains("install"));
-        assert!(!app.distro.is_empty());
+        assert!(!app.detection.distro_label().is_empty());
+        assert!(
+            app.header().right.contains(app.detection.distro_label()),
+            "the header reports the machine that was read: {}",
+            app.header().right
+        );
     }
 }

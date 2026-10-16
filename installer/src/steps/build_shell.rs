@@ -400,13 +400,13 @@ impl Toolchain {
             })
             .unwrap_or_default();
         let qt = process::capture("pkg-config", &["--modversion", "Qt6Core"])
-            .map(|version| normalise_version(&version))
+            .map(|version| normalize_version(&version))
             .unwrap_or_default();
 
         format!(
             "bundle:{} cmake:{} qt6core:{} gen:{} cava:{}\n",
             self.bundle.display(),
-            normalise_version(&cmake),
+            normalize_version(&cmake),
             qt,
             self.generator,
             toolchain::cava_state()
@@ -416,7 +416,7 @@ impl Toolchain {
 
 // `1.2.3` and `1.2.4` are the same toolchain as far as a rebuild is concerned: the stamp is
 // about whether the generator and the headers changed.
-fn normalise_version(text: &str) -> String {
+fn normalize_version(text: &str) -> String {
     let mut parts = text.trim().split('.');
     match (parts.next(), parts.next()) {
         (Some(major), Some(minor)) => format!("{major}.{minor}"),
@@ -662,7 +662,7 @@ fn checkout_may_use_prebuilt(bundle: &Path) -> bool {
 
 fn shell_qt_abi() -> Option<String> {
     process::capture("pkg-config", &["--modversion", "Qt6Core"])
-        .map(|version| normalise_version(&version))
+        .map(|version| normalize_version(&version))
         .filter(|version| !version.is_empty())
 }
 
@@ -1559,13 +1559,13 @@ mod tests {
 
     #[test]
     fn a_toolchain_is_the_same_across_a_patch_release() {
-        assert_eq!(normalise_version("3.28.3"), "3.28");
+        assert_eq!(normalize_version("3.28.3"), "3.28");
         assert_eq!(
-            normalise_version("cmake version 3.28.1"),
+            normalize_version("cmake version 3.28.1"),
             "cmake version 3.28"
         );
-        assert_eq!(normalise_version("6"), "6");
-        assert_eq!(normalise_version(""), "");
+        assert_eq!(normalize_version("6"), "6");
+        assert_eq!(normalize_version(""), "");
     }
 
     #[test]

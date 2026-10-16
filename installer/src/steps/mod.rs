@@ -344,10 +344,12 @@ fn answer_is_true(answers: &Answers, name: &str) -> bool {
 }
 
 pub fn is_skipped(step: &Step, answers: &Answers) -> bool {
-    match step.name {
-        "Update system" => answer_is_true(answers, "SKIP_SYSTEM_UPDATE"),
-        "Install SDDM theme" => !answer_is_true(answers, "INSTALL_SDDM"),
-        "Install optional components" => !OPTIONAL_APP_ANSWERS
+    // Keyed on the id, which is what every other part identifies a step by. The name is prose
+    // shown to a person, and a policy keyed on prose stops applying the day somebody rewords it.
+    match step.id {
+        "00a-system-update" => answer_is_true(answers, "SKIP_SYSTEM_UPDATE"),
+        "05-sddm-theme" => !answer_is_true(answers, "INSTALL_SDDM"),
+        "11-optional-apps" => !OPTIONAL_APP_ANSWERS
             .iter()
             .any(|answer| answer_is_true(answers, answer)),
         _ => false,
@@ -373,6 +375,51 @@ mod tests {
         let count = ids.len();
         ids.dedup();
         assert_eq!(ids.len(), count, "duplicate step ids");
+    }
+
+    #[test]
+    fn every_step_the_policy_names_really_exists() {
+        // The skip policy names steps by id. An id that matches nothing is a rule that silently
+        // never applies, which is how a reviewed-out step ends up running anyway.
+        let named = ["00a-system-update", "05-sddm-theme", "11-optional-apps"];
+        for id in named {
+            assert!(
+                STEPS.iter().any(|step| step.id == id),
+                "the skip policy names {id}, which is not a step"
+            );
+        }
+
+        // And the two that can be switched off are switched off by their own answers.
+        let off = answers(&[("SKIP_SYSTEM_UPDATE", "true"), ("INSTALL_SDDM", "false")]);
+        let skipped: Vec<&str> = STEPS
+            .iter()
+            .filter(|step| is_skipped(step, &off))
+            .map(|step| step.id)
+            .collect();
+        assert!(skipped.contains(&"00a-system-update"), "{skipped:?}");
+        assert!(skipped.contains(&"05-sddm-theme"), "{skipped:?}");
+        assert!(
+            skipped.contains(&"11-optional-apps"),
+            "no optional app is on, so that step has nothing to do: {skipped:?}"
+        );
+
+        // With everything on, nothing is skipped for being switched off.
+        let on = answers(&[
+            ("SKIP_SYSTEM_UPDATE", "false"),
+            ("INSTALL_SDDM", "true"),
+            ("INSTALL_VSCODE", "false"),
+            ("INSTALL_ZED", "false"),
+            ("INSTALL_SPICETIFY", "false"),
+            ("INSTALL_DISCORD", "false"),
+            ("INSTALL_TODOIST", "false"),
+            ("INSTALL_FIREFOX_THEME", "false"),
+        ]);
+        let skipped: Vec<&str> = STEPS
+            .iter()
+            .filter(|step| is_skipped(step, &on))
+            .map(|step| step.id)
+            .collect();
+        assert_eq!(skipped, vec!["11-optional-apps"], "{skipped:?}");
     }
 
     #[test]

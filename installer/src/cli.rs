@@ -15,6 +15,9 @@ pub struct Args {
     pub debug: bool,
     /// How the TUI should draw itself, when the environment did not say.
     pub look: Look,
+    /// The answers the caller gave instead of walking the wizard, in the order they were given.
+    /// What a script that used to set an environment variable per flag does now.
+    pub set: Vec<(&'static str, String)>,
 }
 
 /// The overrides a caller can hand the wizard. Anything left alone is decided by the terminal.
@@ -52,6 +55,7 @@ where
         action: PresetAction::Wizard,
         debug: false,
         look: Look::default(),
+        set: Vec::new(),
     };
     let mut seen_preset: Option<&'static str> = None;
     let mut args = collected.into_iter();
@@ -68,6 +72,11 @@ where
                 parsed.look.theme = Some(mode);
             }
             Some("--no-animation") | Some("--still") => parsed.look.no_animation = true,
+            Some("--set") => {
+                let setting = args.next().ok_or("--set needs ID=value")?;
+                let setting = setting.to_str().ok_or("--set reads text, not bytes")?;
+                parsed.set.push(crate::menu::parse_set(setting)?);
+            }
             Some("--askpass") => {
                 let pipe = args.next().ok_or("--askpass needs the pipe to read")?;
                 return Ok(Invocation::Askpass(PathBuf::from(pipe)));
@@ -91,6 +100,9 @@ where
             Some(text) if text.starts_with('-') && text != "-" => {
                 return Err(format!("unknown option: {text}"));
             }
+            // The last bare argument wins, which is what this has always done and what
+            // `the_last_bare_argument_wins` holds it to. It is worth knowing that a stray second
+            // path is taken silently rather than refused the way `step` refuses a second id.
             _ => parsed.bundle = Some(PathBuf::from(arg)),
         }
     }
@@ -228,6 +240,49 @@ mod tests {
     fn an_unknown_option_is_refused_rather_than_taken_for_a_bundle() {
         let error = parse_args(&["--bogus"]).unwrap_err();
         assert!(error.contains("--bogus"), "{error}");
+    }
+
+    #[test]
+    fn set_answers_an_option_without_walking_the_wizard() {
+        let parsed = run(&[
+            "--set",
+            "INSTALL_SDDM=false",
+            "--set",
+            "DEFAULT_SHELL=zsh",
+            "--set",
+            "INSTALL_SDDM=true",
+        ]);
+        assert_eq!(
+            parsed.set,
+            vec![
+                ("INSTALL_SDDM", "false".to_string()),
+                ("DEFAULT_SHELL", "zsh".to_string()),
+                ("INSTALL_SDDM", "true".to_string()),
+            ],
+            "in the order they were given, so the last one wins"
+        );
+    }
+
+    #[test]
+    fn a_set_that_names_no_option_or_no_value_is_refused() {
+        assert!(parse_args(&["--set"]).unwrap_err().contains("ID=value"));
+        assert!(
+            parse_args(&["--set", "INSTALL_SDDM"])
+                .unwrap_err()
+                .contains("ID=value")
+        );
+
+        let unknown = parse_args(&["--set", "INSTALL_WIDGET=true"]).unwrap_err();
+        assert!(unknown.contains("INSTALL_WIDGET"), "{unknown}");
+
+        let wrong = parse_args(&["--set", "INSTALL_SDDM=yes"]).unwrap_err();
+        assert!(wrong.contains("true or false"), "{wrong}");
+
+        let impossible = parse_args(&["--set", "DEFAULT_SHELL=tcsh"]).unwrap_err();
+        assert!(impossible.contains("fish"), "{impossible}");
+
+        let bulk = parse_args(&["--set", "preset_theme_apps=true"]).unwrap_err();
+        assert!(bulk.contains("no value of its own"), "{bulk}");
     }
 
     #[test]

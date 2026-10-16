@@ -296,7 +296,7 @@ impl Uninstaller {
 
         println!();
         if !asked("Are you sure you want to uninstall Caelestia?") {
-            return Err("Uninstall cancelled.".into());
+            return Err("Uninstall canceled.".into());
         }
 
         println!();
@@ -409,7 +409,7 @@ impl Uninstaller {
                 println!("   Restoring this backup will NOT revert to a clean KDE desktop!");
                 println!("    Instead, it will restore a previous Caelestia state.");
                 if !asked("Are you sure you want to restore this backup?") {
-                    println!("  Backup selection cancelled. Please select again.");
+                    println!("  Backup selection canceled. Please select again.");
                     continue;
                 }
             }
@@ -1439,7 +1439,7 @@ impl Uninstaller {
             let schemes = home.join(".local/share/color-schemes");
             if schemes.is_dir() {
                 remove_by_prefix(&schemes, "Matugen");
-                output::ok("Removed the login screen's copies of the colour schemes");
+                output::ok("Removed the login screen's copies of the color schemes");
             }
         }
     }
