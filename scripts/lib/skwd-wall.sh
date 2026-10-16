@@ -85,6 +85,7 @@ install_skwd_wall_source() {
 
     if [[ "$built" == "true" ]] || skwd_wall_binary_present; then
         enable_skwd_walld_service
+        apply_skwd_wall_config
         ok "skwd-wall built and installed successfully from source."
         return 0
     fi
@@ -107,6 +108,7 @@ install_skwd_wall_arch() {
            "$aur_helper" -S --needed --noconfirm skwd-wall-v2-bin skwd-paper-plasma 2>/dev/null; then
             enable_skwd_walld_service
             if skwd_wall_present; then
+                apply_skwd_wall_config
                 ok "skwd-wall installed successfully via AUR (prebuilt)."
                 return 0
             fi
@@ -118,6 +120,7 @@ install_skwd_wall_arch() {
            "$aur_helper" -S --needed --noconfirm skwd-wall-v2 skwd-paper-plasma 2>/dev/null; then
             enable_skwd_walld_service
             if skwd_wall_present; then
+                apply_skwd_wall_config
                 ok "skwd-wall installed successfully via AUR (source build)."
                 return 0
             fi
@@ -128,6 +131,7 @@ install_skwd_wall_arch() {
         enable_skwd_walld_service
         install_skwd_paper_plasma_source || true
         if skwd_wall_present; then
+            apply_skwd_wall_config
             ok "skwd-wall installed successfully via pacman."
             return 0
         fi
@@ -150,6 +154,7 @@ install_skwd_wall_fedora() {
             if caelestia_sudo rpm-ostree install --apply-live -y skwd-wall-v2 skwd-deck skwd-paper skwd-lens skwd-lens-model skwd-paper-plasma 2>/dev/null || \
                caelestia_sudo rpm-ostree install -y skwd-wall-v2 skwd-paper-plasma 2>/dev/null; then
                 enable_skwd_walld_service
+                apply_skwd_wall_config
                 ok "skwd-wall installed successfully via rpm-ostree."
                 return 0
             fi
@@ -161,6 +166,7 @@ install_skwd_wall_fedora() {
            (caelestia_sudo dnf install -y skwd-wall-v2 2>/dev/null && caelestia_sudo dnf install -y skwd-paper-plasma 2>/dev/null); then
             enable_skwd_walld_service
             if skwd_wall_present; then
+                apply_skwd_wall_config
                 ok "skwd-wall is installed via dnf (piixini/skwd-wall-v2)."
                 return 0
             fi
@@ -186,32 +192,50 @@ install_skwd_wall_debian() {
     return 1
 }
 
+apply_skwd_wall_config() {
+    local repo_root="${BUNDLE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+    local export_script="$repo_root/shell/scripts/export-plasma-config.sh"
+    if [[ -x "$export_script" ]]; then
+        info "Applying skwd-wall configuration..."
+        "$export_script" skwd 2>/dev/null || true
+    fi
+}
+
 ensure_skwd_wall() {
     if skwd_wall_present; then
         enable_skwd_walld_service
+        apply_skwd_wall_config
         ok "skwd-wall (picker + Plasma integration + daemon) is installed."
         return 0
     fi
 
+    local status=1
     case "${BASE_DISTRO:-unknown}" in
         fedora)
-            install_skwd_wall_fedora
+            install_skwd_wall_fedora && status=0
             ;;
         arch)
-            install_skwd_wall_arch
+            install_skwd_wall_arch && status=0
             ;;
         debian)
-            install_skwd_wall_debian
+            install_skwd_wall_debian && status=0
             ;;
         *)
             if install_skwd_wall_arch || install_skwd_wall_fedora || install_skwd_wall_debian; then
-                return 0
+                status=0
             fi
-            warn "skwd-wall is not installed."
-            record_failed_package "skwd-wall" 2>/dev/null || true
-            return 1
             ;;
     esac
+
+    if [[ "$status" -eq 0 ]] && skwd_wall_present; then
+        enable_skwd_walld_service
+        apply_skwd_wall_config
+        return 0
+    fi
+
+    warn "skwd-wall is not installed."
+    record_failed_package "skwd-wall" 2>/dev/null || true
+    return 1
 }
 
 fi

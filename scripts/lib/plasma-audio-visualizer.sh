@@ -117,6 +117,7 @@ install_plasma_audio_visualizer_source() {
     ensure_plasma_audio_visualizer_permissions
 
     if [[ "$plasmoid_ok" == "true" && "$plugin_ok" == "true" ]] || plasma_audio_visualizer_present; then
+        apply_plasma_audio_visualizer_config
         ok "plasma-audio-visualizer (plasmoid + C++ plugin) built and installed successfully."
         return 0
     fi
@@ -131,6 +132,7 @@ install_plasma_audio_visualizer_arch() {
         if yay -S --needed --noconfirm plasma6-applets-audio-visualizer 2>/dev/null; then
             ensure_plasma_audio_visualizer_permissions
             if plasma_audio_visualizer_present; then
+                apply_plasma_audio_visualizer_config
                 ok "plasma-audio-visualizer installed successfully via AUR."
                 return 0
             fi
@@ -157,6 +159,7 @@ install_plasma_audio_visualizer_fedora() {
             if caelestia_sudo dnf install -y plasma-audio-visualizer 2>/dev/null; then
                 ensure_plasma_audio_visualizer_permissions
                 if plasma_audio_visualizer_present; then
+                    apply_plasma_audio_visualizer_config
                     ok "plasma-audio-visualizer installed successfully via dnf (OBS)."
                     return 0
                 fi
@@ -177,32 +180,50 @@ install_plasma_audio_visualizer_debian() {
     install_plasma_audio_visualizer_source
 }
 
+apply_plasma_audio_visualizer_config() {
+    local repo_root="${BUNDLE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+    local export_script="$repo_root/shell/scripts/export-plasma-config.sh"
+    if [[ -x "$export_script" ]]; then
+        info "Applying plasma-audio-visualizer configuration..."
+        "$export_script" visualizer 2>/dev/null || true
+    fi
+}
+
 ensure_plasma_audio_visualizer() {
     if plasma_audio_visualizer_present; then
         ensure_plasma_audio_visualizer_permissions
+        apply_plasma_audio_visualizer_config
         ok "plasma-audio-visualizer (plasmoid + C++ plugin) is installed."
         return 0
     fi
 
+    local status=1
     case "${BASE_DISTRO:-unknown}" in
         fedora)
-            install_plasma_audio_visualizer_fedora
+            install_plasma_audio_visualizer_fedora && status=0
             ;;
         arch)
-            install_plasma_audio_visualizer_arch
+            install_plasma_audio_visualizer_arch && status=0
             ;;
         debian)
-            install_plasma_audio_visualizer_debian
+            install_plasma_audio_visualizer_debian && status=0
             ;;
         *)
             if install_plasma_audio_visualizer_arch || install_plasma_audio_visualizer_fedora || install_plasma_audio_visualizer_debian; then
-                return 0
+                status=0
             fi
-            warn "plasma-audio-visualizer is not installed."
-            record_failed_package "plasma-audio-visualizer" 2>/dev/null || true
-            return 1
             ;;
     esac
+
+    if [[ "$status" -eq 0 ]] && plasma_audio_visualizer_present; then
+        ensure_plasma_audio_visualizer_permissions
+        apply_plasma_audio_visualizer_config
+        return 0
+    fi
+
+    warn "plasma-audio-visualizer is not installed."
+    record_failed_package "plasma-audio-visualizer" 2>/dev/null || true
+    return 1
 }
 
 fi

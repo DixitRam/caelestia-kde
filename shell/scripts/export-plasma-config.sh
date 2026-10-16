@@ -3,7 +3,7 @@
 # Usage: export-plasma-config.sh [skwd|visualizer|all]
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCEd:-${BASH_SOURCE[0]}}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/plasma-config"
 USER_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 
@@ -22,14 +22,8 @@ Targets:
 EOF
 }
 
-export_skwd() {
-    echo "Exporting skwd-wall-v2 configuration..."
-    mkdir -p "$USER_CONFIG_DIR/skwd-wall-v2"
-    cp "$CONFIG_DIR/skwd-wall-v2/config.json" "$USER_CONFIG_DIR/skwd-wall-v2/config.json"
-    echo "✓ skwd-wall-v2 config exported to $USER_CONFIG_DIR/skwd-wall-v2/config.json"
-
-    # Re-apply current wallpaper so skwd-paper-plasma never goes dark
-    if command -v skwd-helm >/dev/null 2>&1; then
+apply_skwd_wallpaper() {
+    if [[ -z "${CAELESTIA_TEST_MODE:-}" && "$USER_CONFIG_DIR" != "/tmp/"* ]] && command -v skwd-helm >/dev/null 2>&1; then
         local curr_wall
         curr_wall="$(skwd-helm current 2>/dev/null | cut -f2- || true)"
         if [[ -z "$curr_wall" ]]; then
@@ -42,6 +36,13 @@ export_skwd() {
             skwd-helm apply "$curr_wall" >/dev/null 2>&1 || true
         fi
     fi
+}
+
+export_skwd() {
+    echo "Exporting skwd-wall-v2 configuration..."
+    mkdir -p "$USER_CONFIG_DIR/skwd-wall-v2"
+    cp "$CONFIG_DIR/skwd-wall-v2/config.json" "$USER_CONFIG_DIR/skwd-wall-v2/config.json"
+    echo "✓ skwd-wall-v2 config exported to $USER_CONFIG_DIR/skwd-wall-v2/config.json"
 }
 
 export_visualizer() {
@@ -137,32 +138,9 @@ for appletsrc in candidate_files:
     print(f"✓ Synced 2 visualizer widgets in {os.path.basename(appletsrc)} (kept: {keep_ids}, removed extras: {remove_ids})")
 EOF
 
-    if command -v qdbus6 >/dev/null 2>&1; then
+    if [[ -z "${CAELESTIA_TEST_MODE:-}" && "$USER_CONFIG_DIR" != "/tmp/"* ]] && command -v qdbus6 >/dev/null 2>&1; then
         qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
-        qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "
-            var ds = desktops();
-            for (var i = 0; i < ds.length; i++) {
-                var d = ds[i];
-                var ws = d.widgets();
-                var viz = [];
-                for (var j = 0; j < ws.length; j++) {
-                    if (ws[j].type === 'luisbocanegra.audio.visualizer') {
-                        viz.push(ws[j]);
-                    }
-                }
-                while (viz.length > 2) {
-                    viz.pop().remove();
-                }
-                while (viz.length < 2) {
-                    var w = d.addWidget('luisbocanegra.audio.visualizer');
-                    if (w) viz.push(w);
-                    else break;
-                }
-                for (var k = 0; k < viz.length; k++) {
-                    viz[k].reloadConfig();
-                }
-            }
-        " 2>/dev/null || true
+        qdbus6 org.kde.plasmashell /PlasmaShell refreshCurrentShell 2>/dev/null || true
     fi
 }
 
@@ -206,3 +184,6 @@ fi
 if [[ "$DO_VISUALIZER" == true ]]; then
     export_visualizer
 fi
+
+sleep 2
+apply_skwd_wallpaper
