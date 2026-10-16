@@ -40,15 +40,6 @@ PageBase {
         ]);
     }
 
-    function openVisualizerConfig() {
-        Quickshell.execDetached([
-            "bash",
-            Quickshell.shellPath("scripts/export-plasma-config.sh"),
-            "visualizer",
-            "configure"
-        ]);
-    }
-
     isSubPage: true
     title: qsTr("Desktop Addons")
 
@@ -163,16 +154,15 @@ PageBase {
                 }
             }
 
-            RowButton {
+            InfoRow {
                 last: true
                 Layout.fillWidth: true
                 Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
                 visible: Config.background.visualiser.enabled
-                icon: "tune"
-                text: qsTr("Configure Visualizer")
-                subtext: qsTr("Opens plasma menu for Configure Plasma Audio Visualizer")
-                trailingIcon: "chevron_right"
-                onClicked: root.openVisualizerConfig()
+                icon: "info"
+                wrapSubtext: true
+                label: qsTr("Configure Visualizer")
+                subtext: qsTr("Right click on desktop -> Edit Mode -> Right click visualizer -> Configure")
             }
         }
     }
