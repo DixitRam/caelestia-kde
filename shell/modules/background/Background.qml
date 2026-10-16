@@ -82,13 +82,6 @@ Variants {
                     screen: win.modelData
                 }
             }
-            Visualiser {
-                anchors.fill: parent
-                screen: win.modelData
-                wallpaper: wallpaper
-                z: 2
-                visible: !Config.background.disableQuickshellDesktop
-            }
         }
         DesktopIcons {
             id: desktopIcons

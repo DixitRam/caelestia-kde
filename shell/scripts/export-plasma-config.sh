@@ -7,14 +7,15 @@ USER_CONFIG_DIR="${USER_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}}"
 
 show_help() {
     cat << EOF
-Usage: $(basename "$0") [TARGET...]
+Usage: $(basename "$0") [TARGET [ACTION]]
 
-Exports and overwrites Plasma configurations to user locations.
+Exports, configures, or removes Plasma configurations and widgets.
 If no target is specified, all configurations are exported.
 
 Targets:
   skwd, skwd-wall, wall       Export skwd-wall-v2 config
-  visualizer, audio           Export and sync plasma-audio-visualizer widgets
+  visualizer [enable|disable|configure]
+                              Manage plasma-audio-visualizer widgets
   all                         Export all configs (default)
   -h, --help                  Show this help message
 EOF
@@ -236,6 +237,42 @@ plasma_reconfigure() {
     fi
 }
 
+remove_kde_applets_live() {
+    local plugin_id="$1"
+    if [[ -z "${CAELESTIA_TEST_MODE:-}" && "$USER_CONFIG_DIR" != "/tmp/"* ]] && command -v qdbus6 >/dev/null 2>&1; then
+        qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "
+for (var i = 0; i < desktops().length; i++) {
+    var ws = desktops()[i].widgets();
+    for (var j = 0; j < ws.length; j++) {
+        if (ws[j].type === '${plugin_id}') {
+            ws[j].remove();
+        }
+    }
+}
+" >/dev/null 2>&1 || true
+    fi
+}
+
+open_kde_applet_config() {
+    local plugin_id="$1"
+    if [[ -z "${CAELESTIA_TEST_MODE:-}" && "$USER_CONFIG_DIR" != "/tmp/"* ]] && command -v qdbus6 >/dev/null 2>&1; then
+        qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "
+var found = false;
+for (var i = 0; i < desktops().length; i++) {
+    var ws = desktops()[i].widgets();
+    for (var j = 0; j < ws.length; j++) {
+        if (ws[j].type === '${plugin_id}') {
+            ws[j].showConfigurationInterface();
+            found = true;
+            break;
+        }
+    }
+    if (found) break;
+}
+" >/dev/null 2>&1 || true
+    fi
+}
+
 export_visualizer() {
     echo "Exporting and syncing plasma-audio-visualizer widgets..."
     local sync_output
@@ -257,31 +294,102 @@ export_visualizer() {
     fi
 }
 
+disable_visualizer() {
+    echo "Disabling and removing plasma-audio-visualizer widgets..."
+    remove_kde_applets_live "luisbocanegra.audio.visualizer"
+    sync_kde_applets \
+        "$CONFIG_DIR/plasma-audio-visualizer.conf" \
+        "$USER_CONFIG_DIR" \
+        "luisbocanegra.audio.visualizer" \
+        "0" \
+        "plasma-audio-visualizer" | grep -v "^NEEDS_SECOND_RECONFIGURE$"
+    plasma_reconfigure
+}
+
+configure_visualizer() {
+    echo "Opening configuration for plasma-audio-visualizer..."
+    # Ensure visualizer is present first
+    local count="0"
+    if command -v qdbus6 >/dev/null 2>&1; then
+        count="$(qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "
+var c = 0;
+for (var i = 0; i < desktops().length; i++) {
+    var ws = desktops()[i].widgets();
+    for (var j = 0; j < ws.length; j++) {
+        if (ws[j].type === 'luisbocanegra.audio.visualizer') c++;
+    }
+}
+print(c);
+" 2>/dev/null || echo "0")"
+    fi
+
+    if [[ "$count" -eq 0 ]]; then
+        export_visualizer
+        sleep 1
+    fi
+    open_kde_applet_config "luisbocanegra.audio.visualizer"
+}
+
 DO_SKWD=false
-DO_VISUALIZER=false
+VISUALIZER_ACTION=""
 
 if [[ $# -eq 0 ]]; then
     DO_SKWD=true
-    DO_VISUALIZER=true
+    VISUALIZER_ACTION="enable"
 else
-    for arg in "$@"; do
-        case "$arg" in
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
             skwd|skwd-wall|wall|wallpaper|--skwd|--skwd-wall)
                 DO_SKWD=true
+                shift
                 ;;
             visualizer|audio|audio-visualizer|plasma-audio-visualizer|--visualizer|--audio)
-                DO_VISUALIZER=true
+                shift
+                if [[ $# -gt 0 ]]; then
+                    case "$1" in
+                        enable|on|sync)
+                            VISUALIZER_ACTION="enable"
+                            shift
+                            ;;
+                        disable|off|remove)
+                            VISUALIZER_ACTION="disable"
+                            shift
+                            ;;
+                        configure|config|menu)
+                            VISUALIZER_ACTION="configure"
+                            shift
+                            ;;
+                        *)
+                            VISUALIZER_ACTION="enable"
+                            ;;
+                    esac
+                else
+                    VISUALIZER_ACTION="enable"
+                fi
+                ;;
+            enable-visualizer|--enable-visualizer)
+                VISUALIZER_ACTION="enable"
+                shift
+                ;;
+            disable-visualizer|--disable-visualizer)
+                VISUALIZER_ACTION="disable"
+                shift
+                ;;
+            configure-visualizer|--configure-visualizer)
+                VISUALIZER_ACTION="configure"
+                shift
                 ;;
             all|--all)
                 DO_SKWD=true
-                DO_VISUALIZER=true
+                VISUALIZER_ACTION="enable"
+                shift
                 ;;
             -h|--help|help)
                 show_help
                 exit 0
                 ;;
             *)
-                echo "Unknown target: $arg" >&2
+                echo "Unknown argument: $1" >&2
                 show_help >&2
                 exit 1
                 ;;
@@ -293,9 +401,17 @@ if [[ "$DO_SKWD" == true ]]; then
     export_skwd
 fi
 
-if [[ "$DO_VISUALIZER" == true ]]; then
-    export_visualizer
-fi
+case "$VISUALIZER_ACTION" in
+    enable)
+        export_visualizer
+        ;;
+    disable)
+        disable_visualizer
+        ;;
+    configure)
+        configure_visualizer
+        ;;
+esac
 
 if [[ "$DO_SKWD" == true ]]; then
     sleep 2
