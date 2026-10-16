@@ -54,6 +54,14 @@ conf_path, config_dir, plugin_id, count_str, label = \
     sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 count = int(count_str)
 
+custom_geoms = {}
+if len(sys.argv) >= 14 and sys.argv[6]:
+    try:
+        custom_geoms[1] = f"{sys.argv[6]},{sys.argv[7]},{sys.argv[8]},{sys.argv[9]},0"
+        custom_geoms[2] = f"{sys.argv[10]},{sys.argv[11]},{sys.argv[12]},{sys.argv[13]},0"
+    except Exception:
+        pass
+
 with open(conf_path) as f:
     conf = f.read()
 
@@ -64,7 +72,7 @@ for block in re.split(r"(?m)(?=^\[Applet_\d+\]$)", conf):
         continue
     idx = int(m.group(1))
     geom_m = re.search(r"^geometry=(.*)$", block, re.M)
-    geom = geom_m.group(1).strip() if geom_m else ""
+    geom = geom_m.group(1).strip() if geom_m else custom_geoms.get(idx, "")
     cleaned = re.sub(r"^geometry=.*\n?", "", block, flags=re.M).strip()
     templates[idx] = {"geom": geom, "block": cleaned}
 
@@ -257,14 +265,45 @@ add_kde_applets_live() {
     local conf_path="$1"
     local plugin_id="$2"
     local count="$3"
+    shift 3
 
     if [[ -z "${CAELESTIA_TEST_MODE:-}" && "$USER_CONFIG_DIR" != "/tmp/"* ]] && command -v qdbus6 >/dev/null 2>&1; then
-        python3 - "$conf_path" "$plugin_id" "$count" << 'PYEOF'
-import json, re, subprocess, sys
+        python3 - "$conf_path" "$plugin_id" "$count" "$@" << 'PYEOF'
+import json, re, subprocess, sys, time
 
 conf_path = sys.argv[1]
 plugin_id = sys.argv[2]
 count = int(sys.argv[3])
+
+custom_geoms = []
+if len(sys.argv) >= 12 and sys.argv[4]:
+    try:
+        custom_geoms = [
+            (float(sys.argv[4]), float(sys.argv[5]), float(sys.argv[6]), float(sys.argv[7])),
+            (float(sys.argv[8]), float(sys.argv[9]), float(sys.argv[10]), float(sys.argv[11]))
+        ]
+    except Exception:
+        custom_geoms = []
+
+if not custom_geoms:
+    sw, sh = 1920.0, 1080.0
+    try:
+        import shutil
+        if shutil.which("kscreen-doctor"):
+            out = subprocess.check_output(["kscreen-doctor", "-o"], text=True)
+            m = re.search(r"Geometry:\s*\d+,\d+\s+(\d+)x(\d+)", out)
+            if m:
+                sw, sh = float(m.group(1)), float(m.group(2))
+    except Exception:
+        pass
+    center_gap = round(sw * (224.0 / 1920.0))
+    vis_w = (sw - center_gap) / 2.0
+    vis_h = round((sh - 56.0) * 0.40)
+    vis_y = sh - vis_h - 8.0
+    custom_geoms = [
+        (0.0, vis_y, vis_w, vis_h),
+        (sw - vis_w, vis_y, vis_w, vis_h)
+    ]
 
 with open(conf_path, "r") as f:
     text = f.read()
@@ -272,8 +311,13 @@ with open(conf_path, "r") as f:
 applets_data = []
 for idx in range(1, count + 1):
     geom_m = re.search(rf"^\[Applet_{idx}\].*?^geometry=([^\n]+)", text, re.S | re.M)
-    geom_parts = geom_m.group(1).split(",") if geom_m else ["0", "0", "400", "300"]
-    x, y, w, h = float(geom_parts[0]), float(geom_parts[1]), float(geom_parts[2]), float(geom_parts[3])
+    if geom_m:
+        geom_parts = geom_m.group(1).split(",")
+        x, y, w, h = float(geom_parts[0]), float(geom_parts[1]), float(geom_parts[2]), float(geom_parts[3])
+    elif idx - 1 < len(custom_geoms):
+        x, y, w, h = custom_geoms[idx - 1]
+    else:
+        x, y, w, h = 0.0, 0.0, 400.0, 300.0
 
     gen_m = re.search(rf"\[Applet_{idx}\]\[Configuration\]\[General\]\n((?:(?!^\[).)*)", text, re.S | re.M)
     gen_cfg = {}
@@ -286,37 +330,115 @@ for idx in range(1, count + 1):
 
     applets_data.append({"x": x, "y": y, "w": w, "h": h, "config": gen_cfg})
 
-js = f"""
-var d = desktops()[0];
-var ws = d.widgets();
-for (var i = 0; i < ws.length; i++) {{
-    if (ws[i].type === '{plugin_id}') {{
-        ws[i].remove();
-    }}
-}}
-var data = {json.dumps(applets_data)};
-for (var i = 0; i < data.length; i++) {{
-    var item = data[i];
-    var w = d.addWidget('{plugin_id}', item.x, item.y, item.w, item.h);
-    if (w) {{
-        w.currentConfigGroup = ['General'];
-        for (var k in item.config) {{
-            w.writeConfig(k, item.config[k]);
+# Check current active widgets in Plasma against last applied target
+state_file = "/tmp/plasma-visualizer-last-target.json"
+target_key = json.dumps([{"x": a["x"], "y": a["y"], "w": a["w"], "h": a["h"]} for a in applets_data])
+
+js_count = f"""
+var count = 0;
+for (var d_idx = 0; d_idx < desktops().length; d_idx++) {{
+    var ws = desktops()[d_idx].widgets();
+    for (var i = 0; i < ws.length; i++) {{
+        if (ws[i].type === '{plugin_id}') {{
+            count++;
         }}
-        w.reloadConfig();
     }}
 }}
+print(count);
 """
 
+need_update = True
 try:
-    subprocess.run(
-        ["qdbus6", "org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell.evaluateScript", js],
-        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
+    cnt_out = subprocess.check_output(
+        ["qdbus6", "org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell.evaluateScript", js_count],
+        text=True, stderr=subprocess.DEVNULL
+    ).strip()
+    active_count = int(cnt_out) if cnt_out.isdigit() else 0
+    last_target = ""
+    import os
+    if os.path.exists(state_file):
+        with open(state_file, "r") as sf:
+            last_target = sf.read().strip()
+    if active_count == len(applets_data) and last_target == target_key:
+        need_update = False
 except Exception:
-    pass
+    need_update = True
+
+if need_update:
+    # 1. Remove existing widgets
+    js_remove = f"""
+    var removed = false;
+    for (var d_idx = 0; d_idx < desktops().length; d_idx++) {{
+        var d = desktops()[d_idx];
+        var ws = d.widgets();
+        for (var i = 0; i < ws.length; i++) {{
+            if (ws[i].type === '{plugin_id}') {{
+                ws[i].remove();
+                removed = true;
+            }}
+        }}
+    }}
+    print(removed ? 'REMOVED' : 'NONE');
+    """
+    try:
+        rm_out = subprocess.check_output(
+            ["qdbus6", "org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell.evaluateScript", js_remove],
+            text=True, stderr=subprocess.DEVNULL
+        ).strip()
+        if "REMOVED" in rm_out:
+            # Give Plasma Corona event loop time to delete old widgets from the layout grid to prevent collision displacement
+            time.sleep(0.15)
+    except Exception:
+        pass
+
+    # 2. Add widgets at the target geometry
+    js_add = f"""
+    var d = desktops()[0];
+    var data = {json.dumps(applets_data)};
+    for (var i = 0; i < data.length; i++) {{
+        var item = data[i];
+        var w = d.addWidget('{plugin_id}', item.x, item.y, item.w, item.h);
+        if (w) {{
+            w.currentConfigGroup = ['General'];
+            for (var k in item.config) {{
+                w.writeConfig(k, item.config[k]);
+            }}
+            w.reloadConfig();
+        }}
+    }}
+    """
+    try:
+        subprocess.run(
+            ["qdbus6", "org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell.evaluateScript", js_add],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        with open(state_file, "w") as sf:
+            sf.write(target_key)
+    except Exception:
+        pass
 PYEOF
     fi
+}
+
+set_visualizer_geometry() {
+    local x1="${1:-}" y1="${2:-}" w1="${3:-}" h1="${4:-}"
+    local x2="${5:-}" y2="${6:-}" w2="${7:-}" h2="${8:-}"
+    if [[ -z "$x1" || -z "$x2" ]]; then
+        return 0
+    fi
+    add_kde_applets_live \
+        "$CONFIG_DIR/plasma-audio-visualizer.conf" \
+        "luisbocanegra.audio.visualizer" \
+        "2" \
+        "$@"
+
+    sync_kde_applets \
+        "$CONFIG_DIR/plasma-audio-visualizer.conf" \
+        "$USER_CONFIG_DIR" \
+        "luisbocanegra.audio.visualizer" \
+        "2" \
+        "plasma-audio-visualizer" \
+        "$@" >/dev/null 2>&1 || true
 }
 
 export_visualizer() {
@@ -324,19 +446,22 @@ export_visualizer() {
     add_kde_applets_live \
         "$CONFIG_DIR/plasma-audio-visualizer.conf" \
         "luisbocanegra.audio.visualizer" \
-        "2"
+        "2" \
+        "$@"
 
     sync_kde_applets \
         "$CONFIG_DIR/plasma-audio-visualizer.conf" \
         "$USER_CONFIG_DIR" \
         "luisbocanegra.audio.visualizer" \
         "2" \
-        "plasma-audio-visualizer" >/dev/null 2>&1 || true
+        "plasma-audio-visualizer" \
+        "$@" >/dev/null 2>&1 || true
     echo "✓ Plasma audio visualizer enabled"
 }
 
 disable_visualizer() {
     echo "Removing plasma-audio-visualizer widgets directly..."
+    rm -f "/tmp/plasma-visualizer-last-target.json"
     remove_kde_applets_live "luisbocanegra.audio.visualizer"
     sync_kde_applets \
         "$CONFIG_DIR/plasma-audio-visualizer.conf" \
@@ -354,6 +479,7 @@ configure_visualizer() {
 
 DO_SKWD=false
 VISUALIZER_ACTION=""
+VISUALIZER_ARGS=()
 
 if [[ $# -eq 0 ]]; then
     DO_SKWD=true
@@ -372,6 +498,18 @@ else
                         enable|on|sync)
                             VISUALIZER_ACTION="enable"
                             shift
+                            while [[ $# -gt 0 && ! "$1" =~ ^- ]]; do
+                                VISUALIZER_ARGS+=("$1")
+                                shift
+                            done
+                            ;;
+                        geometry|reposition|pos)
+                            VISUALIZER_ACTION="geometry"
+                            shift
+                            while [[ $# -gt 0 && ! "$1" =~ ^- ]]; do
+                                VISUALIZER_ARGS+=("$1")
+                                shift
+                            done
                             ;;
                         disable|off|remove)
                             VISUALIZER_ACTION="disable"
@@ -423,9 +561,17 @@ if [[ "$DO_SKWD" == true ]]; then
     export_skwd
 fi
 
+if [[ -n "$VISUALIZER_ACTION" ]]; then
+    exec 200>"/tmp/plasma-export-config.lock"
+    flock -x 200
+fi
+
 case "$VISUALIZER_ACTION" in
     enable)
-        export_visualizer
+        export_visualizer "${VISUALIZER_ARGS[@]}"
+        ;;
+    geometry)
+        set_visualizer_geometry "${VISUALIZER_ARGS[@]}"
         ;;
     disable)
         disable_visualizer

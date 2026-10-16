@@ -635,13 +635,7 @@ StyledRect {
                         checked: GlobalConfig.background.visualiser.enabled
                         onClicked: {
                             const next = !GlobalConfig.background.visualiser.enabled;
-                            GlobalConfig.background.visualiser.enabled = next;
-                            Quickshell.execDetached([
-                                "bash",
-                                Quickshell.shellPath("scripts/export-plasma-config.sh"),
-                                "visualizer",
-                                next ? "enable" : "disable"
-                            ]);
+                            PlasmaWidgets.setWidgetEnabled("visualizer", next);
                         }
                     }
                 }

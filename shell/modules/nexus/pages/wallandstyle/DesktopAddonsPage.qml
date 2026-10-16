@@ -31,15 +31,6 @@ PageBase {
         }
     ]
 
-    function setVisualizerEnabled(enabled: bool) {
-        Quickshell.execDetached([
-            "bash",
-            Quickshell.shellPath("scripts/export-plasma-config.sh"),
-            "visualizer",
-            enabled ? "enable" : "disable"
-        ]);
-    }
-
     isSubPage: true
     title: qsTr("Desktop Addons")
 
@@ -149,8 +140,7 @@ PageBase {
                 reset: ({ node: GlobalConfig.background.visualiser, setting: "enabled" })
                 checked: Config.background.visualiser.enabled
                 onToggled: {
-                    GlobalConfig.background.visualiser.enabled = checked;
-                    root.setVisualizerEnabled(checked);
+                    PlasmaWidgets.setWidgetEnabled("visualizer", checked);
                 }
             }
 
