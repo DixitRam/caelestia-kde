@@ -1,0 +1,19 @@
+{
+  "components": {
+    "wallpaperSelector": {
+      "displayMode": "slices",
+      "enabled": true,
+      "startPosition": "applied"
+    }
+  },
+  "general": {
+    "closeOnSelection": true,
+    "uiScale": 1.4
+  },
+  "paper": {
+    "wallpaperLayer": "background"
+  },
+  "theme": {
+    "authority": "caelestia"
+  }
+}
