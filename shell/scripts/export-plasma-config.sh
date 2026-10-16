@@ -1,18 +1,52 @@
 #!/usr/bin/env bash
-# Exports skwd-wall config and ensures exactly 2 symmetrical audio visualizer widgets on the desktop.
+# Exports skwd-wall and/or plasma-audio-visualizer configs to user locations.
+# Usage: export-plasma-config.sh [skwd|visualizer|all]
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCEd:-${BASH_SOURCE[0]}}")" && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/plasma-config"
 USER_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 
-# 1. Overwrite skwd-wall-v2 config
-mkdir -p "$USER_CONFIG_DIR/skwd-wall-v2"
-cp "$CONFIG_DIR/skwd-wall-v2/config.json" "$USER_CONFIG_DIR/skwd-wall-v2/config.json"
-echo "✓ skwd-wall-v2 config exported to $USER_CONFIG_DIR/skwd-wall-v2/config.json"
+show_help() {
+    cat << EOF
+Usage: $(basename "$0") [TARGET...]
 
-# 2. Add or update visualizer applets in plasma desktop-appletsrc
-python3 - "$CONFIG_DIR/plasma-audio-visualizer.conf" "$USER_CONFIG_DIR" << 'EOF'
+Exports and overwrites Plasma configurations to user locations.
+If no target is specified, all configurations are exported.
+
+Targets:
+  skwd, skwd-wall, wall       Export skwd-wall-v2 config
+  visualizer, audio           Export and sync plasma-audio-visualizer widgets
+  all                         Export all configs (default)
+  -h, --help                  Show this help message
+EOF
+}
+
+export_skwd() {
+    echo "Exporting skwd-wall-v2 configuration..."
+    mkdir -p "$USER_CONFIG_DIR/skwd-wall-v2"
+    cp "$CONFIG_DIR/skwd-wall-v2/config.json" "$USER_CONFIG_DIR/skwd-wall-v2/config.json"
+    echo "✓ skwd-wall-v2 config exported to $USER_CONFIG_DIR/skwd-wall-v2/config.json"
+
+    # Re-apply current wallpaper so skwd-paper-plasma never goes dark
+    if command -v skwd-helm >/dev/null 2>&1; then
+        local curr_wall
+        curr_wall="$(skwd-helm current 2>/dev/null | cut -f2- || true)"
+        if [[ -z "$curr_wall" ]]; then
+            local cache_json="${XDG_CACHE_HOME:-$HOME/.cache}/skwd-wall-v2/last-applied.json"
+            if [[ -f "$cache_json" ]]; then
+                curr_wall="$(python3 -c "import json; print(json.load(open('$cache_json')).get('any', {}).get('path', ''))" 2>/dev/null || true)"
+            fi
+        fi
+        if [[ -n "$curr_wall" && -f "$curr_wall" ]]; then
+            skwd-helm apply "$curr_wall" >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
+export_visualizer() {
+    echo "Exporting and syncing plasma-audio-visualizer widgets..."
+    python3 - "$CONFIG_DIR/plasma-audio-visualizer.conf" "$USER_CONFIG_DIR" << 'EOF'
 import glob, os, re, sys
 
 conf_path, config_dir = sys.argv[1], sys.argv[2]
@@ -103,7 +137,72 @@ for appletsrc in candidate_files:
     print(f"✓ Synced 2 visualizer widgets in {os.path.basename(appletsrc)} (kept: {keep_ids}, removed extras: {remove_ids})")
 EOF
 
-if command -v qdbus6 >/dev/null 2>&1; then
-    qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
-    qdbus6 org.kde.plasmashell /PlasmaShell refreshCurrentShell 2>/dev/null || true
+    if command -v qdbus6 >/dev/null 2>&1; then
+        qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
+        qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "
+            var ds = desktops();
+            for (var i = 0; i < ds.length; i++) {
+                var d = ds[i];
+                var ws = d.widgets();
+                var viz = [];
+                for (var j = 0; j < ws.length; j++) {
+                    if (ws[j].type === 'luisbocanegra.audio.visualizer') {
+                        viz.push(ws[j]);
+                    }
+                }
+                while (viz.length > 2) {
+                    viz.pop().remove();
+                }
+                while (viz.length < 2) {
+                    var w = d.addWidget('luisbocanegra.audio.visualizer');
+                    if (w) viz.push(w);
+                    else break;
+                }
+                for (var k = 0; k < viz.length; k++) {
+                    viz[k].reloadConfig();
+                }
+            }
+        " 2>/dev/null || true
+    fi
+}
+
+# Parse targets
+DO_SKWD=false
+DO_VISUALIZER=false
+
+if [[ $# -eq 0 ]]; then
+    DO_SKWD=true
+    DO_VISUALIZER=true
+else
+    for arg in "$@"; do
+        case "$arg" in
+            skwd|skwd-wall|wall|wallpaper|--skwd|--skwd-wall)
+                DO_SKWD=true
+                ;;
+            visualizer|audio|audio-visualizer|plasma-audio-visualizer|--visualizer|--audio)
+                DO_VISUALIZER=true
+                ;;
+            all|--all)
+                DO_SKWD=true
+                DO_VISUALIZER=true
+                ;;
+            -h|--help|help)
+                show_help
+                exit 0
+                ;;
+            *)
+                echo "Unknown target: $arg" >&2
+                show_help >&2
+                exit 1
+                ;;
+        esac
+    done
+fi
+
+if [[ "$DO_SKWD" == true ]]; then
+    export_skwd
+fi
+
+if [[ "$DO_VISUALIZER" == true ]]; then
+    export_visualizer
 fi
