@@ -3,11 +3,9 @@ pub enum Outcome {
     Ok,
     Failed,
     Usage,
-    #[allow(dead_code)]
     Cancelled,
     Environment,
     Internal,
-    #[allow(dead_code)]
     Interrupted,
 }
 

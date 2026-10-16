@@ -26,6 +26,17 @@ impl Distro {
             _ => Distro::Unknown,
         }
     }
+
+    /// What to call the distribution on screen: the family, not the individual release, because
+    /// that is all the installer cares about.
+    pub fn label(self) -> &'static str {
+        match self {
+            Distro::Arch => "Arch-based Linux",
+            Distro::Fedora => "Fedora",
+            Distro::Debian => "Debian-based Linux",
+            Distro::Unknown => "unknown distribution",
+        }
+    }
 }
 
 const ARCH_IDS: [&str; 5] = ["arch", "cachyos", "endeavouros", "manjaro", "artix"];

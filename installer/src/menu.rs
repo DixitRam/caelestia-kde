@@ -4,7 +4,7 @@ pub type Answers = BTreeMap<&'static str, String>;
 
 pub const BACK: &str = "action_back";
 pub const REVIEW: &str = "action_review";
-
+pub const PRESET_THEME_APPS: &str = "preset_theme_apps";
 #[derive(Debug)]
 pub enum Entry {
     Submenu {
@@ -26,6 +26,14 @@ pub enum Entry {
         default: &'static str,
         options: &'static [&'static str],
     },
+    /// One row that stands for a group of toggles: the bulk answer, with the individual ones
+    /// still available where they live.
+    Preset {
+        id: &'static str,
+        title: &'static str,
+        help: &'static str,
+        members: &'static [&'static str],
+    },
     Action {
         id: &'static str,
         title: &'static str,
@@ -39,6 +47,7 @@ impl Entry {
             Entry::Submenu { id, .. }
             | Entry::Toggle { id, .. }
             | Entry::Choice { id, .. }
+            | Entry::Preset { id, .. }
             | Entry::Action { id, .. } => id,
         }
     }
@@ -48,6 +57,7 @@ impl Entry {
             Entry::Submenu { title, .. }
             | Entry::Toggle { title, .. }
             | Entry::Choice { title, .. }
+            | Entry::Preset { title, .. }
             | Entry::Action { title, .. } => title,
         }
     }
@@ -57,6 +67,7 @@ impl Entry {
             Entry::Submenu { help, .. }
             | Entry::Toggle { help, .. }
             | Entry::Choice { help, .. }
+            | Entry::Preset { help, .. }
             | Entry::Action { help, .. } => help,
         }
     }
@@ -65,7 +76,24 @@ impl Entry {
     pub fn is_answerable(&self) -> bool {
         matches!(self, Entry::Toggle { .. } | Entry::Choice { .. })
     }
+
+    pub fn members(&self) -> Option<&'static [&'static str]> {
+        match self {
+            Entry::Preset { members, .. } => Some(members),
+            _ => None,
+        }
+    }
 }
+
+/// The apps whose theming the preset turns on and off together.
+const APP_THEMING: [&str; 6] = [
+    "INSTALL_VSCODE",
+    "INSTALL_ZED",
+    "INSTALL_SPICETIFY",
+    "INSTALL_DISCORD",
+    "INSTALL_TODOIST",
+    "INSTALL_FIREFOX_THEME",
+];
 
 const PACKAGES: [Entry; 6] = [
     Entry::Toggle {
@@ -223,7 +251,14 @@ const OPTIONS: [Entry; 3] = [
     },
 ];
 
-pub const ROOT: [Entry; 6] = [
+pub const ROOT: [Entry; 7] = [
+    Entry::Preset {
+        id: PRESET_THEME_APPS,
+        title: "Theme my apps",
+        help: "Turn on theming for every app Caelestia supports: VSCode/VSCodium, Zed, Spicetify, \
+               Discord/Equibop, Todoist and Firefox. Each one stays editable under Applications.",
+        members: &APP_THEMING,
+    },
     Entry::Submenu {
         id: "menu_packages",
         title: "Packages",
@@ -287,13 +322,80 @@ pub fn seed_answers(entries: &[Entry], answers: &mut Answers) {
                 };
                 answers.entry(id).or_insert_with(|| seed.to_string());
             }
-            Entry::Action { .. } => {}
+            // A preset holds no answer of its own: it is a view of the toggles it stands for.
+            Entry::Preset { .. } | Entry::Action { .. } => {}
         }
     }
 }
 
 pub fn value<'a>(entry: &Entry, answers: &'a Answers) -> Option<&'a str> {
     answers.get(entry.id()).map(String::as_str)
+}
+
+/// The answer a fresh install would have: what "reset" goes back to, and what "changed" is
+/// measured against.
+pub fn default_of(entry: &Entry) -> Option<String> {
+    match entry {
+        Entry::Toggle { default, .. } => Some(default.to_string()),
+        Entry::Choice {
+            default, options, ..
+        } => Some(if default.is_empty() {
+            options.first().copied().unwrap_or("").to_string()
+        } else {
+            default.to_string()
+        }),
+        Entry::Submenu { .. } | Entry::Preset { .. } | Entry::Action { .. } => None,
+    }
+}
+
+pub fn is_changed(entry: &Entry, answers: &Answers) -> bool {
+    if let Some(members) = entry.members() {
+        return members
+            .iter()
+            .any(|id| answers.get(id).map(String::as_str) == Some("true"));
+    }
+    match default_of(entry) {
+        Some(default) => value(entry, answers) != Some(default.as_str()),
+        None => false,
+    }
+}
+
+/// Put one row back to the answer a fresh install would have given.
+pub fn reset(entry: &Entry, answers: &mut Answers) -> bool {
+    if let Some(members) = entry.members() {
+        let off = members
+            .iter()
+            .any(|id| answers.get(id).map(String::as_str) == Some("true"));
+        return preset_set(entry, answers, !off);
+    }
+    match default_of(entry) {
+        Some(default) => {
+            answers.insert(entry.id(), default);
+            true
+        }
+        None => false,
+    }
+}
+
+/// A preset is on when every app it stands for is on.
+pub fn preset_on(entry: &Entry, answers: &Answers) -> bool {
+    let Some(members) = entry.members() else {
+        return false;
+    };
+    !members.is_empty()
+        && members
+            .iter()
+            .all(|id| answers.get(id).map(String::as_str) == Some("true"))
+}
+
+pub fn preset_set(entry: &Entry, answers: &mut Answers, on: bool) -> bool {
+    let Some(members) = entry.members() else {
+        return false;
+    };
+    for id in members {
+        answers.insert(id, on.to_string());
+    }
+    !members.is_empty()
 }
 
 pub fn toggle(entry: &Entry, answers: &mut Answers) -> bool {
@@ -497,6 +599,95 @@ mod tests {
                 answers.contains_key(key),
                 "the step policy reads {key}, the menu has no entry"
             );
+        }
+    }
+
+    fn preset() -> &'static Entry {
+        every_entry()
+            .into_iter()
+            .find(|entry| entry.id() == PRESET_THEME_APPS)
+            .expect("the preset is in the tree")
+    }
+
+    #[test]
+    fn the_preset_stands_for_toggles_that_are_really_there() {
+        let members = preset().members().expect("the preset has members");
+        assert_eq!(members.len(), 6, "six apps, six switches");
+        for id in members {
+            let member = every_entry()
+                .into_iter()
+                .find(|entry| entry.id() == *id)
+                .unwrap_or_else(|| panic!("{id} is not in the tree"));
+            assert!(
+                matches!(member, Entry::Toggle { .. }),
+                "{id} is not a toggle"
+            );
+        }
+    }
+
+    #[test]
+    fn the_preset_is_a_view_of_its_members_rather_than_a_state_of_its_own() {
+        let mut answers = Answers::new();
+        seed_answers(&ROOT, &mut answers);
+        assert!(!preset_on(preset(), &answers), "the apps default to off");
+
+        assert!(preset_set(preset(), &mut answers, true));
+        assert!(preset_on(preset(), &answers));
+        for id in preset().members().expect("members") {
+            assert_eq!(answers.get(id).map(String::as_str), Some("true"));
+        }
+
+        // Turning one app off is enough to take the preset off with it.
+        answers.insert("INSTALL_ZED", "false".to_string());
+        assert!(!preset_on(preset(), &answers));
+
+        assert!(preset_set(preset(), &mut answers, false));
+        assert!(
+            preset()
+                .members()
+                .expect("members")
+                .iter()
+                .all(|id| { answers.get(id).map(String::as_str) == Some("false") })
+        );
+    }
+
+    #[test]
+    fn a_row_knows_whether_it_was_changed_and_can_go_back() {
+        let mut answers = Answers::new();
+        seed_answers(&ROOT, &mut answers);
+        let fish = every_entry()
+            .into_iter()
+            .find(|entry| entry.id() == "INSTALL_FISH")
+            .expect("fish");
+        let shell = every_entry()
+            .into_iter()
+            .find(|entry| entry.id() == "DEFAULT_SHELL")
+            .expect("shell");
+
+        assert!(!is_changed(fish, &answers));
+        assert!(!is_changed(shell, &answers));
+
+        toggle(fish, &mut answers);
+        cycle(shell, &mut answers, true);
+        assert!(is_changed(fish, &answers));
+        assert!(is_changed(shell, &answers));
+
+        assert!(reset(fish, &mut answers));
+        assert!(reset(shell, &mut answers));
+        assert_eq!(value(fish, &answers), Some("true"));
+        assert_eq!(value(shell, &answers), Some("fish"));
+        assert!(!is_changed(fish, &answers));
+    }
+
+    #[test]
+    fn a_questionless_row_is_never_changed_and_cannot_be_reset() {
+        let mut answers = Answers::new();
+        seed_answers(&ROOT, &mut answers);
+        for entry in every_entry() {
+            if entry.id() == BACK || entry.id() == REVIEW {
+                assert!(!is_changed(entry, &answers));
+                assert!(!reset(entry, &mut answers));
+            }
         }
     }
 }

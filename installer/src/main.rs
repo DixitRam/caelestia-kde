@@ -4,10 +4,13 @@ mod cli;
 mod copy;
 mod distro;
 mod download;
+mod env;
 mod exit;
+mod glyphs;
 mod install_fs;
 mod install_kind;
 mod js;
+mod logline;
 mod menu;
 mod output;
 mod packages;
@@ -22,6 +25,7 @@ mod steps;
 mod theme;
 mod tmp;
 mod toolchain;
+mod ui;
 mod uninstall;
 mod update;
 mod update_state;
@@ -30,8 +34,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use app::{Handoff, Session};
 use bundle::Bundle;
 use cli::{Args, Invocation, PresetAction};
+use env::Env;
 use exit::Outcome;
 use steps::Failure;
 
@@ -41,7 +47,8 @@ const USAGE: &str = "\
 caelestia-install [OPTIONS] [BUNDLE_DIR]
 caelestia-install step [OPTIONS] STEP_ID
 
-  Install, update or remove Caelestia. With no arguments this opens the wizard.
+  Install, update or remove Caelestia. With no arguments this opens the wizard, which offers
+  all three.
 
 Arguments:
   BUNDLE_DIR      the tree to operate on (default: this binary's directory)
@@ -51,9 +58,18 @@ Options:
   --update        skip the wizard and run the update path
   --uninstall     skip the wizard and run the uninstall path
   --bundle DIR    the tree a step operates on
+  --ascii         draw with plain ASCII instead of block and arrow glyphs
+  --unicode       draw with Unicode even where the locale suggests otherwise
+  --light, --dark force the light or the dark theme instead of reading the terminal
+  --no-animation  no spinner, no redraw beyond what changed
   --debug         write the phase trace to stderr
   --version       print the installer version and exit
   -h, --help      print this help and exit
+
+The wizard adapts to the terminal: it reads NO_COLOR, TERM, COLORTERM and COLORFGBG, and falls
+back to plain ASCII and to colours your terminal can actually show. Override it with
+CAELESTIA_TUI_GLYPHS=ascii|unicode, CAELESTIA_TUI_THEME=light|dark or
+CAELESTIA_TUI_NO_ANIMATION=1.
 
 Exit codes:
   0 finished                1 a step failed
@@ -135,7 +151,7 @@ fn askpass(pipe: &Path) -> Outcome {
 fn run(args: Args) -> Outcome {
     DEBUG.store(args.debug, Ordering::Relaxed);
 
-    let bundle = Bundle::discover(args.bundle);
+    let bundle = Bundle::discover(args.bundle.clone());
     trace(&format!("bundle dir: {}", bundle.root().display()));
 
     match args.action {
@@ -165,8 +181,57 @@ fn run(args: Args) -> Outcome {
                 eprintln!("caelestia-install: {problem}");
                 return Outcome::Environment;
             }
-            trace("phase 1: welcome_screen");
-            app::run(bundle.root().to_path_buf(), app::log_path())
+            trace("phase 1: home");
+            let session = app::run(bundle.root().to_path_buf(), app::log_path(), look(&args));
+            handoff(&bundle, session)
+        }
+    }
+}
+
+/// The terminal decides, unless the caller said otherwise.
+fn look(args: &Args) -> Env {
+    let mut env = Env::capture();
+    if let Some(glyphs) = &args.look.glyphs {
+        env.glyphs = Some(glyphs.clone());
+    }
+    if let Some(theme) = &args.look.theme {
+        env.theme = Some(theme.clone());
+    }
+    if args.look.no_animation {
+        env.no_animation = true;
+    }
+    env
+}
+
+/// The wizard can hand the terminal to the update or the uninstall path, which own their own
+/// prompts. That work happens here, after the TUI has given the terminal back.
+fn handoff(bundle: &Bundle, session: Session) -> Outcome {
+    match session.handoff {
+        None => session.outcome,
+        Some(Handoff::Update) => {
+            trace("handoff: update");
+            let branch = std::env::var("CAELESTIA_UPDATE_BRANCH")
+                .ok()
+                .filter(|value| !value.is_empty());
+            match update::run(bundle.root(), branch) {
+                Ok(()) => Outcome::Ok,
+                Err(Failure::Message(problem)) => {
+                    output::err(&problem);
+                    Outcome::Failed
+                }
+                Err(Failure::Reported) => Outcome::Failed,
+            }
+        }
+        Some(Handoff::Uninstall) => {
+            trace("handoff: uninstall");
+            match uninstall::run(bundle.root()) {
+                Ok(()) => Outcome::Ok,
+                Err(Failure::Message(problem)) => {
+                    output::err(&problem);
+                    Outcome::Failed
+                }
+                Err(Failure::Reported) => Outcome::Failed,
+            }
         }
     }
 }

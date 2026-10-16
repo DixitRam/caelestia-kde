@@ -34,6 +34,14 @@ pub fn is_packaged() -> bool {
     kind() == Kind::Package
 }
 
+/// What to call this install's layout on screen.
+pub fn label() -> &'static str {
+    match kind() {
+        Kind::Source => "source",
+        Kind::Package => "package",
+    }
+}
+
 pub fn lib_dir() -> PathBuf {
     lib_dir_for(kind())
 }

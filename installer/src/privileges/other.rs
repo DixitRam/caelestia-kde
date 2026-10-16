@@ -10,10 +10,18 @@ impl Credential {
     pub fn environment(&self) -> Vec<(&'static str, String)> {
         Vec::new()
     }
+}
 
-    pub fn verify(&self) -> bool {
-        false
-    }
+pub fn accepts(_secret: &str) -> bool {
+    false
+}
+
+pub fn locked_out() -> bool {
+    false
+}
+
+pub fn on_the_last_entry() -> bool {
+    false
 }
 
 pub struct Inhibitor;

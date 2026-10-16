@@ -4,12 +4,21 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::JoinHandle;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const HELPER: &str = "askpass.sh";
 const PIPE: &str = "askpass.fifo";
 const WRAPPER: &str = "sudo";
+
+// How long a verification may take before the installer stops waiting for sudo, how often
+// that wait is looked at, and how long the helper waits for the installer to open the pipe
+// before giving up, so that sudo fails rather than hanging on a helper that never finishes.
+const VERIFY_TIMEOUT: Duration = Duration::from_secs(30);
+const VERIFY_TICK: Duration = Duration::from_millis(25);
+const SECRET_TIMEOUT: Duration = Duration::from_secs(15);
+// A pause before offering the pipe again after an open that failed for any other reason.
+const SERVE_PAUSE: Duration = Duration::from_millis(50);
 
 pub struct Credential {
     dir: PathBuf,
@@ -21,15 +30,7 @@ impl Credential {
     pub fn install(secret: &str, exe: &Path) -> Result<Self, String> {
         let dir = private_dir()?;
         let pipe = dir.join(PIPE);
-        let pipe_c = std::ffi::CString::new(pipe.as_os_str().as_encoded_bytes())
-            .map_err(|_| "the pipe path is not usable".to_string())?;
-        if unsafe { libc::mkfifo(pipe_c.as_ptr(), 0o600) } != 0 {
-            return Err(format!(
-                "cannot create {}: {}",
-                pipe.display(),
-                std::io::Error::last_os_error()
-            ));
-        }
+        make_fifo(&pipe)?;
 
         let helper = dir.join(HELPER);
         write_private(
@@ -70,21 +71,111 @@ impl Credential {
             ("PATH", path),
         ]
     }
+}
 
-    pub fn verify(&self) -> bool {
-        let Some(sudo) = sudo_path() else {
-            return true;
-        };
-        std::process::Command::new(sudo)
-            .arg("-A")
-            .arg("-v")
-            .envs(self.environment())
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false)
+/// Whether sudo takes the password. The password goes in on stdin: `sudo -S` reads one line
+/// and gets end of file for any retry, so a wrong password costs one PAM exchange instead of
+/// three, and there is no helper process and no pipe to lose. The wait is bounded so a sudo
+/// that never answers cannot hold the installer hostage.
+pub fn accepts(secret: &str) -> bool {
+    match sudo_binary() {
+        Some(sudo) => sudo_accepts_with(&sudo, secret, VERIFY_TIMEOUT),
+        None => true,
+    }
+}
+
+// A refused password costs the account an entry in the PAM stack's own tally, and once enough
+// of them are spent the stack stops taking the right password for a while. Both the tally and
+// the rule that set it are readable without root, so the installer can use the budget the
+// machine actually has instead of picking a number and hoping: a host that allows five gets
+// five, and one that allows three is stopped before the entry that would lock it.
+const DEFAULT_DENY: usize = 3;
+const FAILLOCK_CONF: &str = "/etc/security/faillock.conf";
+
+/// How many more refused entries this account can take without being locked out.
+/// How many more refused entries are safe, and whether the system has already locked out.
+/// Read without root: the tally lives in `faillock --user`, the rule in faillock.conf.
+pub fn locked_out() -> bool {
+    let (counted, deny) = lockout();
+    counted >= deny
+}
+
+/// Whether one more refused entry would lock the account.
+pub fn on_the_last_entry() -> bool {
+    let (counted, deny) = lockout();
+    counted + 1 >= deny
+}
+
+fn lockout() -> (usize, usize) {
+    let deny =
+        deny_in(&fs::read_to_string(FAILLOCK_CONF).unwrap_or_default()).unwrap_or(DEFAULT_DENY);
+    (counted_in(&faillock_table()), deny)
+}
+
+fn deny_in(conf: &str) -> Option<usize> {
+    conf.lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| line.split_once('='))
+        .find(|(key, _)| key.trim() == "deny")
+        .and_then(|(_, value)| value.trim().parse().ok())
+}
+
+/// The rows of `faillock --user <user>` that are entries rather than its heading.
+fn counted_in(table: &str) -> usize {
+    table
+        .lines()
+        .skip_while(|line| !line.contains("When"))
+        .skip(1)
+        .filter(|line| !line.trim().is_empty())
+        .count()
+}
+
+fn faillock_table() -> String {
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .unwrap_or_default();
+    if user.is_empty() {
+        return String::new();
+    }
+    std::process::Command::new("faillock")
+        .args(["--user", &user])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).to_string())
+        .unwrap_or_default()
+}
+
+fn sudo_accepts_with(sudo: &Path, secret: &str, timeout: Duration) -> bool {
+    let mut command = std::process::Command::new(sudo);
+    command
+        .arg("-S")
+        .arg("-v")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    detach(&mut command);
+
+    let Ok(mut child) = command.spawn() else {
+        return false;
+    };
+    if let Some(mut input) = child.stdin.take() {
+        let _ = input.write_all(secret.as_bytes());
+        let _ = input.write_all(b"\n");
+        // Dropping the handle closes the pipe: sudo reads the one line, and anything it does
+        // for a second try finds nothing rather than waiting on a terminal nobody is at.
+    }
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => {}
+            Err(_) => return false,
+        }
+        if Instant::now() >= deadline {
+            end_group(&mut child);
+            return false;
+        }
+        thread::sleep(VERIFY_TICK);
     }
 }
 
@@ -101,6 +192,33 @@ pub fn sudo_path() -> Option<PathBuf> {
         .iter()
         .map(PathBuf::from)
         .find(|candidate| candidate.is_file())
+}
+
+// sudo reads the password from the helper, but questions it cannot answer through the helper
+// - "Sorry, try again." - it writes to /dev/tty, which is the terminal the installer is
+// drawing the frame on. A session of its own leaves it with no controlling terminal to reach,
+// and it also leads a process group of its own for end_group to signal.
+fn detach(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: setsid is async-signal-safe, which is all a pre_exec closure may be, and a
+    // freshly forked child is never a process group leader, so it cannot fail.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+// One signal to the group reaches sudo and the askpass helper it started; leaving the helper
+// behind would leave it waiting on a pipe that nobody feeds any more.
+fn end_group(child: &mut std::process::Child) {
+    let group = child.id() as libc::pid_t;
+    unsafe { libc::kill(-group, libc::SIGKILL) };
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 pub fn is_root() -> bool {
@@ -272,6 +390,26 @@ pub fn quiet(program: &str, args: &[&str], directory: Option<&Path>) -> Result<i
 }
 
 pub fn read_secret(pipe: &Path) -> Result<String, String> {
+    read_secret_within(pipe, SECRET_TIMEOUT)
+}
+
+// sudo waits for this helper to finish before it goes on, so a helper that waited forever
+// would hang the installer that is waiting for sudo. The thread left blocked in the open
+// below ends with this process, which exits as soon as this wait is over.
+fn read_secret_within(pipe: &Path, timeout: Duration) -> Result<String, String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let path = pipe.to_path_buf();
+    thread::spawn(move || {
+        let _ = sender.send(read_one_line(&path));
+    });
+    receiver.recv_timeout(timeout).unwrap_or_else(|_| {
+        Err(format!(
+            "the installer did not offer a password within {timeout:?}"
+        ))
+    })
+}
+
+fn read_one_line(pipe: &Path) -> Result<String, String> {
     let file =
         File::open(pipe).map_err(|error| format!("cannot read {}: {error}", pipe.display()))?;
     let mut secret = String::new();
@@ -281,14 +419,35 @@ pub fn read_secret(pipe: &Path) -> Result<String, String> {
     Ok(secret.trim_end_matches('\n').to_string())
 }
 
+fn make_fifo(pipe: &Path) -> Result<(), String> {
+    let pipe_c = std::ffi::CString::new(pipe.as_os_str().as_encoded_bytes())
+        .map_err(|_| "the pipe path is not usable".to_string())?;
+    if unsafe { libc::mkfifo(pipe_c.as_ptr(), 0o600) } != 0 {
+        return Err(format!(
+            "cannot create {}: {}",
+            pipe.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+// One helper reads one secret, and sudo asks again for each attempt it makes, so the loop
+// waits for the next helper to appear on the pipe. A round that fails is a round nobody asked
+// for: leaving the loop would strand the next helper, and the sudo waiting behind it, on a
+// pipe that nothing feeds - which is how one wrong password used to hang the installer for
+// good, with sudo's own complaint left sitting in the middle of the frame.
 fn serve(pipe: PathBuf, secret: String, stop: Arc<AtomicBool>) -> JoinHandle<()> {
-    std::thread::spawn(move || {
+    thread::spawn(move || {
         while !stop.load(Ordering::Relaxed) {
-            let Ok(mut writer) = OpenOptions::new().write(true).open(&pipe) else {
-                break;
-            };
-            let _ = writer.write_all(secret.as_bytes());
-            let _ = writer.write_all(b"\n");
+            match OpenOptions::new().write(true).open(&pipe) {
+                Ok(mut writer) => {
+                    let _ = writer.write_all(secret.as_bytes());
+                    let _ = writer.write_all(b"\n");
+                }
+                Err(error) if error.raw_os_error() == Some(libc::EINTR) => {}
+                Err(_) => thread::sleep(SERVE_PAUSE),
+            }
         }
     })
 }
@@ -424,8 +583,8 @@ fn reap_previous(pid_file: &Path) {
 
 fn spawn_inhibitor() -> Option<libc::pid_t> {
     std::process::Command::new("systemd-inhibit")
+        .arg(format!("--what={}", inhibit_what()))
         .args([
-            "--what=idle:sleep",
             "--who=Caelestia installer",
             "--why=Installation in progress",
             "bash",
@@ -438,6 +597,35 @@ fn spawn_inhibitor() -> Option<libc::pid_t> {
         .spawn()
         .ok()
         .map(|child| child.id() as libc::pid_t)
+}
+
+// Blocking sleep is a polkit action, and a client polkit cannot tie to an active session is
+// asked to authenticate for it. That question goes to whatever is holding the desktop - on a
+// Caelestia desktop, the shell the user is looking at - so sleep is only asked for where it is
+// already allowed and nothing will be raised. Idle inhibition needs no authorisation and is
+// what keeps an install from being suspended out from under it.
+fn inhibit_what() -> &'static str {
+    if may_block_sleep() {
+        "idle:sleep"
+    } else {
+        "idle"
+    }
+}
+
+fn may_block_sleep() -> bool {
+    std::process::Command::new("pkcheck")
+        .args([
+            "--action-id",
+            "org.freedesktop.login1.inhibit-block-sleep",
+            "--process",
+            &std::process::id().to_string(),
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn inhibit_screensaver(cookie_file: &Path) -> Option<String> {
@@ -462,6 +650,65 @@ fn inhibit_screensaver(cookie_file: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::time::{Duration, Instant};
+
+    use crate::tmp::TempDir;
+
+    fn a_work_dir() -> TempDir {
+        TempDir::new("caelestia-privileges-test").expect("a temporary directory")
+    }
+
+    fn a_credential() -> Credential {
+        let exe = std::env::current_exe().expect("the test binary has a path");
+        Credential::install("hunter2", &exe).expect("a credential")
+    }
+
+    // A stand-in for sudo: it reads the password from stdin the way `sudo -S` does, answers as
+    // told, and leaves a note behind about the session it was run in and what it was given.
+    fn fake_sudo(work: &Path, name: &str, answer: &str) -> PathBuf {
+        let path = work.join(name);
+        let report = work.join(format!("{name}.report"));
+        write_private(
+            &path,
+            &format!(
+                "#!/bin/bash\n\
+                 read -r secret\n\
+                 echo \"pid=$$\" >> {report}\n\
+                 echo \"sid=$(cut -d' ' -f6 /proc/$$/stat)\" >> {report}\n\
+                 echo \"secret=$secret\" >> {report}\n\
+                 {answer}\n",
+                report = shell_quote(&report),
+            ),
+        )
+        .expect("a stand-in for sudo");
+        path
+    }
+
+    fn reported_text(report: &Path, key: &str) -> String {
+        let text = fs::read_to_string(report).expect("the report sudo left behind");
+        text.lines()
+            .find_map(|line| line.strip_prefix(key))
+            .unwrap_or_else(|| panic!("no {key} in:\n{text}"))
+            .to_string()
+    }
+
+    fn reported(report: &Path, key: &str) -> i32 {
+        reported_text(report, key)
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| panic!("{key} is not a number in {}", report.display()))
+    }
+
+    fn gone(pid: i32) -> bool {
+        for _ in 0..40 {
+            if !Path::new(&format!("/proc/{pid}")).exists() {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        false
+    }
 
     #[test]
     fn paths_are_quoted_so_a_generated_script_cannot_be_escaped_out_of() {
@@ -538,5 +785,122 @@ mod tests {
             "{}",
             path.1
         );
+    }
+
+    #[test]
+    fn the_lockout_budget_is_read_from_the_system_rather_than_guessed() {
+        // The rule and the tally are both readable without root, so the installer can spend
+        // exactly what the account was given and never the entry that locks it.
+        assert_eq!(deny_in("deny = 5\nunlock_time = 600\n"), Some(5));
+        assert_eq!(deny_in("# deny = 2\nunlock_time = 600\n"), None);
+        assert_eq!(deny_in(""), None);
+
+        let table = "camus:\n\
+                     When                Type  Source        Valid\n\
+                     2026-10-15 16:55:29 SVC   sudo            V\n\
+                     2026-10-15 16:55:32 SVC   sudo            V\n";
+        assert_eq!(counted_in(table), 2);
+        assert_eq!(counted_in("camus:\n"), 0);
+    }
+
+    #[test]
+    fn the_password_reaches_sudo_and_its_answer_is_believed() {
+        let work = a_work_dir();
+        let right = fake_sudo(work.path(), "sudo-ok", "exit 0");
+        assert!(
+            sudo_accepts_with(&right, "hunter2", Duration::from_secs(20)),
+            "an accepted password was not believed"
+        );
+        assert_eq!(
+            reported_text(&work.path().join("sudo-ok.report"), "secret="),
+            "hunter2",
+            "sudo was not handed the password"
+        );
+
+        let wrong = fake_sudo(work.path(), "sudo-no", "exit 1");
+        assert!(
+            !sudo_accepts_with(&wrong, "hunter2", Duration::from_secs(20)),
+            "a refused password was believed"
+        );
+    }
+
+    #[test]
+    fn sudo_is_run_in_a_session_of_its_own() {
+        // sudo asks on the terminal as well as through the helper, and the frame the installer
+        // is drawing lives on that terminal. Only a session leader has a session id equal to
+        // its own pid, which is what the setsid in detach leaves behind, and a session of its
+        // own is what takes /dev/tty out of sudo's reach.
+        let work = a_work_dir();
+        let sudo = fake_sudo(work.path(), "sudo", "exit 0");
+        assert!(sudo_accepts_with(&sudo, "hunter2", Duration::from_secs(20)));
+
+        let report = work.path().join("sudo.report");
+        let pid = reported(&report, "pid=");
+        let session = reported(&report, "sid=");
+        assert_eq!(
+            session,
+            pid,
+            "sudo was left in the installer's session:\n{}",
+            fs::read_to_string(&report).unwrap_or_default()
+        );
+        assert_ne!(
+            session,
+            unsafe { libc::getsid(0) },
+            "sudo shares the installer's session"
+        );
+    }
+
+    #[test]
+    fn a_check_that_is_never_answered_gives_up_and_takes_sudo_with_it() {
+        let work = a_work_dir();
+        // exec, so the process that reported the pid is the one that hangs.
+        let sudo = fake_sudo(work.path(), "sudo", "exec sleep 60");
+
+        let started = Instant::now();
+        assert!(!sudo_accepts_with(
+            &sudo,
+            "hunter2",
+            Duration::from_millis(300)
+        ));
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "the wait outlived its own deadline by {:?}",
+            started.elapsed()
+        );
+
+        let pid = reported(&work.path().join("sudo.report"), "pid=");
+        assert!(gone(pid), "sudo outlived the check that gave up on it");
+    }
+
+    #[test]
+    fn a_helper_is_not_left_waiting_forever_for_a_password() {
+        // Nothing is serving this pipe, which is what an installer that stopped serving
+        // looks like from the helper's side.
+        let work = a_work_dir();
+        let pipe = work.path().join("unserved.fifo");
+        make_fifo(&pipe).expect("a pipe to wait on");
+
+        let started = Instant::now();
+        assert!(
+            read_secret_within(&pipe, Duration::from_millis(200)).is_err(),
+            "a secret came out of a pipe nobody feeds"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "the helper waited {:?} on a pipe nobody feeds",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn the_credential_answers_every_helper_that_asks() {
+        // sudo asks once for each attempt it makes, so the pipe has to keep serving after
+        // the first reader has taken its secret.
+        let credential = a_credential();
+        let pipe = credential.dir.join(PIPE);
+        for attempt in 1..=5 {
+            let served = read_secret_within(&pipe, Duration::from_secs(20));
+            assert_eq!(served.ok().as_deref(), Some("hunter2"), "attempt {attempt}");
+        }
     }
 }

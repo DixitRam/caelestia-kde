@@ -13,6 +13,16 @@ pub struct Args {
     pub bundle: Option<PathBuf>,
     pub action: PresetAction,
     pub debug: bool,
+    /// How the TUI should draw itself, when the environment did not say.
+    pub look: Look,
+}
+
+/// The overrides a caller can hand the wizard. Anything left alone is decided by the terminal.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Look {
+    pub glyphs: Option<String>,
+    pub theme: Option<String>,
+    pub no_animation: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +51,7 @@ where
         bundle: None,
         action: PresetAction::Wizard,
         debug: false,
+        look: Look::default(),
     };
     let mut seen_preset: Option<&'static str> = None;
     let mut args = collected.into_iter();
@@ -50,6 +61,13 @@ where
             Some("-h") | Some("--help") => return Ok(Invocation::Help),
             Some("--version") => return Ok(Invocation::Version),
             Some("--debug") => parsed.debug = true,
+            Some("--ascii") | Some("--plain") => parsed.look.glyphs = Some("ascii".to_string()),
+            Some("--unicode") => parsed.look.glyphs = Some("unicode".to_string()),
+            Some("--light") | Some("--dark") => {
+                let mode = arg.to_string_lossy().trim_start_matches("--").to_string();
+                parsed.look.theme = Some(mode);
+            }
+            Some("--no-animation") | Some("--still") => parsed.look.no_animation = true,
             Some("--askpass") => {
                 let pipe = args.next().ok_or("--askpass needs the pipe to read")?;
                 return Ok(Invocation::Askpass(PathBuf::from(pipe)));
@@ -116,7 +134,7 @@ fn parse_step(args: &[OsString]) -> Result<Invocation, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Args, Invocation, PresetAction, parse};
+    use super::{Args, Invocation, Look, PresetAction, parse};
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -171,6 +189,28 @@ mod tests {
     #[test]
     fn debug_is_off_until_asked_for() {
         assert!(run(&["--debug"]).debug);
+    }
+
+    #[test]
+    fn the_look_of_the_wizard_can_be_forced_from_the_command_line() {
+        let ascii = run(&["--ascii", "--light", "--no-animation"]);
+        assert_eq!(ascii.look.glyphs.as_deref(), Some("ascii"));
+        assert_eq!(ascii.look.theme.as_deref(), Some("light"));
+        assert!(ascii.look.no_animation);
+
+        let unicode = run(&["--unicode", "--dark"]);
+        assert_eq!(unicode.look.glyphs.as_deref(), Some("unicode"));
+        assert_eq!(unicode.look.theme.as_deref(), Some("dark"));
+        assert!(!unicode.look.no_animation);
+
+        // And nothing is forced unless it is asked for.
+        let plain = run(&[]);
+        assert_eq!(plain.look, Look::default());
+    }
+
+    #[test]
+    fn the_plain_spelling_is_the_same_as_asking_for_ascii() {
+        assert_eq!(run(&["--plain"]).look.glyphs, run(&["--ascii"]).look.glyphs);
     }
 
     #[test]

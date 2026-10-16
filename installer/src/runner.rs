@@ -2,6 +2,7 @@ use std::fs::OpenOptions;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::time::Duration;
 
 use crate::steps::Status;
 
@@ -70,6 +71,15 @@ impl Running {
 
         let offset = std::fs::metadata(log).map(|meta| meta.len()).unwrap_or(0);
 
+        // Its own process group, so stopping the step stops everything it started rather than
+        // just the first process. It also keeps the terminal's own ctrl+c away from it: the
+        // installer decides when a step ends.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+
         let child = command
             .current_dir(bundle)
             .envs(env.iter().map(|(key, value)| (*key, value.clone())))
@@ -85,6 +95,32 @@ impl Running {
             offset,
             warned: false,
         })
+    }
+
+    /// Stop the step and everything it started: a term first so a package manager can put its
+    /// lock back, and a kill only if it will not go.
+    pub fn stop(&mut self) {
+        if matches!(self.child.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        #[cfg(unix)]
+        let group = self.child.id() as i32;
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(-group, libc::SIGTERM);
+        }
+        for _ in 0..20 {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(-group, libc::SIGKILL);
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 
     pub fn poll(&mut self) -> Result<Option<ExitStatus>, String> {
@@ -112,6 +148,14 @@ impl Running {
         } else {
             Status::Ok
         }
+    }
+}
+
+/// A step that is dropped while it is still going is a step nobody stopped: quitting the TUI must
+/// not leave a package manager running behind it.
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
@@ -262,6 +306,39 @@ mod tests {
             "a warning in the log is a warning"
         );
         assert!(lines.iter().any(|line| line.contains("hello")), "{lines:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stopping_a_step_ends_it_rather_than_leaving_it_to_finish() {
+        let dir = std::env::temp_dir().join(format!("caelestia-stop-{}", std::process::id()));
+        let scripts = dir.join("scripts");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&scripts).expect("a scripts directory");
+        std::fs::write(
+            scripts.join("slow.sh"),
+            "#!/bin/bash\nsleep 30\necho 'should never be reached'\n",
+        )
+        .expect("a slow step script");
+        let log = dir.join("install.log");
+
+        let mut running = Running::spawn(&dir, "scripts/slow.sh", &log, &[]).expect("spawn");
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            running.poll().expect("poll").is_none(),
+            "the step is still running"
+        );
+
+        running.stop();
+        assert!(
+            running.poll().expect("poll").is_some(),
+            "the step was still going after being stopped"
+        );
+        let text = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(
+            !text.contains("should never be reached"),
+            "the step carried on after being stopped: {text}"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
