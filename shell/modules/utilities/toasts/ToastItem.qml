@@ -130,6 +130,8 @@ StyledRect {
                     return Colours.palette.m3onSurface;
                 }
                 opacity: 0.8
+                wrapMode: Text.Wrap
+                maximumLineCount: 6
                 elide: Text.ElideRight
             }
         }

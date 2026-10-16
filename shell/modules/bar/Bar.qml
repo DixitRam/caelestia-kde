@@ -83,7 +83,9 @@ Item {
     }
 
     function checkPopout(pos: real): void {
-        if (popouts.hasCurrent && (popouts.currentName === "clockcontext" || popouts.currentName === "dockcontext" || popouts.currentName === "greetercontext" || popouts.currentName === "statusiconscontext" || popouts.currentName === "workspacescontext" || popouts.currentName === "traycontext" || popouts.currentName === "githubcontext" || popouts.currentName === "osiconcontext" || popouts.currentName === "dockbgcontext"))
+        // A context menu stays open while the pointer moves over the bar, so
+        // the hover routing below must not take it over or close it.
+        if (popouts.hasCurrent && (popouts.currentName === "clockcontext" || popouts.currentName === "dockcontext" || popouts.currentName === "greetercontext" || popouts.currentName === "statusiconscontext" || popouts.currentName === "workspacescontext" || popouts.currentName === "traycontext" || popouts.currentName === "githubcontext" || popouts.currentName === "weathercontext" || popouts.currentName === "mediacontext" || popouts.currentName === "performancecontext" || popouts.currentName === "screencapturecontext" || popouts.currentName === "keepawakecontext" || popouts.currentName === "osiconcontext" || popouts.currentName === "dockbgcontext" || popouts.currentName === "elementscontext"))
             return;
 
         const ch = getLoaderAt(isHorizontal ? pos : width / 2, isHorizontal ? height / 2 : pos) as WrappedLoader;
@@ -197,6 +199,21 @@ Item {
                 const inside = isHorizontal ? (relPos >= 0 && relPos <= item.implicitWidth) : (relPos >= 0 && relPos <= item.implicitHeight);
                 if (inside) {
                     popouts.currentName = "github";
+                    popouts.currentCenter = isHorizontal ? item.mapToItem(null, item.implicitWidth / 2, 0).x : (item.mapToItem(null, 0, item.implicitHeight / 2).y ?? 0);
+                    popouts.hasCurrent = true;
+                } else {
+                    popouts.hasCurrent = false;
+                }
+            } else {
+                popouts.hasCurrent = false;
+            }
+        } else if (id === "notes" || id === "weather" || id === "performance" || id === "shortcuts" || id === "screencapture" || id === "keepawake") {
+            const item = ch.item as Item;
+            if (item) {
+                const relPos = pos - top;
+                const inside = isHorizontal ? (relPos >= 0 && relPos <= item.implicitWidth) : (relPos >= 0 && relPos <= item.implicitHeight);
+                if (inside) {
+                    popouts.currentName = id;
                     popouts.currentCenter = isHorizontal ? item.mapToItem(null, item.implicitWidth / 2, 0).x : (item.mapToItem(null, 0, item.implicitHeight / 2).y ?? 0);
                     popouts.hasCurrent = true;
                 } else {
@@ -451,7 +468,9 @@ Item {
                 roleValue: "kbLayoutIndicator"
                 delegate: WrappedLoader {
                     visible: enabled && (Kwin.kbLayout || "").length > 0
-                    sourceComponent: KbLayoutIndicator {}
+                    sourceComponent: KbLayoutIndicator {
+                        popouts: root.popouts
+                    }
                 }
             }
             DelegateChoice {
@@ -471,41 +490,53 @@ Item {
                 roleValue: "perfCpu"
                 delegate: WrappedLoader {
                     visible: enabled && Cpu.name.length > 0
-                    sourceComponent: PerfCpu {}
+                    sourceComponent: PerfCpu {
+                        popouts: root.popouts
+                    }
                 }
             }
             DelegateChoice {
                 roleValue: "perfMemory"
                 delegate: WrappedLoader {
                     visible: enabled && Memory.total > 1
-                    sourceComponent: PerfMemory {}
+                    sourceComponent: PerfMemory {
+                        popouts: root.popouts
+                    }
                 }
             }
             DelegateChoice {
                 roleValue: "perfStorage"
                 delegate: WrappedLoader {
                     visible: enabled && Storage.disks.length > 0
-                    sourceComponent: PerfStorage {}
+                    sourceComponent: PerfStorage {
+                        popouts: root.popouts
+                    }
                 }
             }
             DelegateChoice {
                 roleValue: "perfNetwork"
                 delegate: WrappedLoader {
-                    sourceComponent: PerfNetwork {}
+                    sourceComponent: PerfNetwork {
+                        popouts: root.popouts
+                    }
                 }
             }
             DelegateChoice {
                 roleValue: "perfGpu"
                 delegate: WrappedLoader {
                     visible: enabled && Gpu.type !== Gpu.None
-                    sourceComponent: PerfGpu {}
+                    sourceComponent: PerfGpu {
+                        popouts: root.popouts
+                    }
                 }
             }
             DelegateChoice {
                 roleValue: "perfBattery"
                 delegate: WrappedLoader {
                     visible: enabled && UPower.displayDevice.isLaptopBattery
-                    sourceComponent: PerfBattery {}
+                    sourceComponent: PerfBattery {
+                        popouts: root.popouts
+                    }
                 }
             }
             DelegateChoice {
@@ -521,6 +552,54 @@ Item {
                 roleValue: "media"
                 delegate: WrappedLoader {
                     sourceComponent: Media {
+                        popouts: root.popouts
+                    }
+                }
+            }
+            DelegateChoice {
+                roleValue: "notes"
+                delegate: WrappedLoader {
+                    sourceComponent: Notes {
+                        popouts: root.popouts
+                    }
+                }
+            }
+            DelegateChoice {
+                roleValue: "weather"
+                delegate: WrappedLoader {
+                    sourceComponent: WeatherWidget {
+                        popouts: root.popouts
+                    }
+                }
+            }
+            DelegateChoice {
+                roleValue: "performance"
+                delegate: WrappedLoader {
+                    sourceComponent: PerformanceWidget {
+                        popouts: root.popouts
+                    }
+                }
+            }
+            DelegateChoice {
+                roleValue: "shortcuts"
+                delegate: WrappedLoader {
+                    sourceComponent: ShortcutsWidget {
+                        popouts: root.popouts
+                    }
+                }
+            }
+            DelegateChoice {
+                roleValue: "screencapture"
+                delegate: WrappedLoader {
+                    sourceComponent: ScreenCaptureWidget {
+                        popouts: root.popouts
+                    }
+                }
+            }
+            DelegateChoice {
+                roleValue: "keepawake"
+                delegate: WrappedLoader {
+                    sourceComponent: KeepAwakeWidget {
                         popouts: root.popouts
                     }
                 }

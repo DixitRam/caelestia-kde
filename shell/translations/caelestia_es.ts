@@ -2227,7 +2227,15 @@
       <source>Empty</source>
       <translation>Vacío</translation>
     </message>
-  </context>
+      <message>
+        <source>Scroll on the left half of a horizontal bar (top half if vertical) to adjust volume</source>
+        <translation>Desplazar en la mitad izquierda de una barra horizontal (mitad superior si es vertical) para ajustar el volumen</translation>
+    </message>
+    <message>
+        <source>Scroll on the right half of a horizontal bar (bottom half if vertical) to adjust brightness</source>
+        <translation>Desplazar en la mitad derecha de una barra horizontal (mitad inferior si es vertical) para ajustar el brillo</translation>
+    </message>
+</context>
   <context>
     <name>BarDock</name>
     <message>
@@ -3942,7 +3950,47 @@
       <source>News</source>
       <translation>Noticias</translation>
     </message>
-  </context>
+      <message>
+        <source>Media settings</source>
+        <translation>Configuración de multimedia</translation>
+    </message>
+    <message>
+        <source>Performance settings</source>
+        <translation>Configuración de rendimiento</translation>
+    </message>
+    <message>
+        <source>Weather settings</source>
+        <translation>Configuración del clima</translation>
+    </message>
+    <message>
+        <source>Screen Capture settings</source>
+        <translation>Configuración de captura de pantalla</translation>
+    </message>
+    <message>
+        <source>Elements &amp; Modules</source>
+        <translation>Elementos y módulos</translation>
+    </message>
+    <message>
+        <source>Quick toggles</source>
+        <translation>Atajos rápidos</translation>
+    </message>
+    <message>
+        <source>Quick toggles settings</source>
+        <translation>Configuración de atajos rápidos</translation>
+    </message>
+    <message>
+        <source>Screen Capture</source>
+        <translation>Captura de pantalla</translation>
+    </message>
+    <message>
+        <source>Shortcuts settings</source>
+        <translation>Configuración de atajos</translation>
+    </message>
+    <message>
+        <source>Keep Awake settings</source>
+        <translation>Configuración de Mantener activo</translation>
+    </message>
+</context>
   <context>
     <name>ContentList</name>
     <message>
@@ -11736,7 +11784,19 @@ PIN: %1</source>
       <source>Indicator visibility, automatic checks</source>
       <translation>Visibilidad del indicador y comprobaciones automáticas</translation>
     </message>
-  </context>
+      <message>
+        <source>Elements &amp; Modules</source>
+        <translation>Elementos y módulos</translation>
+    </message>
+    <message>
+        <source>Performance</source>
+        <translation>Rendimiento</translation>
+    </message>
+    <message>
+        <source>Widget pill</source>
+        <translation>Píldora del widget</translation>
+    </message>
+</context>
   <context>
     <name>TaskbarPanel</name>
     <message>
@@ -13885,4 +13945,184 @@ PIN: %1</source>
       <translation>Desconocido</translation>
     </message>
   </context>
+<context>
+    <name>BarShortcuts</name>
+    <message>
+        <source>Shortcuts</source>
+        <translation>Atajos</translation>
+    </message>
+    <message>
+        <source>Configuration</source>
+        <translation>Configuración</translation>
+    </message>
+    <message>
+        <source>Show apps</source>
+        <translation>Mostrar aplicaciones</translation>
+    </message>
+    <message>
+        <source>Show quick-launch app buttons in the widget</source>
+        <translation>Mostrar los botones de aplicaciones en el widget</translation>
+    </message>
+    <message>
+        <source>Show system</source>
+        <translation>Mostrar sistema</translation>
+    </message>
+    <message>
+        <source>Show system shortcuts (Nexus, Overview, etc.)</source>
+        <translation>Mostrar los accesos del sistema (Nexus, vista general, etc.)</translation>
+    </message>
+</context>
+<context>
+    <name>BarScreenCapture</name>
+    <message>
+        <source>Screen Capture</source>
+        <translation>Captura de pantalla</translation>
+    </message>
+    <message>
+        <source>Configuration</source>
+        <translation>Configuración</translation>
+    </message>
+    <message>
+        <source>Show screenshot buttons</source>
+        <translation>Mostrar botones de captura</translation>
+    </message>
+    <message>
+        <source>Show region/window/screen capture buttons</source>
+        <translation>Mostrar botones de captura de región, ventana y pantalla</translation>
+    </message>
+    <message>
+        <source>Show recording buttons</source>
+        <translation>Mostrar botones de grabación</translation>
+    </message>
+    <message>
+        <source>Show region/screen recording buttons</source>
+        <translation>Mostrar botones de grabación de región y pantalla</translation>
+    </message>
+    <message>
+        <source>Show folder shortcuts</source>
+        <translation>Mostrar accesos a carpetas</translation>
+    </message>
+    <message>
+        <source>Show buttons to open screenshots/recordings folders</source>
+        <translation>Mostrar botones para abrir las carpetas de capturas y grabaciones</translation>
+    </message>
+</context>
+<context>
+    <name>BarKeepAwake</name>
+    <message>
+        <source>Keep Awake</source>
+        <translation>Mantener activo</translation>
+    </message>
+    <message>
+        <source>Configuration</source>
+        <translation>Configuración</translation>
+    </message>
+    <message>
+        <source>Show active indicator</source>
+        <translation>Mostrar indicador de actividad</translation>
+    </message>
+    <message>
+        <source>Show a chip with the activation time when Keep Awake is on</source>
+        <translation>Mostrar una píldora con la hora de activación cuando Mantener activo esté encendido</translation>
+    </message>
+    <message>
+        <source>Widget</source>
+        <translation>Widget</translation>
+    </message>
+    <message>
+        <source>Auto-hide when inactive</source>
+        <translation>Ocultar automáticamente cuando esté inactivo</translation>
+    </message>
+    <message>
+        <source>Hide the widget when Keep Awake is off</source>
+        <translation>Ocultar el widget cuando Mantener activo esté apagado</translation>
+    </message>
+</context>
+<context>
+    <name>BarPerformance</name>
+    <message>
+        <source>Specific widgets</source>
+        <translation>Widgets específicos</translation>
+    </message>
+    <message>
+        <source>Panel widget</source>
+        <translation>Widget del panel</translation>
+    </message>
+    <message>
+        <source>Choose the shape of the specific pills</source>
+        <translation>Elegir la forma de las píldoras específicas</translation>
+    </message>
+    <message>
+        <source>Rectangle</source>
+        <translation>Rectángulo</translation>
+    </message>
+    <message>
+        <source>Style</source>
+        <translation>Estilo</translation>
+    </message>
+    <message>
+        <source>Icon</source>
+        <translation>Ícono</translation>
+    </message>
+    <message>
+        <source>Speed icon or a stat pill in the panel</source>
+        <translation>Ícono de velocidad o una píldora de estadística en el panel</translation>
+    </message>
+    <message>
+        <source>Metric</source>
+        <translation>Métrica</translation>
+    </message>
+    <message>
+        <source>Show the value next to the icon in the panel widget</source>
+        <translation>Mostrar el valor junto al icono en el widget del panel</translation>
+    </message>
+    <message>
+        <source>Performance</source>
+        <translation>Rendimiento</translation>
+    </message>
+    <message>
+        <source>Pill</source>
+        <translation>Píldora</translation>
+    </message>
+    <message>
+        <source>Stat shown in the bar, the full data is in the popout</source>
+        <translation>Estadística mostrada en la barra, los datos completos están en el popout</translation>
+    </message>
+    <message>
+        <source>CPU</source>
+        <translation>CPU</translation>
+    </message>
+    <message>
+        <source>GPU</source>
+        <translation>GPU</translation>
+    </message>
+    <message>
+        <source>Memory</source>
+        <translation>Memoria</translation>
+    </message>
+    <message>
+        <source>Storage</source>
+        <translation>Almacenamiento</translation>
+    </message>
+    <message>
+        <source>Network</source>
+        <translation>Red</translation>
+    </message>
+    <message>
+        <source>Battery</source>
+        <translation>Batería</translation>
+    </message>
+    <message>
+        <source>Show values</source>
+        <translation>Mostrar valores</translation>
+    </message>
+    <message>
+        <source>Show the value next to the icon in each pill</source>
+        <translation>Mostrar el valor junto al ícono en cada píldora</translation>
+    </message>
+    <message>
+        <source>Pill style</source>
+        <translation>Estilo de píldora</translation>
+    </message>
+</context>
 </TS>

@@ -55,6 +55,7 @@ Item {
     property var dropCells: []
     property string mergeKey: ""
     property bool dragImageReady: false
+    property string pendingDragKey: ""
     property string dragImageKey: ""
 
     property string openGroupId: ""
@@ -968,6 +969,7 @@ Item {
     function prepareDragImage(key: string): void {
         dragImageReady = false;
         dragImageKey = key;
+        pendingDragKey = "";
         // Large items are grabbed as they look; icons go through dragPreview
         // so several files get a count badge.
         let source = tiles[key];
@@ -976,21 +978,46 @@ Item {
             dragPreview.count = Math.max(1, entriesFor(selectedKeys()).length);
             source = dragPreview;
         }
-        if (!source)
+        if (!source) {
+            dragImageKey = "";
             return;
+        }
         source.grabToImage(result => {
             if (dragImageKey !== key)
                 return;
+            dragImageProbe.source = result.url;
             dragSource.Drag.imageSource = result.url;
             dragImageReady = true;
+            if (pendingDragKey === key) {
+                pendingDragKey = "";
+                beginDrag(key);
+            }
         });
     }
 
     function beginDrag(key: string): void {
         if (renameActive)
             return;
+        // The first drag can outrun the async image grab; starting without it flickers.
+        if (!dragImageReady && dragImageKey === key) {
+            pendingDragKey = key;
+            return;
+        }
         const keys = isSelected(key) ? selectedKeys() : [key];
-        startDrag(keys, key, openGroupId, isBigKey(key) ? pressPoint : Qt.point(dragPreview.width / 2, Tokens.padding.small + iconSize / 2));
+        // For big widgets, adjust the hotSpot to the card's position within the tile.
+        let hotSpot = pressPoint;
+        if (isBigKey(key)) {
+            const tile = tiles[key];
+            if (tile && tile.card) {
+                hotSpot = Qt.point(
+                    pressPoint.x - tile.card.anchors.leftMargin,
+                    pressPoint.y - tile.card.anchors.topMargin
+                );
+            }
+        } else {
+            hotSpot = Qt.point(dragPreview.width / 2, Tokens.padding.small + iconSize / 2);
+        }
+        startDrag(keys, key, openGroupId, hotSpot);
     }
 
     // Drags one app straight out of a large folder, without opening it.
@@ -1711,6 +1738,15 @@ wl-paste --no-newline --type text/uri-list`]
     }
 
     // Carries the system drag; the image is grabbed from dragPreview.
+    // The probe decodes the grab into the pixmap cache, so the drag finds it ready.
+    Image {
+        id: dragImageProbe
+
+        visible: false
+        asynchronous: false
+        cache: true
+    }
+
     Item {
         id: dragSource
 

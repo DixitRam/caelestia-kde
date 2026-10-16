@@ -11,6 +11,7 @@ Item {
     id: root
 
     required property PopoutState popouts
+    required property DrawerVisibilities visibilities
     readonly property Popout currentPopout: content.children.find(c => c.shouldBeActive) ?? null
     readonly property Item current: currentPopout?.item ?? null
 
@@ -59,6 +60,8 @@ Item {
                 popouts: root.popouts
                 label: qsTr("Greeter settings")
                 subPageIdx: 8
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
             }
         }
 
@@ -122,6 +125,8 @@ Item {
                 popouts: root.popouts
                 label: qsTr("Clock settings")
                 subPageIdx: 11
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
             }
         }
 
@@ -131,6 +136,8 @@ Item {
                 popouts: root.popouts
                 label: qsTr("Launcher settings")
                 subPageIdx: 3
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
             }
         }
 
@@ -140,6 +147,8 @@ Item {
                 popouts: root.popouts
                 label: qsTr("Status icons settings")
                 subPageIdx: 10
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
             }
         }
 
@@ -166,6 +175,50 @@ Item {
         Popout {
             name: "media"
             sourceComponent: Media {
+                popouts: root.popouts
+            }
+        }
+
+        Popout {
+            name: "notes"
+            sourceComponent: Notes {
+                popouts: root.popouts
+            }
+        }
+
+        Popout {
+            name: "weather"
+            sourceComponent: Weather {
+                popouts: root.popouts
+            }
+        }
+
+        Popout {
+            name: "performance"
+            sourceComponent: Performance {
+                popouts: root.popouts
+            }
+        }
+
+        Popout {
+            name: "shortcuts"
+            sourceComponent: Shortcuts {
+                popouts: root.popouts
+                visibilities: root.visibilities
+            }
+        }
+
+        Popout {
+            name: "screencapture"
+            sourceComponent: ScreenCapture {
+                popouts: root.popouts
+                visibilities: root.visibilities
+            }
+        }
+
+        Popout {
+            name: "keepawake"
+            sourceComponent: KeepAwake {
                 popouts: root.popouts
             }
         }
@@ -236,6 +289,8 @@ Item {
                 popouts: root.popouts
                 label: qsTr("Workspaces settings")
                 subPageIdx: 7
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
             }
         }
 
@@ -245,6 +300,8 @@ Item {
                 popouts: root.popouts
                 label: qsTr("Tray settings")
                 subPageIdx: 9
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
             }
         }
 
@@ -254,6 +311,60 @@ Item {
                 popouts: root.popouts
                 label: qsTr("GitHub settings")
                 subPageIdx: 13
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
+            }
+        }
+
+        Popout {
+            name: "mediacontext"
+            sourceComponent: BarComponentContext {
+                popouts: root.popouts
+                label: qsTr("Media settings")
+                subPageIdx: 19
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
+            }
+        }
+
+        Popout {
+            name: "performancecontext"
+            sourceComponent: BarComponentContext {
+                popouts: root.popouts
+                label: qsTr("Performance settings")
+                subPageIdx: 21
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
+            }
+        }
+        Popout {
+            name: "weathercontext"
+            sourceComponent: BarComponentContext {
+                popouts: root.popouts
+                label: qsTr("Weather settings")
+                subPageIdx: 20
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
+            }
+        }
+        Popout {
+            name: "screencapturecontext"
+            sourceComponent: BarComponentContext {
+                popouts: root.popouts
+                label: qsTr("Screen Capture settings")
+                subPageIdx: 22
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
+            }
+        }
+        Popout {
+            name: "keepawakecontext"
+            sourceComponent: BarComponentContext {
+                popouts: root.popouts
+                label: qsTr("Keep Awake settings")
+                subPageIdx: 23
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
             }
         }
 
@@ -263,6 +374,17 @@ Item {
                 popouts: root.popouts
                 label: qsTr("Dock settings")
                 subPageIdx: 12
+                secondLabel: qsTr("Elements & Modules")
+                secondSubPageIdx: 15
+            }
+        }
+
+        Popout {
+            name: "elementscontext"
+            sourceComponent: BarComponentContext {
+                popouts: root.popouts
+                label: qsTr("Elements & Modules")
+                subPageIdx: 15
             }
         }
 

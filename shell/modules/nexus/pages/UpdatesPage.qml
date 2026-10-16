@@ -133,7 +133,9 @@ PageBase {
         if (root.selectedVersionId !== "")
             command.push(root.selectedVersionId);
         root.selectedVersionId = "";
-        Launch.exec([...root.terminalCommand, "caelestia-update", ...command]);
+        // Holds the terminal open afterwards: the update restarts the shell and its output is what the user needs to read.
+        const hold = 'caelestia-update "$@"; s=$?; printf "\\n[caelestia-update exited with status %s] Press Enter to close..." "$s"; read -r _';
+        Launch.exec([...root.terminalCommand, "sh", "-c", hold, "sh", ...command]);
     }
 
     title: qsTr("Updates")

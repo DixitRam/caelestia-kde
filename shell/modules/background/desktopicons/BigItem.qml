@@ -36,7 +36,7 @@ Item {
     // wider than the one between columns; otherwise rows look much further apart.
     readonly property real sideGap: Tokens.padding.extraLarge / 2
     readonly property real topGap: Tokens.padding.small
-    readonly property real labelHeight: Tokens.padding.extraLargeIncreased
+    readonly property real labelHeight: isGroup ? Tokens.padding.extraLargeIncreased : topGap
     readonly property string label: {
         if (isGroup)
             return DesktopLayout.groups[itemId]?.name ?? "";
@@ -205,8 +205,9 @@ Item {
 
     // Centred in the gap down to the next row's card (its top gap included), so
     // names in different scripts line up.
+    // Only groups carry a name; widgets show none.
     StyledRect {
-        visible: !root.frameless
+        visible: root.isGroup && !root.frameless
         anchors.horizontalCenter: card.horizontalCenter
         anchors.verticalCenter: card.bottom
         anchors.verticalCenterOffset: (root.labelHeight + root.topGap) / 2 - 1

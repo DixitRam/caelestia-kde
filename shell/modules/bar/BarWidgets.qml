@@ -25,7 +25,13 @@ QtObject {
         { id: "perfGpu", zone: "right" },
         { id: "perfBattery", zone: "right" },
         { id: "showDesktop", zone: "right" },
-        { id: "power", zone: "right" }
+        { id: "power", zone: "right" },
+        { id: "notes", zone: "right" },
+        { id: "performance", zone: "right" },
+        { id: "weather", zone: "right" },
+        { id: "shortcuts", zone: "right" },
+        { id: "screencapture", zone: "right" },
+        { id: "keepawake", zone: "right" }
     ]
 
     readonly property var byId: {

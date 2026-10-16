@@ -111,6 +111,7 @@ Item {
         anchors.fill: parent
         sourceComponent: Content {
             popouts: popoutState
+            visibilities: root.visibilities
         }
     }
     Comp {

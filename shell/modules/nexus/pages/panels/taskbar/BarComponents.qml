@@ -42,7 +42,13 @@ PageBase {
         "perfBattery": { icon: "battery_full", name: qsTr("Battery"), available: UPower.displayDevice.isLaptopBattery, unavailableText: qsTr("Battery not detected") },
         "dock": { icon: "apps", name: qsTr("Dock") },
         "showDesktop": { icon: "keyboard_double_arrow_down", name: qsTr("Show Desktop") },
-        "power": { icon: "power_settings_new", name: qsTr("Power menu") }
+        "power": { icon: "power_settings_new", name: qsTr("Power menu") },
+        "shortcuts": { icon: "toggle_on", name: qsTr("Shortcuts") },
+        "screencapture": { icon: "screenshot_region", name: qsTr("Screen Capture") },
+        "keepawake": { icon: "coffee", name: qsTr("Keep Awake") },
+        "notes": { icon: "sticky_note_2", name: qsTr("Notes") },
+        "performance": { icon: "speed", name: qsTr("Performance") },
+        "weather": { icon: "cloud", name: qsTr("Weather") }
     }
     property bool isGlobalDragging: false
     property string globalDragCompId: ""

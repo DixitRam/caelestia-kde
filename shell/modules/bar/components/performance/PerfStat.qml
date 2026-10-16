@@ -14,9 +14,16 @@ StyledRect {
     property real value: NaN
     property color textColor: Colours.palette.m3onSurface
     property color iconColor: accent
-    property real widthFactor: 2.35
+    property real widthFactor: 1.9
     property string maxText: "100"
     property bool showText: typeof Config.bar.performance !== "undefined" && Config.bar.performance.showText !== undefined ? Config.bar.performance.showText : true
+    // "classic" keeps the current full pills, "compact" is smaller with
+    // rounded corners so it sits in line with the other bar icons.
+    property string pillStyle: typeof Config.bar.performance !== "undefined" && Config.bar.performance.pillStyle !== undefined ? Config.bar.performance.pillStyle : "classic"
+    property bool compact: root.pillStyle === "compact"
+    // Optional: set when hosted directly in the bar; the PerformanceWidget
+    // pills leave it unset and use the widget's own context menu instead.
+    property var popouts
 
     readonly property bool isHorizontal: Config.bar.position === "top" || Config.bar.position === "bottom"
     readonly property real rawScale: !isNaN(Config.bar.scale) ? Config.bar.scale : 1.0
@@ -24,20 +31,21 @@ StyledRect {
     readonly property int barThickness: Math.round(Tokens.sizes.bar.innerWidth * scaleFactor)
     readonly property int baseThickness: Tokens.sizes.bar.innerWidth
     readonly property int effectiveThickness: rawScale < 1.0 ? baseThickness : barThickness
-    readonly property int iconSize: Math.round(effectiveThickness * 0.42)
-    readonly property int textSize: Math.round(effectiveThickness * 0.32)
+    readonly property int iconSize: Math.round(effectiveThickness * 0.36)
+    readonly property int textSize: Math.round(effectiveThickness * 0.28)
     readonly property real progress: isNaN(value) ? 0 : Math.max(0, Math.min(1, value))
-    readonly property int hPadding: Tokens.padding.medium
+    readonly property int hPadding: Tokens.padding.extraSmall
     readonly property int vPadding: Tokens.padding.extraSmall
     readonly property int trackThickness: Math.max(4, Math.round(Tokens.padding.extraSmall * 0.8))
     readonly property int trackInset: Tokens.padding.medium
+    readonly property real effWidthFactor: root.compact ? 1.3 : root.widthFactor
 
     color: Colours.tPalette.m3surfaceContainerHigh
-    radius: Tokens.rounding.full
+    radius: root.compact ? Tokens.rounding.medium : Tokens.rounding.full
     clip: true
 
-    implicitWidth: isHorizontal ? Math.max(contentRow.implicitWidth + hPadding * 2, Math.round(barThickness * widthFactor)) : barThickness
-    implicitHeight: isHorizontal ? barThickness : Math.max(verticalCol.implicitHeight + vPadding * 2, Math.round(barThickness * widthFactor))
+    implicitWidth: isHorizontal ? Math.max(contentRow.implicitWidth + hPadding * 2, Math.round(barThickness * effWidthFactor)) : barThickness
+    implicitHeight: isHorizontal ? barThickness : Math.max(verticalCol.implicitHeight + vPadding * 2, Math.round(barThickness * effWidthFactor))
 
     StyledText {
         id: dummyText
@@ -90,7 +98,7 @@ StyledRect {
         anchors.leftMargin: root.hPadding
         anchors.rightMargin: root.hPadding
         visible: root.isHorizontal
-        spacing: Tokens.spacing.small
+        spacing: Tokens.spacing.extraSmall
 
         Item {
             Layout.fillWidth: true
@@ -143,6 +151,20 @@ StyledRect {
             color: root.textColor
             font: Tokens.font.body.builders.small.size(root.textSize).weight(Font.DemiBold).build()
             visible: root.showText
+        }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.RightButton
+        cursorShape: Qt.PointingHandCursor
+        onClicked: mouse => {
+            if (!root.popouts)
+                return;
+            root.popouts.currentName = "performancecontext";
+            root.popouts.currentCenter = root.isHorizontal ? root.mapToItem(null, root.implicitWidth / 2, 0).x : (root.mapToItem(null, 0, root.implicitHeight / 2).y ?? 0);
+            root.popouts.hasCurrent = true;
+            mouse.accepted = true;
         }
     }
 }

@@ -17,6 +17,12 @@ ColumnLayout {
     required property string label
     required property int subPageIdx
 
+    // Optional second action row (e.g. every widget menu also links to
+    // Elements & Modules). Empty label hides it.
+    property string secondLabel: ""
+    property int secondSubPageIdx: -1
+    property string secondPageKey: "panels"
+
     property real scaleOffset: 1.0
     property real fontScale: 1.0
     property bool _isSidebarOpen: false
@@ -44,49 +50,70 @@ ColumnLayout {
             anchors.margins: Tokens.padding.medium * root.scaleOffset
             spacing: Tokens.spacing.small * root.scaleOffset
 
-            StyledRect {
-                id: settingsItem
+            ActionRow {
+                labelText: root.label
+                pageKey: "panels"
+                subPageIdx: root.subPageIdx
+            }
 
-                Layout.fillWidth: true
-                implicitWidth: settingsRow.implicitWidth + Tokens.padding.medium * 2 * root.scaleOffset
-                implicitHeight: settingsRow.implicitHeight + Tokens.padding.small * 2 * root.scaleOffset
+            ActionRow {
+                visible: root.secondLabel !== ""
+                labelText: root.secondLabel
+                pageKey: root.secondPageKey
+                subPageIdx: root.secondSubPageIdx
+            }
+        }
+    }
 
-                radius: Tokens.rounding.medium * root.scaleOffset
-                color: "transparent"
+    component ActionRow: StyledRect {
+        id: row
 
-                StateLayer {
-                    anchors.fill: parent
-                    radius: settingsItem.radius
+        required property string labelText
+        required property string pageKey
+        required property int subPageIdx
 
-                    onClicked: {
-                        root.popouts.hasCurrent = false;
-                        WindowFactory.create(null, {
-                            initialPageIdx: PageRegistry.indexForKey("panels"),
-                            initialSubPageIdx: root.subPageIdx
-                        });
-                    }
-                }
+        Layout.fillWidth: true
+        implicitWidth: rowLayout.implicitWidth + Tokens.padding.medium * 2 * root.scaleOffset
+        implicitHeight: rowLayout.implicitHeight + Tokens.padding.small * 2 * root.scaleOffset
 
-                RowLayout {
-                    id: settingsRow
+        radius: Tokens.rounding.medium * root.scaleOffset
+        color: "transparent"
 
-                    anchors.centerIn: parent
-                    spacing: Tokens.spacing.small * root.scaleOffset
+        StateLayer {
+            anchors.fill: parent
+            radius: row.radius
 
-                    MaterialIcon {
-                        Layout.alignment: Qt.AlignVCenter
-                        text: "settings"
-                        color: Colours.palette.m3onSurfaceVariant
-                        fontStyle.pointSize: Tokens.font.icon.medium.pointSize * root.fontScale
-                    }
+            onClicked: {
+                root.popouts.hasCurrent = false;
+                WindowFactory.create(null, {
+                    initialPageIdx: PageRegistry.indexForKey(row.pageKey),
+                    initialSubPageIdx: row.subPageIdx
+                });
+            }
+        }
 
-                    StyledText {
-                        Layout.alignment: Qt.AlignVCenter
-                        text: root.label
-                        color: Colours.palette.m3onSurface
-                        font.pointSize: Tokens.font.body.medium.pointSize * root.fontScale
-                    }
-                }
+        RowLayout {
+            id: rowLayout
+
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Tokens.padding.medium * root.scaleOffset
+            anchors.rightMargin: Tokens.padding.medium * root.scaleOffset
+            spacing: Tokens.spacing.small * root.scaleOffset
+
+            MaterialIcon {
+                Layout.alignment: Qt.AlignVCenter
+                text: "settings"
+                color: Colours.palette.m3onSurfaceVariant
+                fontStyle.pointSize: Tokens.font.icon.medium.pointSize * root.fontScale
+            }
+
+            StyledText {
+                Layout.alignment: Qt.AlignVCenter
+                text: row.labelText
+                color: Colours.palette.m3onSurface
+                font.pointSize: Tokens.font.body.medium.pointSize * root.fontScale
             }
         }
     }

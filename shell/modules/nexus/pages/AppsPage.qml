@@ -80,6 +80,22 @@ PageBase {
 
         DefaultRow {
             enabled: !systemDefaultsToggle.checked
+            icon: "web"
+            label: qsTr("Browser")
+            status: GlobalConfig.general.apps.browser.join(" ")
+            onSelected: app => GlobalConfig.general.apps.browser = app.command
+        }
+
+        DefaultRow {
+            enabled: !systemDefaultsToggle.checked
+            icon: "code"
+            label: qsTr("Editor")
+            status: GlobalConfig.general.apps.editor.join(" ")
+            onSelected: app => GlobalConfig.general.apps.editor = app.command
+        }
+
+        DefaultRow {
+            enabled: !systemDefaultsToggle.checked
             last: true
             icon: "folder"
             label: qsTr("File manager")

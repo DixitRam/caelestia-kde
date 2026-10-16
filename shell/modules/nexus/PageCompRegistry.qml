@@ -140,6 +140,18 @@ QtObject {
                 Component {
                     BarMedia {}
                 }
+                Component {
+                    BarWeather {}
+                }
+                Component {
+                    BarPerformance {}
+                }
+                Component {
+                    BarScreenCapture {}
+                }
+                Component {
+                    BarKeepAwake {}
+                }
             }
         },
         Component {
