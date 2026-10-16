@@ -253,6 +253,72 @@ for (var i = 0; i < desktops().length; i++) {
     fi
 }
 
+add_kde_applets_live() {
+    local conf_path="$1"
+    local plugin_id="$2"
+    local count="$3"
+
+    if [[ -z "${CAELESTIA_TEST_MODE:-}" && "$USER_CONFIG_DIR" != "/tmp/"* ]] && command -v qdbus6 >/dev/null 2>&1; then
+        python3 - "$conf_path" "$plugin_id" "$count" << 'PYEOF'
+import json, re, subprocess, sys
+
+conf_path = sys.argv[1]
+plugin_id = sys.argv[2]
+count = int(sys.argv[3])
+
+with open(conf_path, "r") as f:
+    text = f.read()
+
+applets_data = []
+for idx in range(1, count + 1):
+    geom_m = re.search(rf"^\[Applet_{idx}\].*?^geometry=([^\n]+)", text, re.S | re.M)
+    geom_parts = geom_m.group(1).split(",") if geom_m else ["0", "0", "400", "300"]
+    x, y, w, h = float(geom_parts[0]), float(geom_parts[1]), float(geom_parts[2]), float(geom_parts[3])
+
+    gen_m = re.search(rf"\[Applet_{idx}\]\[Configuration\]\[General\]\n((?:(?!^\[).)*)", text, re.S | re.M)
+    gen_cfg = {}
+    if gen_m:
+        for line in gen_m.group(1).splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                gen_cfg[k.strip()] = v.strip()
+
+    applets_data.append({"x": x, "y": y, "w": w, "h": h, "config": gen_cfg})
+
+js = f"""
+var d = desktops()[0];
+var ws = d.widgets();
+for (var i = 0; i < ws.length; i++) {{
+    if (ws[i].type === '{plugin_id}') {{
+        ws[i].remove();
+    }}
+}}
+var data = {json.dumps(applets_data)};
+for (var i = 0; i < data.length; i++) {{
+    var item = data[i];
+    var w = d.addWidget('{plugin_id}', item.x, item.y, item.w, item.h);
+    if (w) {{
+        w.currentConfigGroup = ['General'];
+        for (var k in item.config) {{
+            w.writeConfig(k, item.config[k]);
+        }}
+        w.reloadConfig();
+    }}
+}}
+"""
+
+try:
+    subprocess.run(
+        ["qdbus6", "org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell.evaluateScript", js],
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+except Exception:
+    pass
+PYEOF
+    fi
+}
+
 open_kde_applet_config() {
     local plugin_id="$1"
     local helper=""
@@ -293,38 +359,32 @@ for (var i = 0; i < desktops().length; i++) {
     fi
 }
 
-
 export_visualizer() {
-    echo "Exporting and syncing plasma-audio-visualizer widgets..."
-    local sync_output
-    sync_output="$(sync_kde_applets \
+    echo "Adding plasma-audio-visualizer widgets directly..."
+    add_kde_applets_live \
+        "$CONFIG_DIR/plasma-audio-visualizer.conf" \
+        "luisbocanegra.audio.visualizer" \
+        "2"
+
+    sync_kde_applets \
         "$CONFIG_DIR/plasma-audio-visualizer.conf" \
         "$USER_CONFIG_DIR" \
         "luisbocanegra.audio.visualizer" \
         "2" \
-        "plasma-audio-visualizer")"
-
-    echo "$sync_output" | grep -v "^NEEDS_SECOND_RECONFIGURE$"
-
-    plasma_reconfigure
-
-    # Freshly added applets need a second reload for Plasma to apply geometry.
-    if echo "$sync_output" | grep -q "^NEEDS_SECOND_RECONFIGURE$"; then
-        sleep 2
-        plasma_reconfigure
-    fi
+        "plasma-audio-visualizer" >/dev/null 2>&1 || true
+    echo "✓ Plasma audio visualizer enabled"
 }
 
 disable_visualizer() {
-    echo "Disabling and removing plasma-audio-visualizer widgets..."
+    echo "Removing plasma-audio-visualizer widgets directly..."
     remove_kde_applets_live "luisbocanegra.audio.visualizer"
     sync_kde_applets \
         "$CONFIG_DIR/plasma-audio-visualizer.conf" \
         "$USER_CONFIG_DIR" \
         "luisbocanegra.audio.visualizer" \
         "0" \
-        "plasma-audio-visualizer" | grep -v "^NEEDS_SECOND_RECONFIGURE$"
-    plasma_reconfigure
+        "plasma-audio-visualizer" >/dev/null 2>&1 || true
+    echo "✓ Plasma audio visualizer disabled"
 }
 
 configure_visualizer() {
@@ -346,7 +406,6 @@ print(c);
 
     if [[ "$count" -eq 0 ]]; then
         export_visualizer
-        sleep 1
     fi
     open_kde_applet_config "luisbocanegra.audio.visualizer"
 }
