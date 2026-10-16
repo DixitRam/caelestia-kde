@@ -29,6 +29,7 @@ Item {
                 "04-stale-font-families"
                 "05-matugen"
                 "06-kde-desktop-mode"
+                "07-export-plasma-config"
             )
 
             for script_name in "\${TASKS[@]}"; do
