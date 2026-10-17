@@ -362,3 +362,37 @@ fn flags_that_cannot_mean_anything_are_refused_rather_than_ignored() {
     let plan_with_update = run(&["--plan", "--update"]);
     assert_eq!(code(&plan_with_update), 2, "{}", stderr(&plan_with_update));
 }
+
+#[test]
+fn an_unattended_run_without_root_says_so_and_stops() {
+    // Whatever the host: the precondition is checked before anything else, and the message has to
+    // name the way out rather than just failing.
+    let bundle = Bundle::new("yes").with_scripts_dir();
+    let path = bundle.path().to_str().expect("a utf-8 path");
+    let output = run(&["--non-interactive", path]);
+
+    if code(&output) == 0 {
+        // A machine that really is root can run the whole plan; the test host normally is not.
+        return;
+    }
+    assert_eq!(code(&output), 4, "{}", stderr(&output));
+    assert!(stderr(&output).contains("sudo -v"), "{}", stderr(&output));
+}
+
+#[test]
+fn an_unattended_run_refuses_the_flags_that_only_mean_something_to_the_wizard() {
+    for args in [
+        vec!["--non-interactive", "--plan"],
+        vec!["--non-interactive", "--dark"],
+        vec!["--non-interactive", "--update"],
+        vec!["--resume"],
+    ] {
+        let output = run(&args);
+        assert_eq!(
+            code(&output),
+            2,
+            "{args:?} should be refused: {}",
+            stderr(&output)
+        );
+    }
+}

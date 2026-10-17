@@ -292,13 +292,20 @@ pub fn is_root() -> bool {
     unsafe { libc::getuid() == 0 }
 }
 
+/// What to ask sudo to be sure root is available right now: run something harmless, without a
+/// prompt. Not `-v`, which asks sudo to validate a ticket, and which a machine whose only rule is
+/// `NOPASSWD: ALL` answers with "a password is required" - so an installer using it would demand a
+/// password exactly where none is needed.
+fn cached_probe_args() -> [&'static str; 2] {
+    ["-n", "true"]
+}
+
 pub fn sudo_cached() -> bool {
     let Some(sudo) = sudo_binary() else {
         return false;
     };
     std::process::Command::new(sudo)
-        .arg("-n")
-        .arg("-v")
+        .args(cached_probe_args())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -877,6 +884,13 @@ mod tests {
             thread::sleep(Duration::from_millis(25));
         }
         false
+    }
+
+    #[test]
+    fn a_warm_ticket_is_probed_with_a_command_and_not_with_a_validation() {
+        // `sudo -n -v` answers "a password is required" whenever the machine's only rule is
+        // NOPASSWD, which is the opposite of the question being asked here.
+        assert_eq!(cached_probe_args(), ["-n", "true"]);
     }
 
     #[test]

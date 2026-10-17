@@ -249,6 +249,30 @@ pub fn find(id: &str) -> Option<&'static Step> {
     STEPS.iter().find(|step| step.id == id)
 }
 
+/// What every step is told about the run it belongs to, whoever started it. The TUI and the
+/// headless path both come through here, because the day they disagree is the day a step behaves
+/// one way on a desktop and another on a server.
+pub fn environment(answers: &Answers, bundle: &std::path::Path) -> Vec<(&'static str, String)> {
+    let mut env: Vec<(&'static str, String)> = answers
+        .iter()
+        .map(|(key, value)| (*key, value.clone()))
+        .collect();
+    env.push(("CONFIRM_ARG", "--noconfirm".to_string()));
+    env.push(("BUNDLE_DIR", bundle.display().to_string()));
+    // What this run is: a step that only makes sense for an install (the virtual desktops, the
+    // install-only tweaks) asks for this, and the update path never sets it. It went missing once
+    // and the two steps keyed on it stopped applying without saying so, which is why
+    // `test_virtual_desktops.sh` holds it here.
+    env.push(("CAELESTIA_FRESH_INSTALL", "1".to_string()));
+    // Which plan these answers are, so a step can record its progress under the same name the
+    // caller will look for when it resumes.
+    env.push((
+        crate::journal::PLAN_ID_VAR,
+        crate::journal::plan_id(answers),
+    ));
+    env
+}
+
 pub fn wallpapers_dir(context: &Context) -> PathBuf {
     if let Some(directory) = context.variable("CAELESTIA_WALLPAPERS_DIR") {
         return PathBuf::from(directory);

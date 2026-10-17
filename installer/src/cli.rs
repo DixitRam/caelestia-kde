@@ -22,6 +22,11 @@ pub struct Args {
     pub plan: bool,
     /// What `--plan` prints: the plan as JSON for a machine, or as text for a person.
     pub plan_json: bool,
+    /// Run the plan without the wizard. Needs root already available, so it can never block on a
+    /// prompt nobody is watching.
+    pub non_interactive: bool,
+    /// Continue a run that stopped instead of starting it again.
+    pub resume: bool,
 }
 
 /// The overrides a caller can hand the wizard. Anything left alone is decided by the terminal.
@@ -62,6 +67,8 @@ where
         set: Vec::new(),
         plan: false,
         plan_json: false,
+        non_interactive: false,
+        resume: false,
     };
     let mut seen_preset: Option<&'static str> = None;
     let mut args = collected.into_iter();
@@ -80,6 +87,8 @@ where
             Some("--no-animation") | Some("--still") => parsed.look.no_animation = true,
             Some("--plan") | Some("--dry-run") => parsed.plan = true,
             Some("--json") => parsed.plan_json = true,
+            Some("--non-interactive") | Some("--yes") => parsed.non_interactive = true,
+            Some("--resume") => parsed.resume = true,
             Some("--set") => {
                 let setting = args.next().ok_or("--set needs ID=value")?;
                 let setting = setting.to_str().ok_or("--set reads text, not bytes")?;
@@ -124,6 +133,31 @@ where
         return Err(
             "--plan covers the install path; --update and --uninstall report their own steps"
                 .to_string(),
+        );
+    }
+    if parsed.non_interactive {
+        if parsed.plan {
+            return Err(
+                "--plan already stops before running anything; drop --non-interactive".to_string(),
+            );
+        }
+        if parsed.action != PresetAction::Wizard {
+            return Err(
+                "--update and --uninstall have their own unattended paths; drop --non-interactive"
+                    .to_string(),
+            );
+        }
+        // These only say how the wizard draws itself. Refusing them beats a pipeline that passes
+        // --dark and silently gets a headless run.
+        if parsed.look != Look::default() {
+            return Err(
+                "the look flags apply to the wizard; an unattended run has no screen".to_string(),
+            );
+        }
+    }
+    if parsed.resume && !parsed.non_interactive {
+        return Err(
+            "--resume continues an unattended run; give --non-interactive as well".to_string(),
         );
     }
 

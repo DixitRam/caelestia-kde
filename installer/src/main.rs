@@ -8,8 +8,10 @@ mod download;
 mod env;
 mod exit;
 mod glyphs;
+mod headless;
 mod install_fs;
 mod install_kind;
+mod journal;
 mod js;
 mod logline;
 mod menu;
@@ -43,7 +45,7 @@ use env::Env;
 use exit::Outcome;
 use steps::Failure;
 
-const VERSION: &str = include_str!("../data/tui.version");
+pub(crate) const VERSION: &str = include_str!("../data/tui.version");
 
 const USAGE: &str = "\
 caelestia-install [OPTIONS] [BUNDLE_DIR]
@@ -68,6 +70,9 @@ Options:
   --plan          print the steps this run would take, then stop without changing anything
   --dry-run       the same as --plan
   --json          print the plan as JSON instead of text; needs --plan
+  --non-interactive  run the plan without the wizard; needs root or a warm sudo ticket
+  --yes           the same as --non-interactive
+  --resume        with --non-interactive, skip the steps a previous run already finished
   --debug         write the phase trace to stderr
   --version       print the installer version and exit
   -h, --help      print this help and exit
@@ -86,6 +91,13 @@ leaves the rest at their defaults.
 by phase, with the ones an answer has switched off marked skip. It reads the machine (which apps
 are installed, which distribution this is) and changes nothing. --json prints the same plan for a
 pipeline. Both exit 0 whether or not steps would be skipped.
+
+--non-interactive runs that same plan without the wizard, streaming each step's output and
+recording it in a journal under the user's state directory, so a run that stops can be continued
+with --resume instead of started again. It needs root already available - run it with sudo, or
+warm the ticket with \"sudo -v\" first - because an unattended run must never wait at a prompt.
+Answers come from --set, and anything not answered stays at the default the wizard would have
+shown. The look flags belong to the wizard and are refused here rather than ignored.
 
 Exit codes:
   0 finished                1 a step failed
@@ -145,7 +157,16 @@ fn run_step(id: &str, bundle: Option<PathBuf>, debug: bool) -> Outcome {
     let context = steps::Context {
         bundle: bundle.root().to_path_buf(),
     };
-    match steps::run(step, &context) {
+    // A step run on its own still records itself, so a run stopped by a crash or a power cut can
+    // be continued with --resume rather than guessed at.
+    let started = std::time::Instant::now();
+    let code = steps::run(step, &context);
+    journal::record_here(
+        step.id,
+        if code == 0 { "ok" } else { "failed" },
+        started.elapsed().as_secs(),
+    );
+    match code {
         0 => Outcome::Ok,
         _ => Outcome::Failed,
     }
@@ -200,6 +221,11 @@ fn run(args: Args) -> Outcome {
             if args.plan {
                 return print_plan(&bundle, &args);
             }
+            if args.non_interactive {
+                signals::install();
+                let answers = plan::answers(&args.set);
+                return headless::run(bundle.root(), &answers, args.resume);
+            }
             trace("phase 1: home");
             let env = look(&args);
             let session = app::run(bundle.root().to_path_buf(), app::log_path(), env, &args.set);
@@ -215,9 +241,9 @@ fn print_plan(bundle: &Bundle, args: &Args) -> Outcome {
     let rows = plan::rows(&answers);
     let version = VERSION.trim();
     if args.plan_json {
-        println!("{}", plan::json(bundle.root(), version, &rows));
+        println!("{}", plan::json(bundle.root(), version, &answers, &rows));
     } else {
-        print!("{}", plan::text(bundle.root(), version, &rows));
+        print!("{}", plan::text(bundle.root(), version, &answers, &rows));
     }
     Outcome::Ok
 }

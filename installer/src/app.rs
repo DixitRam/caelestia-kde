@@ -285,6 +285,13 @@ pub struct App {
     /// Whether this machine can authorize with a fingerprint. Read once, and the reason the gate
     /// offers the reader only where there is one to offer.
     pub fingerprint: bool,
+    /// Whether root has to be asked for at all, read once when the wizard starts. Kept as a field
+    /// so a test can say which machine it is testing instead of inheriting the host's sudo.
+    pub needs_password: bool,
+    /// How the wizard re-checks that root is available when the user says they authorized
+    /// somewhere else. A field for the same reason: on a host whose sudo needs no password the
+    /// real check says yes, which is the wrong answer for a test about being refused.
+    pub authorized: fn() -> bool,
     /// Read from the machine when the wizard starts and re-read at the confirmation. What the
     /// machine is, and whether Caelestia is already on it, are asked of this rather than kept in
     /// fields of their own: two records of one fact are two records that can disagree.
@@ -365,6 +372,8 @@ impl App {
             glyphs: Glyphs::resolve(&env),
             apps,
             fingerprint,
+            needs_password: needs_password(),
+            authorized: privileges::sudo_cached,
             env,
             // Read once, here, and again when it matters. The header is drawn thirty times a
             // second, and detection reads the filesystem and the PATH.
@@ -427,6 +436,22 @@ impl App {
     #[cfg(test)]
     pub fn with_fingerprint(mut self, ready: bool) -> Self {
         self.fingerprint = ready;
+        self
+    }
+
+    /// Say whether this machine has to be asked for root. Read from sudo in `App::new`, so without
+    /// this a test would prove something different on a machine whose sudo needs no password.
+    #[cfg(test)]
+    pub fn with_password_gate(mut self, needed: bool) -> Self {
+        self.needs_password = needed;
+        self
+    }
+
+    /// Say whether root is available, for the route that re-checks it after the user says they
+    /// authorized somewhere else.
+    #[cfg(test)]
+    pub fn with_authorized(mut self, answer: fn() -> bool) -> Self {
+        self.authorized = answer;
         self
     }
 
@@ -1132,7 +1157,7 @@ impl App {
     /// The route to root, offered only where there is a route to choose. A machine that is
     /// already authorized has nothing to ask about, so it is not asked.
     fn need_auth(&mut self) {
-        if !needs_password() {
+        if !self.needs_password {
             self.begin_install();
             return;
         }
@@ -1163,7 +1188,7 @@ impl App {
         if self.auth == Some(AuthMethod::External) {
             match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    if privileges::sudo_cached() {
+                    if (self.authorized)() {
                         self.begin_install();
                     } else {
                         self.problem =
@@ -1656,18 +1681,7 @@ impl App {
     }
 
     pub fn step_environment(&self) -> Vec<(&'static str, String)> {
-        let mut env: Vec<(&'static str, String)> = self
-            .answers
-            .iter()
-            .map(|(key, value)| (*key, value.clone()))
-            .collect();
-        env.push(("CONFIRM_ARG", "--noconfirm".to_string()));
-        env.push(("BUNDLE_DIR", self.bundle.display().to_string()));
-        // What this run is: a step that only makes sense for an install (the virtual desktops,
-        // the install-only tweaks) asks for this, and the update path never sets it. It went
-        // missing once and the two steps keyed on it stopped applying without saying so, which is
-        // why `test_virtual_desktops.sh` holds it here.
-        env.push(("CAELESTIA_FRESH_INSTALL", "1".to_string()));
+        let mut env = steps::environment(&self.answers, &self.bundle);
         if let Some(credential) = &self.credential {
             env.extend(credential.environment());
         }
@@ -1825,7 +1839,11 @@ mod tests {
         .with_apps(crate::apps::Apps::all())
         // Same for the reader: whether the host running the tests happens to have one must not
         // decide which routes a test sees. The tests that want one ask for it.
-        .with_fingerprint(false);
+        .with_fingerprint(false)
+        // And same for the password gate: a machine whose sudo needs no password would otherwise
+        // walk straight past the screen these tests are about.
+        .with_password_gate(true)
+        .with_authorized(|| false);
         // The screens and the page keys agree on a size; the tests have to give them one.
         app.area = Rect::new(0, 0, 100, 30);
         app.pretend = true;

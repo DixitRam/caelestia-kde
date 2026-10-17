@@ -50,7 +50,7 @@ fn count(rows: &[Row]) -> (usize, usize) {
 
 /// One line per step, grouped by phase, with the same tally the Review screen prints. Plain text
 /// on purpose: this is read by people piping it into a file as often as by people reading it.
-pub fn text(bundle: &Path, version: &str, rows: &[Row]) -> String {
+pub fn text(bundle: &Path, version: &str, answers: &Answers, rows: &[Row]) -> String {
     let mut out = String::new();
     out.push_str(&format!("caelestia-installer {version}\n"));
     out.push_str(&format!("bundle: {}\n\n", bundle.display()));
@@ -74,12 +74,18 @@ pub fn text(bundle: &Path, version: &str, rows: &[Row]) -> String {
         out.push_str(" · nothing switched off");
     }
     out.push('\n');
+    // The journal this plan would write, so a person can find it later and a pipeline can point
+    // `--resume` at the run it is continuing.
+    out.push_str(&format!(
+        "journal  {}\n",
+        crate::journal::path_for(&crate::journal::plan_id(answers)).display()
+    ));
     out
 }
 
 /// The same plan for a machine to read. Hand-rolled because this crate has no serializer and one
 /// fixed shape does not justify a dependency; every string goes through `escape`.
-pub fn json(bundle: &Path, version: &str, rows: &[Row]) -> String {
+pub fn json(bundle: &Path, version: &str, answers: &Answers, rows: &[Row]) -> String {
     let steps: Vec<String> = rows
         .iter()
         .map(|row| {
@@ -93,10 +99,13 @@ pub fn json(bundle: &Path, version: &str, rows: &[Row]) -> String {
         })
         .collect();
     let (will_run, total) = count(rows);
+    let plan = crate::journal::plan_id(answers);
     format!(
-        "{{\"version\":\"{}\",\"bundle\":\"{}\",\"steps\":[{}],\"steps_that_run\":{will_run},\"steps_total\":{total}}}",
+        "{{\"version\":\"{}\",\"bundle\":\"{}\",\"plan\":\"{}\",\"journal\":\"{}\",\"steps\":[{}],\"steps_that_run\":{will_run},\"steps_total\":{total}}}",
         escape(version),
         escape(&bundle.display().to_string()),
+        escape(&plan),
+        escape(&crate::journal::path_for(&plan).display().to_string()),
         steps.join(",")
     )
 }
@@ -161,30 +170,33 @@ mod tests {
 
     #[test]
     fn the_tally_says_what_would_run_and_says_so_when_nothing_is_off() {
-        let all_on = text(Path::new("/b"), "1.0", &rows(&defaults()));
+        let on = defaults();
+        let all_on = text(Path::new("/b"), "1.0", &on, &rows(&on));
         assert!(all_on.contains("nothing switched off"), "{all_on}");
 
-        let trimmed = text(
-            Path::new("/b"),
-            "1.0",
-            &rows(&answers(&[("INSTALL_SDDM", "false".to_string())])),
-        );
+        let off = answers(&[("INSTALL_SDDM", "false".to_string())]);
+        let trimmed = text(Path::new("/b"), "1.0", &off, &rows(&off));
         assert!(!trimmed.contains("nothing switched off"), "{trimmed}");
         assert!(trimmed.contains("skip  05-sddm-theme"), "{trimmed}");
     }
 
     #[test]
     fn the_json_is_one_object_with_a_row_per_step() {
-        let plan = json(Path::new("/b"), "1.0", &rows(&defaults()));
+        let on = defaults();
+        let plan = json(Path::new("/b"), "1.0", &on, &rows(&on));
         assert!(plan.starts_with('{') && plan.ends_with('}'), "{plan}");
         assert_eq!(plan.matches("\"id\":").count(), steps::STEPS.len());
         assert!(plan.contains("\"runs\":true"), "{plan}");
         assert!(!plan.contains("\"runs\":false"), "{plan}");
+        // The journal is named after the plan, so a pipeline can resume the run it started.
+        assert!(plan.contains("\"plan\":\""), "{plan}");
+        assert!(plan.contains("install-"), "{plan}");
     }
 
     #[test]
     fn a_path_with_a_quote_in_it_cannot_break_the_json() {
-        let plan = json(Path::new("/tmp/od\"d\\dir"), "1.0", &rows(&defaults()));
+        let on = defaults();
+        let plan = json(Path::new("/tmp/od\"d\\dir"), "1.0", &on, &rows(&on));
         assert!(plan.contains("/tmp/od\\\"d\\\\dir"), "{plan}");
         assert_eq!(plan.matches('{').count(), plan.matches('}').count());
     }
