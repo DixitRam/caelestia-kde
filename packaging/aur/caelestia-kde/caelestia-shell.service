@@ -21,6 +21,7 @@ Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=5s
 Slice=session.slice
+Nice=-5
 
 [Install]
 WantedBy=graphical-session.target
