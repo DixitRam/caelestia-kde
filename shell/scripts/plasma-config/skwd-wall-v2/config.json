@@ -8,10 +8,16 @@
   },
   "general": {
     "closeOnSelection": true,
+    "randomRotate": false,
     "uiScale": 1.4
   },
   "paper": {
     "wallpaperLayer": "background"
+  },
+  "playback": {
+    "fullscreen": true,
+    "maximized": true,
+    "processEnabled": false
   },
   "theme": {
     "authority": "caelestia"
