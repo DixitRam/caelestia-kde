@@ -38,7 +38,7 @@ impl Phase {
         Phase::Finalize,
     ];
 
-    #[cfg(test)]
+    /// The stable spelling of a phase, for anything machine-read: `--plan --json` prints it.
     pub fn id(self) -> &'static str {
         match self {
             Phase::Prepare => "prepare",

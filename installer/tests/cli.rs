@@ -299,3 +299,66 @@ fn an_uninstall_with_nothing_to_remove_says_so_and_finishes() {
         stdout(&output)
     );
 }
+
+#[test]
+fn a_plan_prints_the_steps_and_stops_before_running_them() {
+    let bundle = Bundle::new("plan").with_scripts_dir();
+    let path = bundle.path().to_str().expect("a utf-8 path");
+    let output = run(&["--plan", path]);
+
+    assert_eq!(code(&output), 0);
+    let text = stdout(&output);
+    assert!(text.contains("steps would run"), "{text}");
+    assert!(text.contains("00a-system-update"), "{text}");
+}
+
+#[test]
+fn a_dry_run_is_the_same_thing_as_a_plan() {
+    let bundle = Bundle::new("dry-run").with_scripts_dir();
+    let path = bundle.path().to_str().expect("a utf-8 path");
+
+    assert_eq!(
+        stdout(&run(&["--dry-run", path])),
+        stdout(&run(&["--plan", path]))
+    );
+}
+
+#[test]
+fn a_plan_takes_the_answers_it_is_given() {
+    let bundle = Bundle::new("plan-set").with_scripts_dir();
+    let path = bundle.path().to_str().expect("a utf-8 path");
+    let output = run(&["--plan", "--set", "SKIP_SYSTEM_UPDATE=true", path]);
+
+    assert_eq!(code(&output), 0);
+    let text = stdout(&output);
+    assert!(text.contains("skip  00a-system-update"), "{text}");
+    assert!(!text.contains("nothing switched off"), "{text}");
+}
+
+#[test]
+fn the_plan_can_be_read_by_a_machine() {
+    let bundle = Bundle::new("plan-json").with_scripts_dir();
+    let path = bundle.path().to_str().expect("a utf-8 path");
+    let output = run(&["--plan", "--json", path]);
+
+    assert_eq!(code(&output), 0);
+    let text = stdout(&output);
+    assert!(text.trim_start().starts_with('{'), "{text}");
+    assert!(text.contains("\"steps_total\""), "{text}");
+    assert!(text.contains("\"phase\":\"prepare\""), "{text}");
+}
+
+#[test]
+fn flags_that_cannot_mean_anything_are_refused_rather_than_ignored() {
+    // A pipeline that asked for a plan and got an install is the worst way to find out.
+    let json_alone = run(&["--json"]);
+    assert_eq!(code(&json_alone), 2, "{}", stderr(&json_alone));
+    assert!(
+        stderr(&json_alone).contains("--plan"),
+        "{}",
+        stderr(&json_alone)
+    );
+
+    let plan_with_update = run(&["--plan", "--update"]);
+    assert_eq!(code(&plan_with_update), 2, "{}", stderr(&plan_with_update));
+}

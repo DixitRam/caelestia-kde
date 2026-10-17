@@ -1663,6 +1663,11 @@ impl App {
             .collect();
         env.push(("CONFIRM_ARG", "--noconfirm".to_string()));
         env.push(("BUNDLE_DIR", self.bundle.display().to_string()));
+        // What this run is: a step that only makes sense for an install (the virtual desktops,
+        // the install-only tweaks) asks for this, and the update path never sets it. It went
+        // missing once and the two steps keyed on it stopped applying without saying so, which is
+        // why `test_virtual_desktops.sh` holds it here.
+        env.push(("CAELESTIA_FRESH_INSTALL", "1".to_string()));
         if let Some(credential) = &self.credential {
             env.extend(credential.environment());
         }
@@ -2415,6 +2420,18 @@ mod tests {
         let mut app = app();
         assert_eq!(press(&mut app, KeyCode::Esc), Flow::Done(Outcome::Canceled));
         assert_eq!(char_key(&mut app, 'q'), Flow::Done(Outcome::Canceled));
+    }
+
+    #[test]
+    fn the_steps_are_told_this_run_is_an_install() {
+        // Two steps make install-only changes when this is set, and they skip silently when it is
+        // not. The update path never sets it, so the marker and the run are the same thing.
+        let env = app().step_environment();
+        assert!(
+            env.iter()
+                .any(|(key, value)| *key == "CAELESTIA_FRESH_INSTALL" && value == "1"),
+            "{env:?}"
+        );
     }
 
     #[test]

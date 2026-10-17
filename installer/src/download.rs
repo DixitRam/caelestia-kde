@@ -11,15 +11,37 @@ pub enum Verification {
     Unpublished,
 }
 
+/// How many times a download is tried before it is called a failure.
+const ATTEMPTS: u32 = 3;
+
+/// curl's exit codes for a failure worth trying again: DNS, connect, timeout, TLS handshake, a
+/// truncated transfer. An HTTP error such as 404 is an answer rather than an outage, so it is not
+/// retried - `verify` leans on that to report an unpublished checksum without waiting.
+fn transient(code: i32) -> bool {
+    matches!(code, 6 | 7 | 18 | 28 | 35 | 52 | 55 | 56)
+}
+
 pub fn fetch(url: &str, destination: &Path, extra: &[&str]) -> bool {
+    let destination_text = destination.to_string_lossy().to_string();
     let mut args: Vec<&str> = vec!["-fsSL", "--connect-timeout", "10"];
     args.extend(extra.iter().copied());
     args.push(url);
     args.push("-o");
+    args.push(&destination_text);
 
-    let destination = destination.to_string_lossy().to_string();
-    args.push(&destination);
-    process::succeeds("curl", &args, None)
+    // A flaky network is the common failure in the field and it is almost always the first
+    // attempt that loses, so the retry is here rather than in every caller.
+    for attempt in 0..ATTEMPTS {
+        let code = process::status("curl", &args, None).unwrap_or(-1);
+        if code == 0 {
+            return true;
+        }
+        if !transient(code) || attempt + 1 == ATTEMPTS {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500u64 << attempt));
+    }
+    false
 }
 
 pub fn sha256(file: &Path) -> Option<String> {
@@ -116,13 +138,27 @@ mod tests {
     }
 
     #[test]
+    fn only_an_outage_is_worth_trying_again() {
+        // Connection and timeout failures are outages; a 404 is an answer and must not be retried,
+        // or asking whether a checksum was published costs seconds every time it was not.
+        for code in [6, 7, 18, 28, 35, 52, 55, 56] {
+            assert!(transient(code), "curl {code} is an outage");
+        }
+        for code in [0, 22, 37, 63] {
+            assert!(!transient(code), "curl {code} is not an outage");
+        }
+    }
+
+    #[test]
     fn a_download_that_is_not_there_does_not_verify() {
         let work = TempDir::new("caelestia-download-test").expect("a temporary directory");
         let file = work.path().join("file");
         fs::write(&file, b"contents").expect("a file");
 
+        // A missing file rather than an unreachable host: an outage is retried and a missing
+        // page is not, and this test is about the missing page.
         assert_eq!(
-            verify("https://127.0.0.1:9/nothing-here", &file),
+            verify("file:///nonexistent/caelestia", &file),
             Verification::Unpublished
         );
     }

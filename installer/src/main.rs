@@ -17,6 +17,7 @@ mod output;
 mod packages;
 mod paths;
 mod pkg;
+mod plan;
 mod privileges;
 mod process;
 mod runner;
@@ -64,6 +65,9 @@ Options:
   --light, --dark force the light or the dark theme instead of reading the terminal
   --no-animation  no spinner, no redraw beyond what changed
   --set ID=value  answer one of the wizard's options and skip being asked
+  --plan          print the steps this run would take, then stop without changing anything
+  --dry-run       the same as --plan
+  --json          print the plan as JSON instead of text; needs --plan
   --debug         write the phase trace to stderr
   --version       print the installer version and exit
   -h, --help      print this help and exit
@@ -77,6 +81,11 @@ CAELESTIA_TUI_NO_ANIMATION=1.
 true or false, a select takes one of its options. Repeat it for every answer a script needs.
 \"caelestia-install --set INSTALL_SDDM=false --set DEFAULT_SHELL=zsh\" answers two questions and
 leaves the rest at their defaults.
+
+--plan answers what this run would do to this machine without doing any of it: the steps, grouped
+by phase, with the ones an answer has switched off marked skip. It reads the machine (which apps
+are installed, which distribution this is) and changes nothing. --json prints the same plan for a
+pipeline. Both exit 0 whether or not steps would be skipped.
 
 Exit codes:
   0 finished                1 a step failed
@@ -188,12 +197,29 @@ fn run(args: Args) -> Outcome {
                 eprintln!("caelestia-install: {problem}");
                 return Outcome::Environment;
             }
+            if args.plan {
+                return print_plan(&bundle, &args);
+            }
             trace("phase 1: home");
             let env = look(&args);
             let session = app::run(bundle.root().to_path_buf(), app::log_path(), env, &args.set);
             handoff(&bundle, session)
         }
     }
+}
+
+/// Say what would happen, and do none of it. This is the one path that is expected to run
+/// unprivileged and outside a terminal.
+fn print_plan(bundle: &Bundle, args: &Args) -> Outcome {
+    let answers = plan::answers(&args.set);
+    let rows = plan::rows(&answers);
+    let version = VERSION.trim();
+    if args.plan_json {
+        println!("{}", plan::json(bundle.root(), version, &rows));
+    } else {
+        print!("{}", plan::text(bundle.root(), version, &rows));
+    }
+    Outcome::Ok
 }
 
 /// The terminal decides, unless the caller said otherwise.

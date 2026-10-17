@@ -2,6 +2,26 @@
 if [[ -z "${CAELESTIA_INSTALLER_BIN_SOURCED:-}" ]]; then
 CAELESTIA_INSTALLER_BIN_SOURCED=1
 
+# The retrying download lives in download.sh. This file is vendored on its own by callers and by
+# the test harness, so it is sourced when it is there and a plain single attempt is used when it
+# is not: a missing sibling must never turn a download into a failed one.
+_caelestia_lib="$(dirname -- "${BASH_SOURCE[0]}")"
+if [[ -f "$_caelestia_lib/download.sh" ]]; then
+    # shellcheck source=scripts/lib/download.sh
+    source "$_caelestia_lib/download.sh"
+fi
+unset _caelestia_lib
+
+caelestia_fetch() {
+    local url="$1" dest="$2"
+    shift 2
+    if declare -F fetch_asset >/dev/null 2>&1; then
+        fetch_asset "$url" "$dest" "$@"
+        return
+    fi
+    curl -fsSL --connect-timeout 10 "$@" "$url" -o "$dest"
+}
+
 caelestia_bundle_dir() {
     local bundle="${BUNDLE_DIR:-}"
     if [[ -z "$bundle" ]]; then
@@ -71,13 +91,13 @@ caelestia_fetch_installer() {
 
     mkdir -p "$(dirname -- "$bin")" || return 1
     rm -f "$bin.part"
-    if ! curl -fsSL --connect-timeout 10 --max-time 60 "$url" -o "$bin.part" 2>/dev/null; then
+    if ! caelestia_fetch "$url" "$bin.part" --max-time 60 2>/dev/null; then
         rm -f "$bin.part"
         return 1
     fi
 
     sidecar="$(mktemp)" || { rm -f "$bin.part"; return 1; }
-    if ! curl -fsSL --connect-timeout 10 "$url.sha256" -o "$sidecar" 2>/dev/null; then
+    if ! caelestia_fetch "$url.sha256" "$sidecar" 2>/dev/null; then
         rm -f "$sidecar" "$bin.part"
         return 1
     fi

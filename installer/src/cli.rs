@@ -18,6 +18,10 @@ pub struct Args {
     /// The answers the caller gave instead of walking the wizard, in the order they were given.
     /// What a script that used to set an environment variable per flag does now.
     pub set: Vec<(&'static str, String)>,
+    /// Print the plan this run would follow and stop, without touching the machine.
+    pub plan: bool,
+    /// What `--plan` prints: the plan as JSON for a machine, or as text for a person.
+    pub plan_json: bool,
 }
 
 /// The overrides a caller can hand the wizard. Anything left alone is decided by the terminal.
@@ -56,6 +60,8 @@ where
         debug: false,
         look: Look::default(),
         set: Vec::new(),
+        plan: false,
+        plan_json: false,
     };
     let mut seen_preset: Option<&'static str> = None;
     let mut args = collected.into_iter();
@@ -72,6 +78,8 @@ where
                 parsed.look.theme = Some(mode);
             }
             Some("--no-animation") | Some("--still") => parsed.look.no_animation = true,
+            Some("--plan") | Some("--dry-run") => parsed.plan = true,
+            Some("--json") => parsed.plan_json = true,
             Some("--set") => {
                 let setting = args.next().ok_or("--set needs ID=value")?;
                 let setting = setting.to_str().ok_or("--set reads text, not bytes")?;
@@ -105,6 +113,18 @@ where
             // path is taken silently rather than refused the way `step` refuses a second id.
             _ => parsed.bundle = Some(PathBuf::from(arg)),
         }
+    }
+
+    // A flag that cannot mean anything here is refused rather than quietly ignored: a pipeline
+    // that asked for a plan and got an install is the worst way to find out.
+    if parsed.plan_json && !parsed.plan {
+        return Err("--json says how to print a plan; give --plan as well".to_string());
+    }
+    if parsed.plan && parsed.action != PresetAction::Wizard {
+        return Err(
+            "--plan covers the install path; --update and --uninstall report their own steps"
+                .to_string(),
+        );
     }
 
     Ok(Invocation::Run(parsed))

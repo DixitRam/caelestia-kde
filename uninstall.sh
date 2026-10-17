@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 export PATH="$HOME/.local/bin:$PATH"
 
-set -uo pipefail
+set -euo pipefail
 
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export BUNDLE_DIR

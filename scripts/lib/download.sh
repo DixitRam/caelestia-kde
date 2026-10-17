@@ -6,10 +6,33 @@ file_sha256() {
     sha256sum "$1" | cut -d' ' -f1
 }
 
+# curl's exit status for a failure worth trying again: DNS, connect, timeout, TLS handshake, a
+# truncated transfer. An HTTP error such as 404 is an answer rather than an outage, so it is not
+# retried: `verify_download` relies on that to report an unpublished checksum without waiting.
+download_is_transient() {
+    case "$1" in
+        6 | 7 | 18 | 28 | 35 | 52 | 55 | 56) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# A flaky network is the common failure in the field, and it is almost always the first attempt
+# that loses it. Three attempts, backing off, and only for a failure that could pass next time.
 fetch_asset() {
     local url="$1" dest="$2"
     shift 2
-    curl -fsSL --connect-timeout 10 "$@" "$url" -o "$dest"
+    local attempt=0 status=1 delay=1
+    while (( attempt < 3 )); do
+        curl -fsSL --connect-timeout 10 "$@" "$url" -o "$dest" && return 0
+        status=$?
+        attempt=$((attempt + 1))
+        download_is_transient "$status" || return "$status"
+        if (( attempt < 3 )); then
+            sleep "$delay"
+            delay=$((delay * 2))
+        fi
+    done
+    return "$status"
 }
 
 # 0 when the artifact matches the checksum published beside it, 1 when it does not
