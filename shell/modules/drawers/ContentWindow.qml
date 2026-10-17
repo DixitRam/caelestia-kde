@@ -13,6 +13,7 @@ import Caelestia.Config
 import qs.components
 import qs.components.containers
 import qs.services
+import qs.utils
 import qs.modules.background
 import qs.modules.bar
 import qs.modules.overview as Overview
@@ -301,7 +302,20 @@ StyledWindow {
                 scale: overviewWallpaperLayer.bgScale
                 active: overviewWallpaperLayer.active || overviewWallpaperLayer.opacity > 0
                         || (overviewWallpaperLayer.keepAlive && wallpaperLoader.item && !wallpaperLoader.item.isVideo(wallpaperLoader.item.source))
-                sourceComponent: Component { Wallpaper { screen: root.screen; skipTransition: true } }
+                sourceComponent: Component {
+                    Wallpaper {
+                        screen: root.screen
+                        skipTransition: true
+                        source: {
+                            const cur = Wallpapers.current;
+                            if (Images.isVideo(cur)) {
+                                const thumb = Wallpapers.thumbFor(cur);
+                                return thumb !== "" ? thumb : Wallpapers.getThumbnailPath(cur);
+                            }
+                            return cur;
+                        }
+                    }
+                }
             }
         }
         Item {

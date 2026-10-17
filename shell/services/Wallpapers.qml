@@ -193,7 +193,10 @@ Searcher {
 
         const out = getThumbnailPath(path);
         const script = 'out="$1"; src="$2"; [ -s "$out" ] || { mkdir -p "$(dirname "$out")"; ' +
-                       'ffmpeg -y -loglevel error -i "$src" -vf "thumbnail,scale=640:-1" -frames:v 1 "$out" >/dev/null 2>&1; }; ' +
+                       'stem="$(basename "${src%.*}")"; ' +
+                       'skwd="${XDG_CACHE_HOME:-$HOME/.cache}/skwd-wall-v2/video-thumbs/${stem}.webp"; ' +
+                       'if [ -s "$skwd" ]; then cp "$skwd" "$out"; else ' +
+                       'ffmpeg -y -loglevel error -i "$src" -vf "thumbnail,scale=640:-1" -frames:v 1 "$out" >/dev/null 2>&1; fi; }; ' +
                        'printf "%s" "$src" > "$(dirname "$out")/source_path"; ' +
                        '[ -s "$out" ] && printf %s "$out"';
         const qml = 'import QtQuick\nimport Quickshell.Io\n' +
