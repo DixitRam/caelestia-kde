@@ -39,7 +39,10 @@ test_the_shell_helper_is_gone_with_its_callers() {
 }
 
 test_the_install_entries_mark_the_run_and_the_update_does_not() {
-    assert_contains "$(cat "$REPO_ROOT/installer/src/app.rs")" \
+    # The marker lives in the shared environment builder rather than in app.rs, because the
+    # unattended path builds the same environment: a step must not behave one way under the
+    # wizard and another under --non-interactive.
+    assert_contains "$(cat "$REPO_ROOT/installer/src/steps/mod.rs")" \
         '("CAELESTIA_FRESH_INSTALL", "1"' \
         "the TUI installer should mark the run it runs the steps for"
     assert_contains "$(cat "$REPO_ROOT/src/bin/caelestia")" \

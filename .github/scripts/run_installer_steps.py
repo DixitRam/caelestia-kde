@@ -5,6 +5,7 @@ Executes non-interactive installer scripts and verifies both exit codes and buil
 (CMake, Ninja, Make) while ignoring optional components like workspace-tracker.
 """
 
+import json
 import os
 import re
 import shutil
@@ -124,27 +125,59 @@ def is_build_error(line: str) -> bool:
     )
 
 
-def run_steps() -> int:
-    env = get_ci_environment()
-    steps = INSTALLER_STEPS
+def check_plan(binary: Path, env: dict[str, str]) -> bool:
+    """What the installer says it would do on this distribution.
 
-    print("=========================================")
-    print("  CI Dependency Test Runner")
-    print(f"  Base Distro : {env.get('BASE_DISTRO')}")
-    print(f"  Bundle Dir  : {env.get('BUNDLE_DIR')}")
-    print(f"  Total Steps : {len(steps)}")
-    print("=========================================")
-    for s in steps:
-        print(f"  - {s}")
+    Cheap, side-effect free, and the only place the plan is exercised somewhere other than Arch:
+    a step that resolves a different package list per distro is exactly what this catches.
+    """
+    proc = subprocess.run(
+        [str(binary), "--plan", "--json", str(ROOT)],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    distro = env.get("BASE_DISTRO", "unknown")
+    if proc.returncode != 0:
+        print(f"::error::--plan failed on {distro} with exit code {proc.returncode}")
+        print(proc.stderr)
+        return False
 
+    try:
+        plan = json.loads(proc.stdout)
+    except json.JSONDecodeError as problem:
+        print(f"::error::--plan --json printed something that is not JSON: {problem}")
+        print(proc.stdout[:400])
+        return False
+
+    rows = {row["id"]: row["runs"] for row in plan.get("steps", [])}
+    missing = [step for step in INSTALLER_STEPS if step not in rows]
+    switched_off = [step for step in INSTALLER_STEPS if step in rows and not rows[step]]
+
+    print(
+        f"  plan on {distro}: {plan.get('steps_that_run')} of "
+        f"{plan.get('steps_total')} steps would run"
+    )
+    print(f"  journal would be {plan.get('journal')}")
+
+    if missing:
+        print(f"::error::{distro}: the plan does not mention {missing}")
+        return False
+    if switched_off:
+        print(f"::error::{distro}: the environment switches off {switched_off}")
+        return False
+    return True
+
+
+def run_pass(label: str, env: dict[str, str], binary: Path) -> list[tuple[str, str]]:
+    """Run every step once and collect what went wrong."""
     failed: list[tuple[str, str]] = []
 
-    binary = installer_binary()
-
-    for s in steps:
+    for s in INSTALLER_STEPS:
         command = step_command(s, binary)
         print("\n=========================================")
-        print(f"  RUNNING STEP: {s} ({command[0]})")
+        print(f"  {label}: STEP {s} ({command[0]})")
         print("=========================================")
 
         proc = subprocess.Popen(
@@ -180,17 +213,54 @@ def run_steps() -> int:
         ]
 
         if rc != 0:
-            print(f"::error::Step {s} failed with exit code {rc}")
-            failed.append((s, f"exit code {rc}"))
+            print(f"::error::{label}: step {s} failed with exit code {rc}")
+            failed.append((s, f"{label}: exit code {rc}"))
         elif build_errors:
             for ctx, err_msg in build_errors:
                 print(f"::error::[{ctx}] Build error detected: {err_msg}")
-            failed.append((s, f"Build error in [{current_info}]"))
+            failed.append((s, f"{label}: build error in [{current_info}]"))
 
+    return failed
+
+
+def run_steps() -> int:
+    env = get_ci_environment()
+    steps = INSTALLER_STEPS
+
+    print("=========================================")
+    print("  CI Dependency Test Runner")
+    print(f"  Base Distro : {env.get('BASE_DISTRO')}")
+    print(f"  Bundle Dir  : {env.get('BUNDLE_DIR')}")
+    print(f"  Total Steps : {len(steps)}")
+    print("=========================================")
+    for s in steps:
+        print(f"  - {s}")
+
+    binary = installer_binary()
+
+    print("\n=========================================")
+    print("  PLAN")
+    print("=========================================")
+    if not check_plan(binary, env):
+        return 1
+
+    failed = run_pass("pass 1", env, binary)
     if failed:
         print(f"::error::{len(failed)} step(s) failed: {failed}")
         return 1
 
+    # The same steps again. A second run on a machine that is already set up is the normal case
+    # in the field, and it is where a step that appends instead of setting, or that cannot cope
+    # with what it made last time, shows up.
+    print("\n=========================================")
+    print("  PASS 2 - the same steps on the machine pass 1 built")
+    print("=========================================")
+    failed = run_pass("pass 2", env, binary)
+    if failed:
+        print(f"::error::not idempotent: {failed}")
+        return 1
+
+    print("\nBoth passes finished cleanly on " + env.get("BASE_DISTRO", "unknown"))
     return 0
 
 

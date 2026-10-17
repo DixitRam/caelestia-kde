@@ -9,8 +9,7 @@ export BUNDLE_DIR
 source "$BUNDLE_DIR/scripts/lib/log.sh"
 source "$BUNDLE_DIR/scripts/lib/installer-bin.sh"
 
-# The uninstall itself belongs to the installer, so this entry point only has to find the
-# binary: keeping the published `bash uninstall.sh` working is the whole job.
-bin="$(caelestia_installer_bin)" || die "The uninstall runs through caelestia-install, which could not be found or downloaded. Set CAELESTIA_INSTALL_BIN to a local build, or re-run install.sh."
-
-exec "$bin" --uninstall --bundle "$BUNDLE_DIR"
+# The uninstall itself belongs to the installer, so this entry point only has to find the binary
+# and hand over. Keeping the published `bash uninstall.sh` working is the whole job; the hand-off
+# is shared with update.sh so the two cannot drift apart the way they already did once.
+caelestia_run_preset uninstall

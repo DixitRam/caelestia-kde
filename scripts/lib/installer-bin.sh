@@ -151,6 +151,32 @@ caelestia_installer_bin() {
     caelestia_fetch_installer
 }
 
+# The one hand-off the entry points share. `update.sh` and `uninstall.sh` are published commands
+# and have to keep working, but they are also the same job twice, and they had already drifted
+# apart once (one of them without `set -e`). This is the part that is the same, in the file both
+# of them already source.
+caelestia_run_preset() {
+    local mode="${1:-}" branch="${2:-}" noun bundle bin
+    case "$mode" in
+        update) noun="update" ;;
+        uninstall) noun="uninstall" ;;
+        *)
+            err "caelestia_run_preset: '$mode' is not a preset"
+            return 2
+            ;;
+    esac
+
+    bundle="$(caelestia_bundle_dir)" || return 1
+    export BUNDLE_DIR="$bundle"
+    bin="$(caelestia_installer_bin)" \
+        || die "The ${noun} runs through caelestia-install, which could not be found or downloaded. Set CAELESTIA_INSTALL_BIN to a local build, or re-run install.sh."
+
+    if [[ "$mode" == "update" ]]; then
+        CAELESTIA_UPDATE_BRANCH="$branch" exec "$bin" --update --bundle "$bundle"
+    fi
+    exec "$bin" --uninstall --bundle "$bundle"
+}
+
 caelestia_run_step() {
     local id="$1"
     shift

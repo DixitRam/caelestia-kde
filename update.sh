@@ -9,8 +9,7 @@ export BUNDLE_DIR
 source "$BUNDLE_DIR/scripts/lib/log.sh"
 source "$BUNDLE_DIR/scripts/lib/installer-bin.sh"
 
-# The update itself belongs to the installer, so this entry point only has to find the binary:
-# keeping the published `bash update.sh` working is the whole job, and it stays a bootstrap.
-bin="$(caelestia_installer_bin)" || die "The update runs through caelestia-install, which could not be found or downloaded. Set CAELESTIA_INSTALL_BIN to a local build, or re-run install.sh."
-
-CAELESTIA_UPDATE_BRANCH="${1:-}" exec "$bin" --update --bundle "$BUNDLE_DIR"
+# The update itself belongs to the installer, so this entry point only has to find the binary and
+# hand over. Keeping the published `bash update.sh` working is the whole job; the hand-off is
+# shared with uninstall.sh so the two cannot drift apart the way they already did once.
+caelestia_run_preset update "${1:-}"
