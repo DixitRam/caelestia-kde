@@ -269,8 +269,13 @@ Searcher {
                 return;
             }
             root.actualCurrent = wall;
-            if (!Images.isVideo(wall))
+            if (!Images.isVideo(wall)) {
                 syncPlasmaWallpaper(wall);
+            } else {
+                const thumb = thumbFor(wall);
+                if (thumb)
+                    syncPlasmaWallpaper(thumb);
+            }
         }
         onLoadFailed: {
             root.actualCurrent = root.fallback;
