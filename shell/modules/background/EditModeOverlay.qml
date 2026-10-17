@@ -38,18 +38,6 @@ Variants {
 
         mask: shouldShow ? pillRegion : emptyRegion
 
-        BackgroundEffect.blurRegion: Region {
-            Region {
-                x: -10
-                y: -10
-                width: 1
-                height: 1
-            }
-            Region {
-                item: (GlobalConfig.appearance.transparency.enabled && GlobalConfig.appearance.blur && win.shouldShow) ? pill : null
-            }
-        }
-
         Region {
             id: pillRegion
 
@@ -77,7 +65,7 @@ Variants {
             implicitWidth: row.implicitWidth + Tokens.padding.extraLarge * 2
             implicitHeight: row.implicitHeight + Tokens.padding.medium * 2
             radius: Tokens.rounding.full
-            color: Colours.tPalette.m3surfaceContainerHigh
+            color: Colours.palette.m3surfaceContainerHigh
             border.width: Math.max(1, Config.border.thickness)
             border.color: Colours.palette.m3outlineVariant
 
