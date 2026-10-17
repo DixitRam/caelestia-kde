@@ -489,6 +489,22 @@ else
     fi
 fi
 
+kwin_plugin_version() {
+    local ver=""
+    if [[ -f /usr/include/kwin/config-kwin.h ]]; then
+        ver="$(grep -oE 'KWIN_PLUGIN_VERSION_STRING "[^"]+"' /usr/include/kwin/config-kwin.h 2>/dev/null | cut -d'"' -f2 || true)"
+    fi
+    if [[ -z "$ver" ]] && command -v kwin_wayland >/dev/null 2>&1; then
+        ver="$(kwin_wayland --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
+    fi
+    printf '%s\n' "${ver:-unknown}"
+}
+
+effect_kwin_version() {
+    local so="$1"
+    grep -aoE 'org\.kde\.kwin\.EffectPluginFactory[0-9]+\.[0-9]+\.[0-9]+' "$so" 2>/dev/null | head -n1 | sed 's/org\.kde\.kwin\.EffectPluginFactory//' || true
+}
+
 WS_STAMP="${XDG_CACHE_HOME:-$HOME/.cache}/caelestia-kde/workspace-tracker.installed"
 
 ws_built_effect() {
@@ -505,7 +521,8 @@ ws_built_effect() {
 
 ws_signature() {
     local built="$1" installed="$2"
-    printf '%s %s\n' \
+    printf '%s %s %s\n' \
+        "$(kwin_plugin_version)" \
         "$(file_sha256 "$built")" \
         "$(stat -c '%s:%Y' "$installed" 2>/dev/null || echo missing)"
 }
@@ -519,9 +536,14 @@ ws_installed_path() {
 }
 
 ws_effect_up_to_date() {
-    local built installed
+    local built installed kwin_ver
     built="$(ws_built_effect)" || return 1
     installed="$(ws_installed_path "$(basename "$built")")" || return 1
+    kwin_ver="$(kwin_plugin_version)"
+    if [[ -n "$kwin_ver" && "$kwin_ver" != "unknown" ]]; then
+        [[ "$(effect_kwin_version "$installed")" == "$kwin_ver" ]] || return 1
+        [[ "$(effect_kwin_version "$built")" == "$kwin_ver" ]] || return 1
+    fi
     [[ -f "$WS_STAMP" ]] || return 1
     [[ "$(cat "$WS_STAMP")" == "$(ws_signature "$built" "$installed")" ]]
 }
@@ -535,6 +557,14 @@ ws_record_install() {
 }
 
 info "Building and installing workspace-tracker KWin Effect..."
+ws_target_kwin_ver="$(kwin_plugin_version)"
+if ws_prev_built="$(ws_built_effect 2>/dev/null)"; then
+    if [[ -n "$ws_target_kwin_ver" && "$ws_target_kwin_ver" != "unknown" ]] \
+        && [[ "$(effect_kwin_version "$ws_prev_built")" != "$ws_target_kwin_ver" ]]; then
+        info "KWin version changed ($ws_target_kwin_ver) — cleaning workspace-tracker build cache..."
+        rm -rf kwin-effects/workspace-tracker/build
+    fi
+fi
 prepare_build_dir kwin-effects/workspace-tracker/build
 WS_INSTALLED=0
 WS_RECONFIGURE=1
@@ -562,6 +592,7 @@ if [[ $WS_INSTALLED -eq 1 ]]; then
         kwriteconfig6 --file kwinrc --group Plugins --key kwin_workspace_trackerEnabled true
     fi
     if [[ $WS_RECONFIGURE -eq 1 ]]; then
+        qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.loadEffect kwin_workspace_tracker 2>/dev/null || true
         qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
         ok "Installed workspace-tracker to KDE."
     fi

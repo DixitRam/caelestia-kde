@@ -70,4 +70,29 @@ test_a_missing_qdbus_is_not_a_missing_effect() {
     assert_eq "0" "$(run_guard "$stubs")" "without qdbus6 the guard cannot tell and must stay quiet"
 }
 
+test_an_enabled_effect_that_loads_on_demand_exits_clean() {
+    local dir count_file stubs
+    dir="$(new_tmpdir)"
+    count_file="$dir/count"
+    printf '0\n' > "$count_file"
+
+    stubs="$dir/stubs"
+    mkdir -p "$stubs"
+    stub_bin "$stubs" kreadconfig6 "printf 'true\n'"
+    # Call 1 (first introspect): fails
+    # Call 2 (loadEffect): succeeds
+    # Call 3 (second introspect): succeeds
+    stub_bin "$stubs" qdbus6 "read -r count < '$count_file'
+echo \"\$((count + 1))\" > '$count_file'
+if [[ \"\$count\" -eq 0 ]]; then
+    exit 1
+fi
+exit 0"
+    chmod +x "$stubs/qdbus6"
+
+    assert_eq "0" "$(run_guard "$stubs")" "an effect that loads successfully on demand should exit clean"
+    assert_eq "3" "$(cat "$count_file")" "the guard should have checked, attempted load, and verified"
+}
+
 run_tests
+
