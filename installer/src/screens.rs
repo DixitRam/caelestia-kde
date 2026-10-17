@@ -212,8 +212,9 @@ fn state_line(app: &App) -> Line<'static> {
     ))
 }
 
-/// The three actions, each with its description on the same row, the way the installer this is
-/// modeled on lists its options. The row the cursor is on is filled.
+/// The three actions. The label is the whole row: what each one does is the verb, and anything
+/// that needs saying about it belongs on the confirmation that asks for it. A row that is not on
+/// offer carries the reason it is grey.
 fn actions(app: &App, width: u16) -> Vec<Line<'static>> {
     let theme = &app.theme;
     let glyphs = app.glyphs;
@@ -224,30 +225,30 @@ fn actions(app: &App, width: u16) -> Vec<Line<'static>> {
         .map(|(index, action)| {
             let enabled = app.action_enabled(*action);
             let name = format!("{:<column$}", action.title(), column = column);
-            let detail = if enabled {
-                action.help()
-            } else {
-                "Caelestia is not installed"
-            };
-            if index == app.home && enabled {
+            if !enabled {
+                return Line::from(vec![
+                    Span::styled("  ", theme.muted()),
+                    Span::styled(name, theme.muted()),
+                    Span::styled(format!("  {}", Action::unavailable(*action)), theme.muted()),
+                ]);
+            }
+            if index == app.home {
                 return ui::cursor_row(
                     theme,
                     glyphs,
-                    &format!("{} {name}  {detail}", glyphs.cursor()),
+                    &format!("{} {name}", glyphs.cursor()),
                     width,
                 );
             }
-            let name_style = if enabled { theme.body() } else { theme.muted() };
             Line::from(vec![
-                Span::styled("  ", name_style),
-                Span::styled(name, name_style),
-                Span::styled(format!("  {detail}"), theme.muted()),
+                Span::styled("  ", theme.body()),
+                Span::styled(name, theme.body()),
             ])
         })
         .collect()
 }
 
-/// The column the action names are padded to, so every description starts in the same place.
+/// The column the action names are padded to, so the reasons line up under each other.
 fn name_column() -> usize {
     Action::ALL
         .iter()
@@ -262,12 +263,11 @@ fn actions_width(app: &App) -> u16 {
     Action::ALL
         .iter()
         .map(|action| {
-            let detail = if app.action_enabled(*action) {
-                action.help()
+            if app.action_enabled(*action) {
+                2 + column
             } else {
-                "Caelestia is not installed"
-            };
-            2 + column + 2 + detail.chars().count()
+                2 + column + 2 + Action::unavailable(*action).chars().count()
+            }
         })
         .max()
         .unwrap_or(0) as u16
@@ -288,37 +288,23 @@ fn privilege(frame: &mut Frame, app: &App, body: Rect) {
     let glyphs = app.glyphs;
     // One measure for the whole card.
     const MEASURE: u16 = 56;
-    let mut lines = vec![
-        // Short enough to survive the narrowest terminal the installer draws in.
-        Line::from(Span::styled(
-            "Your password is sent to sudo and is not saved.".to_string(),
-            theme.muted(),
-        )),
-        blank(),
-    ];
+    let mut lines = if app.auth == Some(AuthMethod::Fingerprint) {
+        fingerprint_card(app)
+    } else {
+        password_card(app)
+    };
 
-    let mut field = vec![
-        Span::styled(format!("{:<10}", "password"), theme.muted()),
-        Span::styled(
-            glyphs
-                .mask()
-                .repeat(app.password.chars().count().min(MEASURE as usize)),
-            theme.body(),
-        ),
-    ];
-    if app.password.is_empty() {
-        field.push(Span::styled("(type, then ".to_string(), theme.muted()));
-        field.push(Span::styled(glyphs.enter().to_string(), theme.accent()));
-        field.push(Span::styled(")".to_string(), theme.muted()));
-    }
-    lines.push(Line::from(field));
     lines.push(blank());
-
     // The wait belongs where the answer will appear, so it reads as work rather than as a freeze.
     if app.checking.is_some() {
+        let waiting = if app.auth == Some(AuthMethod::Fingerprint) {
+            "Waiting for your finger..."
+        } else {
+            "Checking your password..."
+        };
         lines.push(Line::from(vec![
             Span::styled(format!("{} ", ui::running_glyph(app)), theme.accent()),
-            Span::styled("Checking your password...".to_string(), theme.muted()),
+            Span::styled(waiting.to_string(), theme.muted()),
         ]));
     } else if let Some(problem) = &app.problem {
         for line in wrap(problem, MEASURE as usize) {
@@ -341,6 +327,43 @@ fn privilege(frame: &mut Frame, app: &App, body: Rect) {
         MEASURE,
         lines,
     );
+}
+
+/// The reader's card: what to do with it, and nothing else. What the reader is for is the name of
+/// the route, and the reader answers when the finger arrives rather than when a key does.
+fn fingerprint_card(app: &App) -> Vec<Line<'static>> {
+    vec![Line::from(Span::styled(
+        AuthMethod::Fingerprint.title().to_string(),
+        app.theme.body(),
+    ))]
+}
+
+fn password_card(app: &App) -> Vec<Line<'static>> {
+    let theme = &app.theme;
+    let glyphs = app.glyphs;
+    const MEASURE: u16 = 56;
+    // Short enough to survive the narrowest terminal the installer draws in.
+    let mut lines = vec![Line::from(Span::styled(
+        "Your password is sent to sudo and is not saved.".to_string(),
+        theme.muted(),
+    ))];
+
+    let mut field = vec![
+        Span::styled(format!("{:<10}", "password"), theme.muted()),
+        Span::styled(
+            glyphs
+                .mask()
+                .repeat(app.password.chars().count().min(MEASURE as usize)),
+            theme.body(),
+        ),
+    ];
+    if app.password.is_empty() {
+        field.push(Span::styled("(type, then ".to_string(), theme.muted()));
+        field.push(Span::styled(glyphs.enter().to_string(), theme.accent()));
+        field.push(Span::styled(")".to_string(), theme.muted()));
+    }
+    lines.push(Line::from(field));
+    lines
 }
 
 // This machine -----------------------------------------------------------------------
@@ -569,9 +592,8 @@ fn installed_explanation(app: &App, width: u16) -> Vec<String> {
         return Vec::new();
     }
     wrap(
-        "Continuing will install over it: the shell configuration and the deployed files are \
-         replaced. Your own configs are backed up first, and Update is the cheaper way to bring \
-         an existing install up to date.",
+        "Continuing installs over it: the shell configuration and the deployed files are \
+         replaced. Your own configs are backed up first.",
         (width as usize).saturating_sub(4),
     )
 }
@@ -615,14 +637,6 @@ fn auth(frame: &mut Frame, app: &App, body: Rect) {
     const MEASURE: u16 = 68;
     let mut lines: Vec<Line<'static>> = Vec::new();
 
-    for line in wrap(
-        "Installing needs root. The installer uses it only to run the steps.",
-        MEASURE as usize,
-    ) {
-        lines.push(Line::from(Span::styled(line, theme.muted())));
-    }
-    lines.push(blank());
-
     if app.auth == Some(AuthMethod::External) {
         lines.push(Line::from(Span::styled(
             "Run this in another terminal:".to_string(),
@@ -652,14 +666,6 @@ fn auth(frame: &mut Frame, app: &App, body: Rect) {
                 ),
                 Span::styled(method.title().to_string(), name_style),
             ]));
-            if let Some(note) = method.help() {
-                for line in wrap(note, MEASURE as usize) {
-                    lines.push(Line::from(Span::styled(
-                        format!("      {line}"),
-                        theme.muted(),
-                    )));
-                }
-            }
         }
     }
 
@@ -719,7 +725,7 @@ fn question_rail(app: &App) -> Vec<Line<'static>> {
     let glyphs = app.glyphs;
     let mut lines: Vec<Line<'static>> = Vec::new();
     for index in 0..menu::question_count() {
-        let (title, _) = menu::question(index);
+        let title = menu::question(index);
         let here = index == app.question;
         let name_style = if here { theme.selected() } else { theme.body() };
         let changed = if app.question_changed(index) {
@@ -743,7 +749,7 @@ fn question_rail(app: &App) -> Vec<Line<'static>> {
 fn question_rail_width() -> u16 {
     let mut width = 0;
     for index in 0..menu::question_count() {
-        let (title, _) = menu::question(index);
+        let title = menu::question(index);
         width = width.max(2 + title.len() + 2 + 2);
     }
     width as u16
@@ -760,15 +766,13 @@ fn question_pane(frame: &mut Frame, app: &App, area: Rect) {
     ])
     .areas::<4>(area);
 
-    // What is being asked, and what the answer is for, on the one line: a caption under a heading
-    // is one line of the screen spent saying what the heading already says.
-    let (title, help) = menu::question(app.question);
-    let mut heading_spans = vec![Span::styled(title.to_string(), theme.heading())];
-    if !help.is_empty() {
-        heading_spans.push(Span::styled(format!("  {help}"), theme.muted()));
-    }
+    // What is being asked, on the one line, with the fact that it has been edited beside it: the
+    // rail names the question too, but only on a terminal wide enough to hold it.
+    let mut heading_spans = vec![Span::styled(
+        menu::question(app.question).to_string(),
+        theme.heading(),
+    )];
     if app.question_changed(app.question) {
-        // A screen that has been edited says so before its rows are read.
         heading_spans.push(Span::styled(
             format!("  {} changed", app.glyphs.changed()),
             theme.accent(),
@@ -789,8 +793,7 @@ fn question_pane(frame: &mut Frame, app: &App, area: Rect) {
     );
 
     let mut help_lines: Vec<Line<'static>> = Vec::new();
-    let text = app.selected().map(Entry::help).unwrap_or_default();
-    if !text.is_empty() {
+    if let Some(text) = app.selected().and_then(Entry::help) {
         for line in wrap(text, (rows[3].width as usize).saturating_sub(2)) {
             help_lines.push(Line::from(Span::styled(line, theme.muted())));
         }
@@ -1501,7 +1504,7 @@ fn keys_overlay(frame: &mut Frame, app: &App) {
         theme,
         glyphs,
         Some("KEYS"),
-        (62, entries.len() as u16 + 7),
+        (62, entries.len() as u16 + 5),
         Role::Rule,
     );
     let mut lines: Vec<Line<'static>> = Vec::new();
@@ -1510,14 +1513,6 @@ fn keys_overlay(frame: &mut Frame, app: &App) {
             Span::styled(format!("  {keys:<12}"), theme.accent()),
             Span::styled(what.to_string(), theme.body()),
         ]));
-    }
-    lines.push(blank());
-    // Two of these act on one screen rather than everywhere.
-    for note in [
-        "r and R reset answers, on the configure screens",
-        "l, f and w work the log, on the run screen",
-    ] {
-        lines.push(Line::from(Span::styled(format!("  {note}"), theme.muted())));
     }
     ui::prose(frame, inner, lines, theme.body());
 }
@@ -1591,7 +1586,7 @@ fn failure_overlay(frame: &mut Frame, app: &App) {
     lines.push(blank());
     for (index, choice) in FailureCard::CHOICES.iter().enumerate() {
         let chosen = index == card.choice;
-        lines.push(Line::from(vec![
+        let mut spans = vec![
             Span::styled(
                 format!(" {} ", if chosen { glyphs.cursor() } else { " " }),
                 if chosen {
@@ -1608,8 +1603,11 @@ fn failure_overlay(frame: &mut Frame, app: &App) {
                     theme.body()
                 },
             ),
-            Span::styled(choice.help.to_string(), theme.muted()),
-        ]));
+        ];
+        if !choice.help.is_empty() {
+            spans.push(Span::styled(choice.help.to_string(), theme.muted()));
+        }
+        lines.push(Line::from(spans));
     }
     lines.push(blank());
     lines.push(Line::from(Span::styled(
@@ -1628,24 +1626,18 @@ fn confirm_overlay(frame: &mut Frame, app: &App) {
     let (subject, question, border) = match app.confirm {
         Some(Confirm::Handoff(action)) => (
             action.title(),
-            format!(
-                "{} The installer closes and hands the terminal over.",
-                action.help()
-            ),
+            "The installer closes and hands the terminal over.".to_string(),
             Role::Accent,
         ),
         Some(Confirm::Install) => (
             "Install Caelestia now?",
-            "Packages are installed, the configuration is deployed and the shell is built. This \
-             is the last thing you are asked before that starts."
+            "Packages are installed, the configuration is deployed and the shell is built."
                 .to_string(),
             Role::Accent,
         ),
         Some(Confirm::Quit) | None => (
             "Stop the install here?",
-            "The installer stops and does not carry on. A step that is running is stopped first, so \
-             nothing is left working in the background; work already done stays done."
-                .to_string(),
+            "A step that is running is stopped first. Work already done stays done.".to_string(),
             Role::Warn,
         ),
     };
@@ -1833,16 +1825,13 @@ mod tests {
         wide.action = crate::app::Action::Install;
         let text = render(&mut wide, 235, 58);
         // The rail names every question; the pane names only the one being asked.
-        assert!(text.contains("The install"), "no map:\n{text}");
+        assert!(text.contains("Advanced"), "no map:\n{text}");
 
         let mut narrow = app();
         narrow.stage = Stage::Options;
         narrow.action = crate::app::Action::Install;
         let text = render(&mut narrow, 80, 30);
-        assert!(
-            !text.contains("The install"),
-            "a map in one column:\n{text}"
-        );
+        assert!(!text.contains("Advanced"), "a map in one column:\n{text}");
         assert!(
             text.contains("Appearance"),
             "and the question left:\n{text}"
@@ -1969,19 +1958,19 @@ mod tests {
         let mut overlay = app();
         overlay.overlay = Some(Overlay::Keys);
         let text = render(&mut overlay, 100, 34);
-        for line in [
-            "reset answers, on the configure screens",
-            "work the log, on the run screen",
-            "dark or light",
-            "this list",
-        ] {
+        for line in ["dark or light", "this list"] {
             assert!(text.contains(line), "{line} is missing from:\n{text}");
         }
+        assert_eq!(
+            text.matches("reset").count(),
+            1,
+            "a key is described once, in the list: {text}"
+        );
     }
 
     #[test]
     fn the_reason_a_screen_is_blocking_survives_a_short_terminal() {
-        let problem = "The installer cannot go on until the above is sorted out.";
+        let problem = "Sort out the above first.";
         // The worst case: an existing install, one blocker, and a guard that sent the user back,
         // at the smallest terminal the installer draws in.
         let worst = crate::app::Detection {
@@ -2000,7 +1989,7 @@ mod tests {
             distro: crate::distro::Distro::Arch,
             ..worst.clone()
         };
-        assert!(render(&mut roomy, 100, 30).contains("cheaper way"));
+        assert!(render(&mut roomy, 100, 30).contains("Your own configs are backed up first"));
 
         let mut tight = app();
         tight.stage = Stage::Detect;
@@ -2016,16 +2005,16 @@ mod tests {
             "and what it means for the decision: {text}"
         );
         assert!(
-            text.contains("cannot go on"),
+            text.contains("Sort out the above first"),
             "and the answer to the key: {text}"
         );
         assert!(
-            !text.contains("cheaper way"),
+            !text.contains("Your own configs are backed up first"),
             "at the cost of the explanation: {text}"
         );
         // And the reading order holds: the fact comes before what continuing would do about it.
         let headline = text.find("already installed").expect("the headline");
-        let explanation = text.find("Continuing will install over it");
+        let explanation = text.find("Continuing installs over it");
         assert!(
             explanation.is_none_or(|at| at > headline),
             "the explanation follows the thing it explains: {text}"
@@ -2044,12 +2033,15 @@ mod tests {
         ] {
             assert!(text.contains(phrase), "{phrase} is missing from:\n{text}");
         }
-        // Only the route that needs explaining carries a caption: what happens to a typed password
-        // is said on the screen that asks for it, not twice.
-        assert!(!text.contains("does not save it"), "{text}");
+        // Neither route carries a caption: each is named by its title, and the command the other
+        // one needs is shown beside it once it is chosen.
         assert!(
-            text.contains("sudo -v"),
-            "the other route says what to run: {text}"
+            !text.contains("sudo -v"),
+            "the command appears with the route that needs it, not before: {text}"
+        );
+        assert!(
+            !text.contains("For when it cannot ask"),
+            "and nothing is said twice: {text}"
         );
     }
 
@@ -2061,6 +2053,47 @@ mod tests {
         let text = render(&mut app, 100, 30);
         assert!(text.contains("sudo -v"), "{text}");
         assert!(text.contains("another terminal"), "{text}");
+    }
+
+    #[test]
+    fn a_reader_is_offered_by_name_and_asked_by_touching_it() {
+        let mut app = app().with_fingerprint(true);
+        app.stage = Stage::Auth;
+        let text = render(&mut app, 100, 30);
+        assert!(
+            text.contains("Touch the fingerprint reader"),
+            "the route is named on the list: {text}"
+        );
+
+        // Taking it puts the reader on the card, and nothing about passwords on it.
+        app.auth = Some(AuthMethod::Fingerprint);
+        app.stage = Stage::Privilege;
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender.send(true).expect("the answer fits");
+        app.checking = Some(receiver);
+        let waiting = render(&mut app, 100, 30);
+        assert!(
+            waiting.contains("Touch the fingerprint reader"),
+            "{waiting}"
+        );
+        assert!(
+            !waiting.contains("password"),
+            "a reader is not typed into: {waiting}"
+        );
+        assert!(
+            waiting.contains("Waiting for your finger"),
+            "and the wait says what it is waiting for: {waiting}"
+        );
+
+        // A read that did not happen says so, in the reader's own words.
+        app.checking = None;
+        app.problem = Some("No finger was recognized.".to_string());
+        let refused = render(&mut app, 100, 30);
+        assert!(refused.contains("No finger was recognized."), "{refused}");
+        assert!(
+            !refused.contains("password"),
+            "and still asks for no password: {refused}"
+        );
     }
 
     #[test]
@@ -2092,10 +2125,11 @@ mod tests {
         app.stage = Stage::Options;
         app.question = 0;
         let text = render(&mut app, 100, 30);
-        assert!(text.contains("Appearance"), "{text}");
-        assert!(
-            !rows_with(&text, "packages it is made of").is_empty(),
-            "the question's own help, on its heading: {text}"
+        assert!(text.contains(menu::question(0)), "{text}");
+        assert_eq!(
+            menu::question(0),
+            "Appearance",
+            "and the heading is the whole of it"
         );
         assert!(
             text.contains(&format!("question 1/{}", menu::question_count())),
@@ -2360,18 +2394,34 @@ mod tests {
         app.cursor = 0;
         let before = render(&mut app, 100, 30);
         assert!(!before.contains("•"), "{before}");
+        // A row whose label says it all shows nothing under the list: the caption that used to sit
+        // there was the label again.
+        assert!(
+            !before.contains("Replace the login screen"),
+            "a row's label is not repeated as its help: {before}"
+        );
 
+        // The row that does carry a fact shows it, and only while it is under the cursor.
+        app.cursor = 1;
+        assert!(
+            render(&mut app, 100, 30).contains("mini is the login card alone"),
+            "the row's own help is on screen"
+        );
+        app.cursor = 0;
+        assert!(
+            !render(&mut app, 100, 30).contains("mini is the login card alone"),
+            "and it goes with the cursor"
+        );
+
+        // A change is marked on the row, on the question, and in the rail's map.
         app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         let after = render(&mut app, 100, 30);
         assert!(after.contains("•"), "the change is marked: {after}");
         assert!(
-            after.contains(app.selected().expect("a row").help()),
-            "and the row's own help is on screen: {after}"
+            after.contains("changed"),
+            "and the question says so: {after}"
         );
-        assert!(
-            after.contains(menu::question(0).0),
-            "the question being asked is named: {after}"
-        );
+        assert!(after.contains(menu::question(0)), "{after}");
     }
     #[test]
     fn the_review_screen_lists_every_phase_and_marks_what_is_switched_off() {

@@ -53,16 +53,6 @@ impl Action {
         }
     }
 
-    /// One plain line per action, in the voice the installer this is modeled on uses: a short
-    /// factual description, no sell.
-    pub fn help(self) -> &'static str {
-        match self {
-            Action::Install => "Installs Caelestia and the packages it needs.",
-            Action::Update => "Updates an install that is already on this machine.",
-            Action::Uninstall => "Removes Caelestia and restores the configs it backed up.",
-        }
-    }
-
     pub fn header(self) -> &'static str {
         match self {
             Action::Install => "install",
@@ -71,14 +61,13 @@ impl Action {
         }
     }
 
-    /// Why an action is not on offer here, said in terms of the action itself. Install is always
-    /// on offer - a reinstall is a thing people do - so that arm exists to keep the match total
-    /// rather than to be shown.
+    /// Why an action is not on offer here, said as the way out rather than as the fact the row
+    /// above already carries. Install is always on offer - a reinstall is a thing people do - so
+    /// that arm exists to keep the match total rather than to be shown.
     pub fn unavailable(self) -> &'static str {
         match self {
-            Action::Update => "Caelestia is not installed, so there is nothing to update",
-            Action::Uninstall => "Caelestia is not installed, so there is nothing to remove",
-            Action::Install => "Caelestia is installed, so there is nothing to install",
+            Action::Update | Action::Uninstall => "Install Caelestia first",
+            Action::Install => "Caelestia is already installed",
         }
     }
 
@@ -121,9 +110,12 @@ pub enum Confirm {
     Quit,
 }
 
-/// How the wizard will become root: its own helper can ask, or the user can authorize elsewhere.
+/// How the wizard will become root: its own helper can ask, the reader can answer, or the user can
+/// authorize elsewhere.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AuthMethod {
+    /// Offer a finger to the reader the machine already has.
+    Fingerprint,
     /// Ask for the password here and pass it to sudo.
     Password,
     /// Let the user run `sudo -v` in their own terminal.
@@ -133,17 +125,9 @@ pub enum AuthMethod {
 impl AuthMethod {
     pub fn title(self) -> &'static str {
         match self {
+            AuthMethod::Fingerprint => "Touch the fingerprint reader",
             AuthMethod::Password => "Type your password here",
             AuthMethod::External => "Authorize in another terminal",
-        }
-    }
-
-    pub fn help(self) -> Option<&'static str> {
-        match self {
-            AuthMethod::Password => None,
-            AuthMethod::External => {
-                Some("For when it cannot ask: run `sudo -v` in your own terminal, then continue.")
-            }
         }
     }
 }
@@ -251,22 +235,24 @@ impl FailureCard {
         Choice {
             key: 'r',
             label: "Retry",
-            help: "run this step again from the start",
+            help: "",
         },
+        // Skip and Ignore are the pair worth one line each: they both continue, and what they
+        // record about the step is the whole difference between them.
         Choice {
             key: 's',
             label: "Skip",
-            help: "mark it SKIPPED and carry on",
+            help: "record it as switched off, and continue",
         },
         Choice {
             key: 'i',
             label: "Ignore",
-            help: "mark it IGNORED, carry on, and report the install as failed",
+            help: "continue, and report the install as failed",
         },
         Choice {
             key: 'q',
             label: "Stop",
-            help: "end the install here",
+            help: "",
         },
     ];
 
@@ -296,6 +282,9 @@ pub struct App {
     /// Which of the themeable apps are on this machine. Read once, and the reason a question can
     /// ask about the apps somebody has instead of listing the ones they might install.
     pub apps: crate::apps::Apps,
+    /// Whether this machine can authorize with a fingerprint. Read once, and the reason the gate
+    /// offers the reader only where there is one to offer.
+    pub fingerprint: bool,
     /// Read from the machine when the wizard starts and re-read at the confirmation. What the
     /// machine is, and whether Caelestia is already on it, are asked of this rather than kept in
     /// fields of their own: two records of one fact are two records that can disagree.
@@ -366,12 +355,16 @@ impl App {
         // the apps it already has are on from the first screen, so nothing reads as switched on
         // before the user has touched anything.
         let baseline = answers.clone();
+        // Asked of the machine once. A reader that is not there, or a finger that is not enrolled,
+        // is not a route, and the gate should not offer one that cannot open.
+        let fingerprint = privileges::fingerprint_ready();
         Self {
             bundle,
             log_path,
             theme: Theme::resolve(&env),
             glyphs: Glyphs::resolve(&env),
             apps,
+            fingerprint,
             env,
             // Read once, here, and again when it matters. The header is drawn thirty times a
             // second, and detection reads the filesystem and the PATH.
@@ -426,6 +419,14 @@ impl App {
             self.answers.insert(id, answer.to_string());
         }
         self.baseline = self.answers.clone();
+        self
+    }
+
+    /// Point the wizard at a machine that has, or has not, a fingerprint to offer. The same reason
+    /// the apps are settable: what the host happens to have must not decide what a test asserts.
+    #[cfg(test)]
+    pub fn with_fingerprint(mut self, ready: bool) -> Self {
+        self.fingerprint = ready;
         self
     }
 
@@ -801,6 +802,12 @@ impl App {
                     ui::key(glyphs.escape(), "back"),
                 ],
                 Stage::Privilege if self.checking.is_some() => Vec::new(),
+                // A reader is not typed into and its answer is not "continue": the key asks the
+                // same question again.
+                Stage::Privilege if self.auth == Some(AuthMethod::Fingerprint) => vec![
+                    ui::key(glyphs.enter(), "read again"),
+                    ui::key(glyphs.escape(), "back"),
+                ],
                 Stage::Privilege if self.attempts > 0 => vec![
                     ui::key(glyphs.enter(), "continue"),
                     ui::key("r", "try again"),
@@ -909,9 +916,7 @@ impl App {
                 // The reason is already on screen above, so the answer to the key is the fact
                 // that nothing moved.
                 if !self.detection.blockers().is_empty() {
-                    self.problem = Some(
-                        "The installer cannot go on until the above is sorted out.".to_string(),
-                    );
+                    self.problem = Some("Sort out the above first.".to_string());
                     return Flow::Continue;
                 }
                 if self.installed() {
@@ -948,10 +953,32 @@ impl App {
 
     fn privilege_key(&mut self, key: KeyEvent) -> Flow {
         // The password is with sudo, and no key pressed now can change what comes back: it
-        // would only queue up a second attempt behind the first.
+        // would only queue up a second attempt behind the first. A reader is the same: the finger
+        // is the answer and the keyboard has nothing to add to it.
         if self.checking.is_some() {
             return Flow::Continue;
         }
+        if self.auth == Some(AuthMethod::Fingerprint) {
+            match key.code {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.start_check();
+                    Flow::Continue
+                }
+                KeyCode::Esc => {
+                    self.problem = None;
+                    self.attempts = 0;
+                    self.auth = None;
+                    self.stage = Stage::Auth;
+                    Flow::Continue
+                }
+                _ => Flow::Continue,
+            }
+        } else {
+            self.password_key(key)
+        }
+    }
+
+    fn password_key(&mut self, key: KeyEvent) -> Flow {
         match key.code {
             KeyCode::Enter => {
                 self.start_check();
@@ -985,24 +1012,28 @@ impl App {
         }
     }
 
-    /// Hands the password to sudo on a thread of its own. PAM can take seconds to answer, and a
+    /// Hands the answer to sudo on a thread of its own. PAM can take seconds to answer, and a
     /// frame that freezes for that long reads as a hang - which is what made people type their
     /// password again while the first attempt was still in flight.
     fn start_check(&mut self) {
         if self.checking.is_some() {
             return;
         }
-        if self.password.is_empty() {
-            self.problem = Some("Type the password first.".to_string());
-            return;
-        }
-        // A correct password clears the system's tally, so an attempt is always worth letting
-        // through while there is one to make; only a wrong one can lock the account, and a
-        // locked account cannot take the right password either. Nothing asks the system in a
-        // pretend run, where there is no system to ask.
-        if !self.pretend && privileges::locked_out() {
-            self.problem = Some("Locked out for a few minutes after too many tries.".to_string());
-            return;
+        let fingerprint = self.auth == Some(AuthMethod::Fingerprint);
+        if !fingerprint {
+            if self.password.is_empty() {
+                self.problem = Some("Type the password first.".to_string());
+                return;
+            }
+            // A correct password clears the system's tally, so an attempt is always worth letting
+            // through while there is one to make; only a wrong one can lock the account, and a
+            // locked account cannot take the right password either. Nothing asks the system in a
+            // pretend run, where there is no system to ask.
+            if !self.pretend && privileges::locked_out() {
+                self.problem =
+                    Some("Locked out for a few minutes after too many tries.".to_string());
+                return;
+            }
         }
         let (sender, receiver) = std::sync::mpsc::channel();
         if self.pretend {
@@ -1011,7 +1042,12 @@ impl App {
         } else {
             let secret = self.password.clone();
             thread::spawn(move || {
-                let _ = sender.send(privileges::accepts(&secret));
+                let accepted = if fingerprint {
+                    privileges::accepts_fingerprint()
+                } else {
+                    privileges::accepts(&secret)
+                };
+                let _ = sender.send(accepted);
             });
         }
         self.checking = Some(receiver);
@@ -1031,14 +1067,7 @@ impl App {
                 self.checking = None;
                 self.password.clear();
                 self.attempts += 1;
-                self.problem = Some(if !self.pretend && privileges::on_the_last_entry() {
-                    // The system counts refusals, and once it has counted enough it stops
-                    // accepting the right password for a while. Warn before that happens
-                    // rather than after it.
-                    "Not accepted. A wrong entry now locks the account.".to_string()
-                } else {
-                    "That password was not accepted.".to_string()
-                });
+                self.problem = Some(self.refusal());
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -1048,12 +1077,41 @@ impl App {
         }
     }
 
-    /// The password sudo accepted: publish it for the steps to escalate with.
+    /// What to say when sudo would not take what it was offered. A reader that was not offered is
+    /// told apart from a password that was wrong, because they are different things to try again.
+    fn refusal(&self) -> String {
+        if self.auth == Some(AuthMethod::Fingerprint) {
+            // "Not recognized" rather than "no finger was read": a stack that never asks the reader
+            // for anything fails here too, and the reader cannot tell the user which happened. The
+            // read still costs the account an entry in the same tally a wrong password does.
+            return if !self.pretend && privileges::on_the_last_entry() {
+                "No finger was recognized. Another miss locks the account.".to_string()
+            } else {
+                "No finger was recognized.".to_string()
+            };
+        }
+        if !self.pretend && privileges::on_the_last_entry() {
+            // The system counts refusals, and once it has counted enough it stops accepting the
+            // right password for a while. Warn before that happens rather than after it.
+            "Not accepted. A wrong entry now locks the account.".to_string()
+        } else {
+            "That password was not accepted.".to_string()
+        }
+    }
+
+    /// What sudo accepted: publish it for the steps to escalate with. On the fingerprint route
+    /// there is no secret to publish, so what goes to the steps is a helper that refuses and
+    /// leaves the reader to answer every time the authorization has to be won again.
     fn accept_password(&mut self) {
         if !self.pretend {
-            let exe =
-                std::env::current_exe().unwrap_or_else(|_| PathBuf::from("caelestia-install"));
-            match Credential::install(&self.password, &exe) {
+            let credential = if self.auth == Some(AuthMethod::Fingerprint) {
+                Credential::fingerprint()
+            } else {
+                let exe =
+                    std::env::current_exe().unwrap_or_else(|_| PathBuf::from("caelestia-install"));
+                Credential::install(&self.password, &exe)
+            };
+            match credential {
                 Ok(credential) => self.credential = Some(credential),
                 Err(problem) => {
                     eprintln!("caelestia-install: {problem}");
@@ -1087,9 +1145,17 @@ impl App {
         self.stage = Stage::Auth;
     }
 
-    /// The routes that would actually work here, in the order they are offered.
+    /// The routes that would actually work here, in the order they are offered. A reader is asked
+    /// first when there is one: it is the only route that needs nothing typed, and on a machine
+    /// whose tally is spent it is the only one that still opens.
     pub fn auth_methods(&self) -> Vec<AuthMethod> {
-        vec![AuthMethod::Password, AuthMethod::External]
+        let mut methods = Vec::new();
+        if self.fingerprint {
+            methods.push(AuthMethod::Fingerprint);
+        }
+        methods.push(AuthMethod::Password);
+        methods.push(AuthMethod::External);
+        methods
     }
 
     fn auth_key(&mut self, key: KeyEvent) -> Flow {
@@ -1131,7 +1197,14 @@ impl App {
                 };
                 self.auth = Some(method);
                 self.problem = None;
+                self.attempts = 0;
                 match method {
+                    // A reader is asked as soon as it is chosen: the prompt is the screen, and
+                    // waiting for a key as well would ask the user to say "yes" and then touch.
+                    AuthMethod::Fingerprint => {
+                        self.stage = Stage::Privilege;
+                        self.start_check();
+                    }
                     AuthMethod::Password => self.stage = Stage::Privilege,
                     AuthMethod::External => {}
                 }
@@ -1744,7 +1817,10 @@ mod tests {
         )
         // Which apps a machine has is read from the machine, so the host's own apps would leak
         // into every assertion. A known set: all of them, so the app rows are on screen.
-        .with_apps(crate::apps::Apps::all());
+        .with_apps(crate::apps::Apps::all())
+        // Same for the reader: whether the host running the tests happens to have one must not
+        // decide which routes a test sees. The tests that want one ask for it.
+        .with_fingerprint(false);
         // The screens and the page keys agree on a size; the tests have to give them one.
         app.area = Rect::new(0, 0, 100, 30);
         app.pretend = true;
@@ -1836,13 +1912,10 @@ mod tests {
 
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.stage, Stage::Detect, "it stays where the reason is");
-        assert!(
-            app.problem
-                .as_deref()
-                .unwrap_or_default()
-                .contains("cannot go on"),
-            "the answer to the key, in words the blocker above does not already use: {:?}",
-            app.problem
+        assert_eq!(
+            app.problem.as_deref(),
+            Some("Sort out the above first."),
+            "the answer to the key, in words the blocker above does not already use"
         );
 
         // And the way out is still a way out.
@@ -1897,13 +1970,10 @@ mod tests {
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.stage, Stage::Home, "nothing starts");
         assert_eq!(app.overlay, None, "and nothing is offered to confirm");
-        assert!(
-            app.notice
-                .as_deref()
-                .unwrap_or_default()
-                .contains("nothing to update"),
-            "{:?}",
-            app.notice
+        assert_eq!(
+            app.notice.as_deref(),
+            Some(Action::unavailable(Action::Update)),
+            "the answer to the key is what to do about it"
         );
 
         // With an install on the machine it is offered, and it confirms before handing over.
@@ -2173,6 +2243,101 @@ mod tests {
             app.problem.clone().unwrap_or_default()
         );
         assert_eq!(app.leaving(), None);
+    }
+
+    #[test]
+    fn a_reader_that_is_there_is_offered_first_and_a_machine_without_one_is_not_asked_about_it() {
+        let with_reader = app().with_fingerprint(true);
+        assert_eq!(
+            with_reader.auth_methods(),
+            vec![
+                AuthMethod::Fingerprint,
+                AuthMethod::Password,
+                AuthMethod::External
+            ],
+            "the reader is the only route that needs nothing typed, so it is first"
+        );
+
+        let without = app();
+        assert_eq!(
+            without.auth_methods(),
+            vec![AuthMethod::Password, AuthMethod::External],
+            "a route that cannot open is not offered"
+        );
+    }
+
+    #[test]
+    fn the_reader_is_asked_as_soon_as_it_is_chosen() {
+        let mut app = app().with_fingerprint(true);
+        app.detection = installable();
+        app.stage = Stage::Auth;
+        app.cursor = 0;
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.auth, Some(AuthMethod::Fingerprint));
+        assert_eq!(app.stage, Stage::Privilege);
+        assert!(
+            app.checking.is_some(),
+            "choosing the reader is the whole question: the read starts on the key"
+        );
+
+        // And nothing is typed on the way: there is no password to type.
+        assert_eq!(app.password, "");
+        app.tick();
+        assert_eq!(
+            app.password, "",
+            "a finger is not a password and must not become one"
+        );
+        assert_ne!(
+            app.stage,
+            Stage::Privilege,
+            "an accepted read carries on like any other route"
+        );
+    }
+
+    #[test]
+    fn a_read_that_did_not_happen_is_asked_for_again_rather_than_passed_off_as_a_password() {
+        let mut app = app().with_fingerprint(true);
+        app.stage = Stage::Privilege;
+        app.auth = Some(AuthMethod::Fingerprint);
+
+        // The reader answered nothing, the way it does when no finger arrives.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender.send(false).expect("the answer fits");
+        app.checking = Some(receiver);
+        app.tick();
+
+        assert_eq!(app.stage, Stage::Privilege, "it waits where the reader is");
+        assert_eq!(app.auth, Some(AuthMethod::Fingerprint));
+        assert_eq!(
+            app.problem.as_deref(),
+            Some("No finger was recognized."),
+            "and says what happened, not what a wrong password means"
+        );
+        assert_eq!(app.attempts, 1);
+
+        // Asking again is a key, and it starts another read rather than a password check.
+        press(&mut app, KeyCode::Enter);
+        assert!(app.checking.is_some(), "the reader is asked again");
+        assert_eq!(app.password, "");
+    }
+
+    #[test]
+    fn keys_do_not_go_into_a_reader() {
+        let mut app = app().with_fingerprint(true);
+        app.stage = Stage::Privilege;
+        app.auth = Some(AuthMethod::Fingerprint);
+
+        for character in "hunter2".chars() {
+            char_key(&mut app, character);
+        }
+        press(&mut app, KeyCode::Backspace);
+        assert_eq!(app.password, "", "the field is not there to type into");
+
+        // And the way out is still a way out.
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.stage, Stage::Auth);
+        assert_eq!(app.auth, None);
     }
 
     #[test]

@@ -7,12 +7,25 @@ impl Credential {
         Err("privilege escalation needs Linux".to_string())
     }
 
+    pub fn fingerprint() -> Result<Self, String> {
+        Err("a fingerprint reader needs Linux".to_string())
+    }
+
     pub fn environment(&self) -> Vec<(&'static str, String)> {
         Vec::new()
     }
 }
 
 pub fn accepts(_secret: &str) -> bool {
+    false
+}
+
+pub fn accepts_fingerprint() -> bool {
+    false
+}
+
+/// No PAM here to read, and no reader to read from: the route is not offered.
+pub fn fingerprint_ready() -> bool {
     false
 }
 

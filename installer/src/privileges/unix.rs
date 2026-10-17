@@ -11,9 +11,21 @@ const HELPER: &str = "askpass.sh";
 const PIPE: &str = "askpass.fifo";
 const WRAPPER: &str = "sudo";
 
+// The PAM stack sudo resolves here, and the module that answers a fingerprint prompt.
+const SUDO_PAM: &str = "/etc/pam.d/sudo";
+const PAM_DIRECTORY: &str = "/etc/pam.d";
+const FINGERPRINT_MODULE: &str = "pam_fprintd.so";
+// How deep an include chain is followed. These stacks are two or three files deep, and the bound
+// is what stops a stack that includes itself from being a hang.
+const PAM_DEPTH: usize = 4;
+
 // How long a verification may take before the installer stops waiting for sudo, how often that
 // wait is looked at, and how long the helper waits for the pipe before sudo gives up on it.
 const VERIFY_TIMEOUT: Duration = Duration::from_secs(30);
+// A finger takes longer to offer than a password takes to type, and the wait is the reader's, not
+// the user's: pam_fprintd answers with its own timeout, and giving up first would report a
+// failure the reader never made.
+const FINGERPRINT_TIMEOUT: Duration = Duration::from_secs(60);
 const VERIFY_TICK: Duration = Duration::from_millis(25);
 const SECRET_TIMEOUT: Duration = Duration::from_secs(15);
 // A pause before offering the pipe again after an open that failed for any other reason.
@@ -31,22 +43,12 @@ impl Credential {
         let pipe = dir.join(PIPE);
         make_fifo(&pipe)?;
 
-        let helper = dir.join(HELPER);
-        write_private(
-            &helper,
+        publish(
+            &dir,
             &format!(
                 "#!/bin/bash\nexec {} --askpass {}\n",
                 shell_quote(exe),
                 shell_quote(&pipe)
-            ),
-        )?;
-
-        let wrapper = dir.join(WRAPPER);
-        write_private(
-            &wrapper,
-            &format!(
-                "#!/bin/bash\nexport SUDO_ASKPASS={}\nexec /usr/bin/sudo -A \"$@\"\n",
-                shell_quote(&helper)
             ),
         )?;
 
@@ -60,6 +62,20 @@ impl Credential {
         })
     }
 
+    /// A credential for a machine that authorizes without a password. The helper it publishes
+    /// refuses, so the only thing that can carry sudo's exchange is a PAM module that needs no
+    /// password - the reader this route was chosen for. Nothing is stored, because on this route
+    /// there is no secret to store.
+    pub fn fingerprint() -> Result<Self, String> {
+        let dir = private_dir()?;
+        publish(&dir, "#!/bin/bash\nexit 1\n")?;
+        Ok(Self {
+            dir,
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+        })
+    }
+
     pub fn environment(&self) -> Vec<(&'static str, String)> {
         let path = match std::env::var("PATH") {
             Ok(existing) => format!("{}:{existing}", self.dir.display()),
@@ -70,6 +86,27 @@ impl Credential {
             ("PATH", path),
         ]
     }
+
+    /// The helper the steps' sudo will consult, for a check that has to run before the credential
+    /// is published.
+    fn helper_path(&self) -> PathBuf {
+        self.dir.join(HELPER)
+    }
+}
+
+/// Write the pair sudo is pointed at: the helper that answers a password prompt, and the wrapper
+/// the steps find first on PATH so that their sudo goes through it. One place decides how that
+/// pointing is done, so the two routes cannot drift apart.
+fn publish(dir: &Path, helper: &str) -> Result<(), String> {
+    let helper_path = dir.join(HELPER);
+    write_private(&helper_path, helper)?;
+    write_private(
+        &dir.join(WRAPPER),
+        &format!(
+            "#!/bin/bash\nexport SUDO_ASKPASS={}\nexec /usr/bin/sudo -A \"$@\"\n",
+            shell_quote(&helper_path)
+        ),
+    )
 }
 
 /// Whether sudo takes the password. `sudo -S` reads one line and gets end of file for any retry,
@@ -79,6 +116,56 @@ pub fn accepts(secret: &str) -> bool {
     match sudo_binary() {
         Some(sudo) => sudo_accepts_with(&sudo, secret, VERIFY_TIMEOUT),
         None => true,
+    }
+}
+
+/// Whether sudo can be had here without a password: the helper refuses to answer, so the only
+/// thing that can carry the exchange is a PAM module that needs none - the reader the fingerprint
+/// route was picked for. The helper is the one the steps will then use, so what is proved here is
+/// what they get.
+///
+/// A reader that is not offered, or a finger that is not given, fails this and costs the account an
+/// entry in the same tally a wrong password costs one: the stack has nothing else to try.
+pub fn accepts_fingerprint() -> bool {
+    let Ok(credential) = Credential::fingerprint() else {
+        return false;
+    };
+    let Some(sudo) = sudo_binary() else {
+        return false;
+    };
+    let mut command = std::process::Command::new(sudo);
+    command
+        .arg("-A")
+        .arg("-v")
+        .env("SUDO_ASKPASS", credential.helper_path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // The same reasoning as the password check: its own process group so a check that has to be
+    // killed takes everything it started with it, and the installer's session so the authorization
+    // it wins is the one the steps then use.
+    detach(&mut command);
+
+    command
+        .spawn()
+        .map(|child| wait_for_exit(child, FINGERPRINT_TIMEOUT))
+        .unwrap_or(false)
+}
+
+/// Wait for a check to answer, killing it and everything it started if the deadline passes first.
+fn wait_for_exit(mut child: std::process::Child, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => {}
+            Err(_) => return false,
+        }
+        if Instant::now() >= deadline {
+            end_group(&mut child);
+            return false;
+        }
+        thread::sleep(VERIFY_TICK);
     }
 }
 
@@ -163,19 +250,7 @@ fn sudo_accepts_with(sudo: &Path, secret: &str, timeout: Duration) -> bool {
         // Dropping the handle closes the pipe: sudo reads the one line, and anything it does
         // for a second try finds nothing rather than waiting on a terminal nobody is at.
     }
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) => {}
-            Err(_) => return false,
-        }
-        if Instant::now() >= deadline {
-            end_group(&mut child);
-            return false;
-        }
-        thread::sleep(VERIFY_TICK);
-    }
+    wait_for_exit(child, timeout)
 }
 
 impl Drop for Credential {
@@ -230,6 +305,105 @@ pub fn sudo_cached() -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+/// Whether this machine can authorize with a fingerprint: sudo's own stack has a fingerprint
+/// module in it, and fprintd has a reader to offer that module.
+///
+/// The module is looked for in the stack sudo resolves rather than in `system-auth` alone, because
+/// where it lives depends on who set it up: CachyOS's hardware tooling writes it straight into the
+/// sudo service, where a check of `system-auth` would never see it.
+///
+/// Read once: what the machine has is a property of the machine, not of a screen, and the answer
+/// costs a process either way.
+pub fn fingerprint_ready() -> bool {
+    static READY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *READY.get_or_init(|| fingerprint_configured() && reader_present())
+}
+
+/// Whether a finger has been enrolled is not asked, because it cannot be asked from here: the
+/// daemon's answer is behind a polkit action with no policy on this machine, so it is refused
+/// rather than prompted for, and the prints themselves live under a root-only directory. A route
+/// offered on the stack plus a reader is therefore offered on what the machine is set up for; a
+/// finger that was never enrolled is answered by the read itself, which says no finger was
+/// recognized
+/// and leaves the password route where it was.
+pub fn fingerprint_configured() -> bool {
+    let Ok(text) = fs::read_to_string(SUDO_PAM) else {
+        return false;
+    };
+    pam_stack_has_fingerprint(&text, PAM_DEPTH, &|name| {
+        let path = if name.starts_with('/') {
+            PathBuf::from(name)
+        } else {
+            Path::new(PAM_DIRECTORY).join(name)
+        };
+        fs::read_to_string(path).ok()
+    })
+}
+
+/// Whether a fingerprint module is anywhere in a PAM stack, following the includes it makes.
+fn pam_stack_has_fingerprint(
+    text: &str,
+    depth: usize,
+    read: &dyn Fn(&str) -> Option<String>,
+) -> bool {
+    if depth == 0 {
+        return false;
+    }
+    for line in text.lines() {
+        let fields: Vec<&str> = line
+            .split('#')
+            .next()
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect();
+        if fields.contains(&FINGERPRINT_MODULE) {
+            return true;
+        }
+        // An include names another file here, by bare name or by path. `@include` is the spelling
+        // Debian and its children use, `include` the one the others do.
+        let included = match fields.as_slice() {
+            [directive, file, ..] if matches!(*directive, "@include" | "@substack") => Some(*file),
+            [_kind, directive, file, ..] if matches!(*directive, "include" | "substack") => {
+                Some(*file)
+            }
+            _ => None,
+        };
+        if let Some(file) = included
+            && read(file).is_some_and(|text| pam_stack_has_fingerprint(&text, depth - 1, read))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether fprintd has a reader to offer. Its manager lists the devices it found, and the listing
+/// needs no authorization to read - unlike the list of fingers enrolled on them, which is what
+/// makes this the question that can be asked from here.
+fn reader_present() -> bool {
+    if !crate::process::available("busctl") {
+        return false;
+    }
+    std::process::Command::new("busctl")
+        .args([
+            "--system",
+            "call",
+            "net.reactivated.Fprint",
+            "/net/reactivated/Fprint/Manager",
+            "net.reactivated.Fprint.Manager",
+            "GetDevices",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map(|output| readers_listed(&String::from_utf8_lossy(&output.stdout)))
+        .unwrap_or(false)
+}
+
+/// The manager answers with the object paths of the devices it has. No paths is no reader.
+fn readers_listed(answer: &str) -> bool {
+    answer.contains("/net/reactivated/Fprint/Device/")
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -709,6 +883,111 @@ mod tests {
     fn paths_are_quoted_so_a_generated_script_cannot_be_escaped_out_of() {
         assert_eq!(shell_quote(Path::new("/tmp/plain")), "'/tmp/plain'");
         assert_eq!(shell_quote(Path::new("/tmp/it's")), "'/tmp/it'\\''s'");
+    }
+
+    /// The stack as it is on a machine that has been set up for the reader, includes and all.
+    fn read_stack(files: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let owned: Vec<(String, String)> = files
+            .iter()
+            .map(|(name, text)| ((*name).to_string(), (*text).to_string()))
+            .collect();
+        move |name: &str| {
+            owned
+                .iter()
+                .find(|(candidate, _)| candidate == name)
+                .map(|(_, text)| text.clone())
+        }
+    }
+
+    #[test]
+    fn a_fingerprint_module_in_the_stacks_own_file_is_found() {
+        // The shape CachyOS's hardware tooling writes: the module first, with its mark in a
+        // comment after it, in the sudo service itself rather than in system-auth.
+        let stack = "auth sufficient pam_fprintd.so # chwd-fprintd\nauth include system-auth\n";
+        let read = read_stack(&[("system-auth", "auth required pam_unix.so\n")]);
+        assert!(pam_stack_has_fingerprint(stack, PAM_DEPTH, &read));
+    }
+
+    #[test]
+    fn a_fingerprint_module_reached_through_an_include_is_found() {
+        // The shape Fedora and Debian-family machines use: sudo includes a common file, and the
+        // module is in there.
+        let stack = "@include common-auth\n@include common-account\n";
+        let read = read_stack(&[
+            ("common-auth", "auth sufficient pam_fprintd.so\n"),
+            ("common-account", "account required pam_unix.so\n"),
+        ]);
+        assert!(pam_stack_has_fingerprint(stack, PAM_DEPTH, &read));
+    }
+
+    #[test]
+    fn a_stack_without_a_reader_is_a_stack_without_a_reader() {
+        let stack = "auth include system-auth\naccount include system-auth\n";
+        let read = read_stack(&[(
+            "system-auth",
+            "auth required pam_faillock.so preauth\nauth required pam_unix.so\n",
+        )]);
+        assert!(!pam_stack_has_fingerprint(stack, PAM_DEPTH, &read));
+
+        // A file that is not there is not a match either, rather than a panic.
+        assert!(!pam_stack_has_fingerprint(
+            stack,
+            PAM_DEPTH,
+            &read_stack(&[])
+        ));
+    }
+
+    #[test]
+    fn a_stack_that_includes_itself_ends_rather_than_hanging() {
+        // A cycle reads as "not found". The depth bound is the only thing making that true, and
+        // this is what holds it.
+        let read = read_stack(&[("loop", "auth include loop\n")]);
+        assert!(!pam_stack_has_fingerprint(
+            "auth include loop\n",
+            PAM_DEPTH,
+            &read
+        ));
+    }
+
+    #[test]
+    fn only_a_listed_reader_counts_as_a_reader() {
+        // What the manager answered on the machine this was written against: one device, by path.
+        assert!(readers_listed(
+            "ao 1 \"/net/reactivated/Fprint/Device/0\"\n"
+        ));
+        // No device is an empty array, and an answer that is not a list at all is not a reader.
+        assert!(!readers_listed("ao 0\n"));
+        assert!(!readers_listed(""));
+        assert!(!readers_listed(
+            "Failed to call method: The name net.reactivated.Fprint was not provided\n"
+        ));
+    }
+
+    #[test]
+    fn the_fingerprint_credential_publishes_a_helper_that_refuses() {
+        let credential = Credential::fingerprint().expect("a credential");
+        let helper = credential.helper_path();
+        assert!(helper.is_file(), "{}", helper.display());
+
+        // It must refuse: a helper that answered would be a password this route does not have, and
+        // a route that cannot be won without a finger would then be won without one.
+        let status = std::process::Command::new(&helper)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("the helper runs");
+        assert!(!status.success(), "the helper must not answer");
+
+        // And the wrapper sends sudo at that helper, so the steps cannot answer either.
+        let wrapper = fs::read_to_string(credential.dir.join(WRAPPER)).expect("the wrapper");
+        assert!(wrapper.contains(&helper.display().to_string()), "{wrapper}");
+        let environment = credential.environment();
+        assert!(
+            environment.iter().any(
+                |(key, value)| *key == "SUDO_ASKPASS" && value == &helper.display().to_string()
+            )
+        );
     }
 
     #[test]

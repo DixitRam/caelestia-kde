@@ -8,7 +8,6 @@ pub enum Entry {
     Submenu {
         id: &'static str,
         title: &'static str,
-        help: &'static str,
         items: &'static [Entry],
     },
     Toggle {
@@ -53,13 +52,18 @@ impl Entry {
         }
     }
 
-    pub fn help(&self) -> &'static str {
-        match self {
-            Entry::Submenu { help, .. }
-            | Entry::Toggle { help, .. }
+    /// The one line a row can add to its own label, or `None` where the label says it all. The
+    /// bar is a fact the row cannot show — what `full` and `mini` look like, which fonts get
+    /// applied — because a line that restates its row is a line the reader has to spend anyway.
+    pub fn help(&self) -> Option<&'static str> {
+        let text = match self {
+            Entry::Toggle { help, .. }
             | Entry::Choice { help, .. }
-            | Entry::Preset { help, .. } => help,
-        }
+            | Entry::Preset { help, .. } => *help,
+            // A question is named by its title: the screen it opens says what the rows mean.
+            Entry::Submenu { .. } => return None,
+        };
+        (!text.is_empty()).then_some(text)
     }
 
     #[cfg(test)]
@@ -98,26 +102,26 @@ const APPEARANCE: [Entry; 4] = [
     Entry::Toggle {
         id: "INSTALL_SDDM",
         title: "Login screen",
-        help: "Replace the login screen with the Caelestia one.",
+        help: "",
         default: true,
     },
     Entry::Choice {
         id: "SDDM_THEME_VARIANT",
         title: "Login screen style",
-        help: "Full: clock, system info, quotes, avatar, blur effects. Mini: centered login card.",
+        help: "Full adds a clock, system info, quotes and the avatar; mini is the login card alone.",
         default: "full",
         options: &["full", "mini"],
     },
     Entry::Toggle {
         id: "APPLY_LOCKSCREEN",
         title: "Lock screen",
-        help: "The Caelestia lock screen for KDE Plasma.",
+        help: "",
         default: true,
     },
     Entry::Toggle {
         id: "APPLY_FONTS",
         title: "System fonts",
-        help: "Apply Rubik and JetBrains Mono Nerd Font across the system.",
+        help: "Rubik and JetBrains Mono Nerd Font, system-wide.",
         default: true,
     },
 ];
@@ -125,7 +129,7 @@ const APPEARANCE: [Entry; 4] = [
 const SHELL: [Entry; 1] = [Entry::Choice {
     id: "DEFAULT_SHELL",
     title: "Login shell",
-    help: "Caelestia's shell configuration is deployed for the one you pick.",
+    help: "",
     default: "fish",
     options: &["fish", "zsh", "bash"],
 }];
@@ -137,43 +141,43 @@ const APPS: [Entry; 7] = [
     Entry::Preset {
         id: PRESET_THEME_APPS,
         title: "Theme all of them",
-        help: "Turn on every app below. Each one stays editable.",
+        help: "",
         members: &APP_THEMING,
     },
     Entry::Toggle {
         id: "INSTALL_VSCODE",
         title: "VSCode / VSCodium",
-        help: "Settings, keybindings, and the Caelestia theme.",
+        help: "",
         default: false,
     },
     Entry::Toggle {
         id: "INSTALL_ZED",
         title: "Zed",
-        help: "Zed keymap and settings.",
+        help: "",
         default: false,
     },
     Entry::Toggle {
         id: "INSTALL_SPICETIFY",
         title: "Spicetify",
-        help: "Spotify theming through Spicetify.",
+        help: "",
         default: false,
     },
     Entry::Toggle {
         id: "INSTALL_DISCORD",
         title: "Discord / Equibop",
-        help: "The Caelestia look for Discord or Equibop.",
+        help: "",
         default: false,
     },
     Entry::Toggle {
         id: "INSTALL_TODOIST",
         title: "Todoist",
-        help: "The Todoist AppImage.",
+        help: "",
         default: false,
     },
     Entry::Toggle {
         id: "INSTALL_FIREFOX_THEME",
         title: "Firefox theming",
-        help: "userChrome.css and user.js theming for Firefox.",
+        help: "",
         default: false,
     },
 ];
@@ -182,43 +186,40 @@ const OPTIONS: [Entry; 2] = [
     Entry::Toggle {
         id: "REMOVE_CACHE",
         title: "Remove build cache after install",
-        help: "Clear the Caelestia build cache when installation finishes.",
+        help: "",
         default: false,
     },
     Entry::Toggle {
         id: "SKIP_SYSTEM_UPDATE",
         title: "Skip the full system update",
-        help: "Skip the full system update (pacman -Syu / dnf upgrade / apt upgrade).",
+        help: "",
         default: false,
     },
 ];
 
 /// The wizard asks one question at a time, one screen each, in this order. Every entry here is a
 /// group of answers that belong to the same decision, so a screen is never a list of unrelated
-/// settings and never needs a second level of menus.
+/// settings and never needs a second level of menus. The last one is the knobs a fresh install is
+/// right to leave alone; its name is what a reader expects to find there.
 pub const QUESTIONS: [Entry; 4] = [
     Entry::Submenu {
         id: "menu_appearance",
         title: "Appearance",
-        help: "The look, and the packages it is made of.",
         items: &APPEARANCE,
     },
     Entry::Submenu {
         id: "menu_shell",
         title: "Shell",
-        help: "The shell Caelestia sets up.",
         items: &SHELL,
     },
     Entry::Submenu {
         id: "menu_apps",
         title: "Applications",
-        help: "Theming for the apps this machine already has.",
         items: &APPS,
     },
     Entry::Submenu {
         id: "menu_behavior",
-        title: "The install",
-        help: "What it does to the machine before it starts.",
+        title: "Advanced",
         items: &OPTIONS,
     },
 ];
@@ -236,11 +237,11 @@ pub fn items_of(question: usize) -> &'static [Entry] {
     }
 }
 
-/// The title and help of one question, by position.
-pub fn question(question: usize) -> (&'static str, &'static str) {
+/// What one question is called, by position.
+pub fn question(question: usize) -> &'static str {
     match QUESTIONS.get(question) {
-        Some(entry) => (entry.title(), entry.help()),
-        None => ("", ""),
+        Some(entry) => entry.title(),
+        None => "",
     }
 }
 
@@ -606,11 +607,66 @@ mod tests {
     fn every_question_is_a_screen_worth_showing() {
         assert_eq!(question_count(), QUESTIONS.len());
         for index in 0..question_count() {
-            let (title, help) = question(index);
-            assert!(!title.is_empty(), "question {index} has no title");
-            assert!(!help.is_empty(), "question {index} has no help");
+            assert!(!question(index).is_empty(), "question {index} has no title");
             assert!(!items_of(index).is_empty(), "question {index} asks nothing");
         }
+    }
+
+    #[test]
+    fn a_question_is_a_title_and_a_set_of_rows_and_nothing_else() {
+        // The screen a question opens says what its rows mean, so a second line on the heading is
+        // a line the reader spends to be told what they are about to read.
+        for entry in QUESTIONS.iter() {
+            assert!(
+                matches!(entry, Entry::Submenu { .. }),
+                "{} is not a group",
+                entry.id()
+            );
+            assert!(
+                entry.help().is_none(),
+                "{} carries a caption",
+                entry.title()
+            );
+        }
+    }
+
+    #[test]
+    fn a_rows_help_is_a_fact_the_row_cannot_show() {
+        // The bar. A line that repeats its own label, or that runs past what one line holds, is a
+        // caption: it costs the reader a line to learn nothing.
+        for entry in every_entry() {
+            let Some(help) = entry.help() else {
+                continue;
+            };
+            let label = entry.title().to_lowercase();
+            assert!(
+                !help.to_lowercase().contains(&label),
+                "{} restates its own label: {help}",
+                entry.id()
+            );
+            assert!(
+                help.chars().count() <= 96,
+                "{} is a paragraph, not a line: {} chars",
+                entry.id(),
+                help.chars().count()
+            );
+            assert!(
+                !help.ends_with('.') || help.matches(". ").count() == 0,
+                "{} is more than one sentence: {help}",
+                entry.id()
+            );
+        }
+    }
+
+    #[test]
+    fn most_rows_have_nothing_to_add_to_their_label() {
+        // A guard against help creeping back in: if this count grows, each new line has to clear
+        // the bar above.
+        let with_help = every_entry()
+            .into_iter()
+            .filter(|entry| entry.help().is_some())
+            .count();
+        assert!(with_help <= 3, "{with_help} rows carry a second line");
     }
 
     #[test]
@@ -638,7 +694,7 @@ mod tests {
                     .any(|entry| entry.id() == PRESET_THEME_APPS)
             })
             .expect("the preset is in a question");
-        assert_eq!(question(apps).0, "Applications");
+        assert_eq!(question(apps), "Applications");
         assert_eq!(
             items_of(apps)[0].id(),
             PRESET_THEME_APPS,
