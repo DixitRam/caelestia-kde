@@ -953,10 +953,7 @@ impl App {
                     Flow::Continue
                 }
                 KeyCode::Esc => {
-                    self.problem = None;
-                    self.attempts = 0;
-                    self.auth = None;
-                    self.stage = Stage::Auth;
+                    self.leave_the_gate();
                     Flow::Continue
                 }
                 _ => Flow::Continue,
@@ -981,11 +978,7 @@ impl App {
                 Flow::Continue
             }
             KeyCode::Esc => {
-                self.password.clear();
-                self.problem = None;
-                self.attempts = 0;
-                self.auth = None;
-                self.stage = Stage::Auth;
+                self.leave_the_gate();
                 Flow::Continue
             }
             // A chord is not a character of a password. A terminal that sends one for enter,
@@ -1061,10 +1054,9 @@ impl App {
                     // and the password - which clears the tally when it is right - takes over.
                     let problem = self.refusal();
                     self.fingerprint_spent = true;
-                    self.auth = None;
                     self.cursor = 0;
                     self.problem = Some(problem);
-                    self.stage = Stage::Auth;
+                    self.gate();
                     return;
                 }
                 self.attempts += 1;
@@ -1134,13 +1126,39 @@ impl App {
             self.begin_install();
             return;
         }
-        self.auth = None;
         self.problem = None;
         self.cursor = 0;
         // A gate entered again is asked again from a clean slate: a count left over from the
         // last visit would report refusals this visit never made.
         self.attempts = 0;
-        self.stage = Stage::Auth;
+        self.gate();
+    }
+
+    /// Put the question up. A machine with one way to become root is asked for the password
+    /// straight away: a list of one route is a keypress that asks nothing, and the password is
+    /// the question the user came here to answer.
+    fn gate(&mut self) {
+        if self.auth_methods() == [AuthMethod::Password] {
+            self.auth = Some(AuthMethod::Password);
+            self.stage = Stage::Privilege;
+        } else {
+            self.auth = None;
+            self.stage = Stage::Auth;
+        }
+    }
+
+    /// The way back out of the question: to the routes where there was a choice between them, and
+    /// to the answers where the password was never one.
+    fn leave_the_gate(&mut self) {
+        self.password.clear();
+        self.problem = None;
+        self.attempts = 0;
+        if self.auth_methods() == [AuthMethod::Password] {
+            self.auth = None;
+            self.stage = Stage::Options;
+        } else {
+            self.gate();
+        }
     }
 
     /// The routes that would actually work here, in the order they are offered. A reader is asked
@@ -2203,11 +2221,10 @@ mod tests {
         assert_eq!(app.stage, Stage::Options, "and nothing has started yet");
 
         char_key(&mut app, 'y');
-        // A test process is not root and has no cached sudo, so there is a route to choose. The
-        // wizard offers the choice rather than assuming the password.
-        assert_eq!(app.stage, Stage::Auth);
-        assert_eq!(app.auth, None, "no route is taken until one is picked");
-        assert!(app.auth_methods().contains(&AuthMethod::Password));
+        // This machine has no reader, so the password is the only way through and it is asked for
+        // directly: a list of one route would be a keypress that asks nothing.
+        assert_eq!(app.stage, Stage::Privilege);
+        assert_eq!(app.auth, Some(AuthMethod::Password));
     }
 
     #[test]
@@ -2223,15 +2240,18 @@ mod tests {
     }
 
     #[test]
-    fn a_gate_with_one_route_still_has_to_be_answered() {
-        // No reader, so the password is the only thing on the list: the screen is still the place
-        // the answer is given, and the key that takes it goes to the field.
+    fn a_gate_with_one_route_asks_for_the_password_itself() {
+        // No reader, so the password is the only way through, and there is nothing to pick: the
+        // gate is the password field rather than a list of one.
         let mut app = app();
-        app.stage = Stage::Auth;
-        app.cursor = 0;
-        press(&mut app, KeyCode::Enter);
+        app.need_auth();
         assert_eq!(app.auth, Some(AuthMethod::Password));
         assert_eq!(app.stage, Stage::Privilege);
+
+        // And leaving it goes back to the answers rather than to a list that is not there.
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.stage, Stage::Options);
+        assert_eq!(app.auth, None);
         assert_eq!(app.leaving(), None);
     }
 
@@ -2294,9 +2314,14 @@ mod tests {
         app.tick();
 
         // A read that goes unanswered is a failed authentication against sudo, and those are the
-        // entries that lock the account: the reader is not offered a second time.
-        assert_eq!(app.stage, Stage::Auth, "the gate goes back to its routes");
-        assert_eq!(app.auth, None);
+        // entries that lock the account: the reader is not offered a second time, and with it gone
+        // the gate is the password field.
+        assert_eq!(
+            app.stage,
+            Stage::Privilege,
+            "the gate asks for the password"
+        );
+        assert_eq!(app.auth, Some(AuthMethod::Password));
         assert_eq!(
             app.auth_methods(),
             vec![AuthMethod::Password],
@@ -2422,33 +2447,43 @@ mod tests {
 
     #[test]
     fn esc_steps_back_rather_than_leaving() {
-        let mut app = app();
-        app.stage = Stage::Auth;
-        app.auth = Some(AuthMethod::Password);
-        app.stage = Stage::Privilege;
-        char_key(&mut app, 'x');
-        press(&mut app, KeyCode::Esc);
-        assert_eq!(app.stage, Stage::Auth, "the gate hands back to the methods");
-        assert_eq!(app.password, "", "and it forgets the password");
-        assert_eq!(app.leaving(), None);
+        let mut solo = app();
+        solo.need_auth();
+        assert_eq!(solo.stage, Stage::Privilege);
+        char_key(&mut solo, 'x');
+        press(&mut solo, KeyCode::Esc);
+        assert_eq!(
+            solo.stage,
+            Stage::Options,
+            "the gate hands back to the answers"
+        );
+        assert_eq!(solo.password, "", "and it forgets the password");
+        assert_eq!(solo.leaving(), None);
 
-        // The gate is one step behind the last answer.
-        app.stage = Stage::Auth;
-        app.question = menu::question_count() - 1;
-        press(&mut app, KeyCode::Esc);
-        assert_eq!(app.stage, Stage::Options);
-        assert_eq!(app.question, menu::question_count() - 1);
+        // With a reader on the machine there is a choice to go back to, so it goes back to it.
+        let mut with_reader = app().with_fingerprint(true);
+        with_reader.auth = Some(AuthMethod::Fingerprint);
+        with_reader.stage = Stage::Privilege;
+        press(&mut with_reader, KeyCode::Esc);
+        assert_eq!(
+            with_reader.stage,
+            Stage::Auth,
+            "the routes are where the choice was made"
+        );
+        assert_eq!(with_reader.auth, None);
 
         // Back through the questions, and off the front of the wizard.
+        solo.stage = Stage::Options;
+        solo.question = menu::question_count() - 1;
         for expected in (0..menu::question_count() - 1).rev() {
-            press(&mut app, KeyCode::Esc);
-            assert_eq!(app.question, expected);
+            press(&mut solo, KeyCode::Esc);
+            assert_eq!(solo.question, expected);
         }
-        press(&mut app, KeyCode::Esc);
-        assert_eq!(app.stage, Stage::Detect);
-        press(&mut app, KeyCode::Esc);
-        assert_eq!(app.stage, Stage::Home);
-        assert_eq!(app.leaving(), None);
+        press(&mut solo, KeyCode::Esc);
+        assert_eq!(solo.stage, Stage::Detect);
+        press(&mut solo, KeyCode::Esc);
+        assert_eq!(solo.stage, Stage::Home);
+        assert_eq!(solo.leaving(), None);
     }
 
     #[test]
