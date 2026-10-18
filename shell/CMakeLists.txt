@@ -148,6 +148,14 @@ if("m3shapes" IN_LIST ENABLE_MODULES)
     if(TARGET m3shapesplugin)
         set_target_properties(m3shapesplugin PROPERTIES INSTALL_RPATH "$ORIGIN")
     endif()
+
+    # Built from source this project does not own. It cannot meet the warning bar the shell is
+    # held to below, and every diagnostic it raises is one nobody here can act on.
+    foreach(_m3shape IN ITEMS m3shapes_core m3shapes_morph m3shapes_shapes m3shapesplugin)
+        if(TARGET ${_m3shape})
+            target_compile_options(${_m3shape} PRIVATE -w)
+        endif()
+    endforeach()
 endif()
 
 add_compile_definitions(

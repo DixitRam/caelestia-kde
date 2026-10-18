@@ -127,4 +127,15 @@ set_source_files_properties(
     PROPERTIES SKIP_PRECOMPILE_HEADERS ON
 )
 
+# The client wrappers Qt writes from the protocol XML are generated code too: they come out of a
+# template, they fail the warning bar the hand-written plugin meets, and no fix here would survive
+# the next regeneration.
+set_source_files_properties(
+    ${CMAKE_CURRENT_BINARY_DIR}/qwayland-zkde-screencast-unstable-v1.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/qwayland-plasma-window-management.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/qwayland-kde-output-device-v2.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/qwayland-kde-output-management-v2.cpp
+    PROPERTIES COMPILE_OPTIONS "-w"
+)
+
 add_subdirectory(QuickShare)
