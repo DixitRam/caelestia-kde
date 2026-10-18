@@ -164,9 +164,11 @@ pub fn unfinished() -> Vec<(String, String)> {
 }
 
 /// The most recently written journal, which is the last run.
-fn newest(mut journals: Vec<(std::time::SystemTime, PathBuf)>) -> Option<PathBuf> {
-    journals.sort_by(|left, right| left.0.cmp(&right.0));
-    journals.pop().map(|(_, path)| path)
+fn newest(journals: Vec<(std::time::SystemTime, PathBuf)>) -> Option<PathBuf> {
+    journals
+        .into_iter()
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path)
 }
 
 /// Record the step this process just ran, if it was started as part of a plan. Called by the
