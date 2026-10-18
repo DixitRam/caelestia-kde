@@ -6,7 +6,12 @@ import Quickshell
 import Quickshell.Services.SystemTray
 import Caelestia.Config
 import qs.components
+import qs.services as QsServices
 
+// Aliased on purpose: qs.services declares singletons named after some of the
+// popouts this file instantiates (Weather, Audio), and an unqualified import
+// would make those names resolve to the services instead of the local
+// components.
 Item {
     id: root
 
@@ -23,6 +28,23 @@ Item {
     readonly property real contentMargin: Tokens.padding.large * (currentPopout?.item?.scaleOffset ?? 1.0)
     readonly property real availableWidth: Math.max(0, ((QsWindow.window as QsWindow)?.screen?.width ?? 0) - contentMargin * 2 - Tokens.padding.extraLargeIncreased * (currentPopout?.item?.scaleOffset ?? 1.0))
     readonly property real availableHeight: Math.max(0, ((QsWindow.window as QsWindow)?.screen?.height ?? 0) - contentMargin * 2 - Tokens.padding.extraLargeIncreased * (currentPopout?.item?.scaleOffset ?? 1.0))
+
+    // Built-in popouts are handed the values they need one by one in their own
+    // entry. Plugin popouts are plain components, so the values they declare
+    // are filled in here instead and the rest are left alone.
+    function applyPopoutContext(popout: var): void {
+        if (!popout)
+            return;
+
+        const context = {
+            popouts: root.popouts,
+            visibilities: root.visibilities
+        };
+
+        for (const name in context)
+            if (popout.hasOwnProperty(name))
+                popout[name] = context[name];
+    }
 
     implicitWidth: Math.min(((currentPopout?.item?.width || currentPopout?.implicitWidth) ?? 0) + Tokens.padding.extraLargeIncreased * (currentPopout?.item?.scaleOffset ?? 1.0), availableWidth)
     implicitHeight: Math.min(((currentPopout?.item?.height || currentPopout?.implicitHeight) ?? 0) + Tokens.padding.extraLargeIncreased * (currentPopout?.item?.scaleOffset ?? 1.0), availableHeight)
@@ -385,6 +407,25 @@ Item {
                 popouts: root.popouts
                 label: qsTr("Elements & Modules")
                 subPageIdx: 15
+            }
+        }
+
+        // Plugin widgets that declare a popout get one here, so they slide in
+        // through the same container the built-in popouts use instead of
+        // opening a window of their own.
+        Repeater {
+            model: ScriptModel {
+                values: QsServices.BarWidgetRegistry.widgets.filter(widget => widget.popoutUrl)
+            }
+
+            Popout {
+                required property var modelData
+
+                name: modelData.id
+                previewKey: modelData.id
+                source: modelData.popoutUrl
+
+                onItemChanged: root.applyPopoutContext(item)
             }
         }
 

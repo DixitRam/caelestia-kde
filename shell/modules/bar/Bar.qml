@@ -272,6 +272,13 @@ Item {
                 popouts.hasCurrent = false;
             }
         } else {
+            // Plugin widgets (and any widget without a bespoke branch) opt into
+            // hover popouts by exposing handleHover(pos, isHorizontal, popouts).
+            const item = ch.item;
+            if (item && typeof item.handleHover === "function") {
+                item.handleHover(pos - top, isHorizontal, popouts);
+                return;
+            }
             popouts.hasCurrent = false;
         }
     }
@@ -283,6 +290,15 @@ Item {
             if (ch.item && typeof ch.item.handleWheel === "function") {
                 ch.item.handleWheel(angleDelta);
             }
+            return;
+        }
+
+        // Plugin widgets (and any widget without a bespoke branch) opt into
+        // scroll handling by exposing handleWheel(pos, isHorizontal, angleDelta).
+        const item = ch?.item;
+        if (item && typeof item.handleWheel === "function") {
+            const mappedChPos = mapFromItem(ch, 0, 0);
+            item.handleWheel(pos - (isHorizontal ? mappedChPos.x : mappedChPos.y), isHorizontal, angleDelta);
             return;
         }
 
@@ -308,6 +324,25 @@ Item {
             else if (angleDelta.y < 0)
                 monitor.stepBrightness(-GlobalConfig.services.brightnessIncrement);
         }
+    }
+
+    // Built-in widgets are handed the ambient values one by one in their own
+    // delegate choice. Plugin widgets are plain components, so the values they
+    // declare are filled in here instead and the rest are left alone.
+    function applyWidgetContext(widget: var): void {
+        if (!widget)
+            return;
+
+        const context = {
+            bar: root,
+            screen: root.screen,
+            popouts: root.popouts,
+            visibilities: root.visibilities
+        };
+
+        for (const name in context)
+            if (widget.hasOwnProperty(name))
+                widget[name] = context[name];
     }
 
     Component.onCompleted: Logger.mark("bar-ready")
@@ -616,6 +651,16 @@ Item {
                     sourceComponent: Power {
                         visibilities: root.visibilities
                     }
+                }
+            }
+            // Fallback for plugin-provided widgets: DelegateChooser needs a
+            // static choice per id, so unknown ids resolve their component at
+            // runtime from the plugin registry.
+            DelegateChoice {
+                delegate: WrappedLoader {
+                    source: BarWidgetRegistry.widget(id)?.componentUrl ?? ""
+
+                    onItemChanged: root.applyWidgetContext(item)
                 }
             }
         }

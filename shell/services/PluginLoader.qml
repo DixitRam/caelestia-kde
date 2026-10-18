@@ -39,6 +39,49 @@ Item {
         enabledCount = count;
     }
 
+    // A plugin declares bar widgets in metadata.json under `barWidgets`:
+    // [{ id, name, icon, defaultZone, component, popout, available,
+    // unavailableText }]. `component` and `popout` are paths relative to the
+    // plugin folder.
+    function normalizeBarWidgets(meta): void {
+        const specs = meta.barWidgets;
+        const normalized = [];
+
+        for (const spec of (specs ?? [])) {
+            if (!spec || !spec.id || !spec.component)
+                continue;
+            // Refuse to load a component outside the plugin folder.
+            if (spec.component.startsWith("/") || spec.component.indexOf("..") !== -1)
+                continue;
+            // A popout is optional, and only the popout itself is dropped when
+            // it escapes the folder: the widget still renders.
+            const popout = spec.popout ?? "";
+            const hasPopout = popout.length > 0 && !popout.startsWith("/") && popout.indexOf("..") === -1;
+            normalized.push({
+                id: spec.id,
+                name: spec.name ?? spec.id,
+                icon: spec.icon ?? "widgets",
+                defaultZone: spec.defaultZone ?? "right",
+                available: spec.available ?? true,
+                unavailableText: spec.unavailableText ?? "",
+                componentUrl: "file://" + meta.path + "/" + spec.component,
+                popoutUrl: hasPopout ? "file://" + meta.path + "/" + popout : ""
+            });
+        }
+
+        meta.barWidgets = normalized;
+    }
+
+    function syncBarWidgets(meta, enabled): void {
+        const key = meta.id || meta.name;
+        if (!key)
+            return;
+        if (enabled && meta.barWidgets && meta.barWidgets.length > 0)
+            BarWidgetRegistry.register(key, meta.barWidgets);
+        else
+            BarWidgetRegistry.unregister(key);
+    }
+
     function loadPlugin(meta) {
         let id = meta.id || meta.name;
         if (pluginInstances[id]) return;
@@ -116,6 +159,7 @@ Item {
                 } else {
                     unloadPlugin(itemId);
                 }
+                syncBarWidgets(item, enable);
                 updateEnabledCount();
             }
         }
@@ -134,6 +178,8 @@ Item {
         pluginInstances = {};
         loadedCount = 0;
 
+        BarWidgetRegistry.clear();
+
         for (let k = 0; k < discovered.length; k++) {
             let meta = discovered[k];
             CaelestiaApi.plugins.available.append(meta);
@@ -141,6 +187,7 @@ Item {
             if (meta.enabled) {
                 loadPlugin(meta);
             }
+            syncBarWidgets(meta, meta.enabled);
         }
         updateEnabledCount();
         pluginsReloaded();
@@ -174,6 +221,7 @@ Item {
                             let aUrl = meta.author ? (meta.author.url || "") : "";
                             meta.icon = meta.icon || "extension";
 
+                            pluginLoader.normalizeBarWidgets(meta);
                             pluginLoader.discovered.push(meta);
                         } catch(e) {
                             console.log("Failed to parse metadata.json for", "${pluginInfo.id}", e);
@@ -230,6 +278,7 @@ Item {
 
     function removePluginFromAvailable(id) {
         unloadPlugin(id);
+        BarWidgetRegistry.unregister(id);
         for (let j = 0; j < discovered.length; j++) {
             if ((discovered[j].id || discovered[j].name) === id) {
                 discovered.splice(j, 1);
@@ -257,8 +306,11 @@ Item {
         let aUrl = meta.author ? (meta.author.url || "") : "";
         meta.icon = meta.icon || "extension";
 
+        normalizeBarWidgets(meta);
+
         discovered.push(meta);
         CaelestiaApi.plugins.available.append(meta);
+        syncBarWidgets(meta, meta.enabled);
         updateEnabledCount();
         pluginLoader.pluginsReloaded();
     }
@@ -305,7 +357,10 @@ Item {
                         meta.authorAvatar = cleanUrl + ".png";
                     }
 
+                    pluginLoader.normalizeBarWidgets(meta);
+
                     console.log("addPluginToAvailable: adding", meta.id, "to available list. mediaurl:", meta.mediaurl);
+
                     // Updating an already listed plugin replaces the stale entry instead of
                     // duplicating it, so the row reflects the fresh version right away.
                     let replacedKey = meta.id || meta.name;
@@ -324,6 +379,7 @@ Item {
                     }
                     pluginLoader.discovered.push(meta);
                     CaelestiaApi.plugins.available.append(meta);
+                    pluginLoader.syncBarWidgets(meta, meta.enabled);
                     pluginsReloaded();
                     if (meta.restart) {
                         PluginStore.restartRequired = true;

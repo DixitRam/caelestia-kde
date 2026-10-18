@@ -1,0 +1,45 @@
+pragma Singleton
+
+import QtQuick
+
+QtObject {
+    id: root
+
+    // Bar widgets declared by plugins through their metadata.json `barWidgets`
+    // field. Each entry is normalised to:
+    // { id, name, icon, defaultZone, available, unavailableText, componentUrl,
+    //   popoutUrl, pluginId }
+    property var widgets: []
+
+    readonly property var byId: {
+        const map = {};
+        for (const widget of root.widgets)
+            map[widget.id] = widget;
+        return map;
+    }
+
+    function widget(id: string): var {
+        return root.byId[id] ?? null;
+    }
+
+    function isKnown(id: string): bool {
+        return root.byId[id] !== undefined;
+    }
+
+    // Replaces every widget previously registered by this plugin, so a reload
+    // never leaves stale components behind.
+    function register(pluginId: string, specs: var): void {
+        const next = root.widgets.filter(widget => widget.pluginId !== pluginId);
+        for (const spec of (specs ?? []))
+            next.push(Object.assign({ pluginId: pluginId }, spec));
+        root.widgets = next;
+    }
+
+    function unregister(pluginId: string): void {
+        root.widgets = root.widgets.filter(widget => widget.pluginId !== pluginId);
+    }
+
+    function clear(): void {
+        root.widgets = [];
+    }
+}

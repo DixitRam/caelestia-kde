@@ -1,6 +1,7 @@
 pragma Singleton
 
 import QtQuick
+import qs.services
 
 QtObject {
     id: root
@@ -34,13 +35,29 @@ QtObject {
         { id: "keepawake", zone: "right" }
     ]
 
+    // Built-ins plus the widgets plugins registered through their manifest.
+    // A plugin cannot shadow a built-in id: the built-in keeps its slot.
+    readonly property var allWidgets: {
+        const taken = {};
+        for (const widget of root.widgets)
+            taken[widget.id] = true;
+
+        const plugins = [];
+        for (const widget of BarWidgetRegistry.widgets) {
+            if (!taken[widget.id])
+                plugins.push({ id: widget.id, zone: widget.defaultZone ?? "right" });
+        }
+
+        return root.widgets.concat(plugins);
+    }
+
     readonly property var byId: {
         const widgets = {};
-        root.widgets.forEach((widget, index) => widgets[widget.id] = Object.assign({ index: index }, widget));
+        root.allWidgets.forEach((widget, index) => widgets[widget.id] = Object.assign({ index: index }, widget));
         return widgets;
     }
 
-    readonly property var ids: root.widgets.map(widget => widget.id)
+    readonly property var ids: root.allWidgets.map(widget => widget.id)
 
     function widget(id: string): var {
         return root.byId[id] ?? null;

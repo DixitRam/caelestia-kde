@@ -18,37 +18,53 @@ PageBase {
     id: root
 
     readonly property var componentMeta: {
-        "logo": { icon: "rocket_launch", name: qsTr("Logo") },
-        "workspaces": { icon: "workspaces", name: qsTr("Workspaces") },
-        "github": {
-            icon: "commit",
-            name: qsTr("GitHub"),
-            available: BarComponents.GithubStore.available,
-            unavailableText: qsTr("GitHub token not detected")
-        },
-        "media": { icon: "graphic_eq", name: qsTr("Now playing") },
-        "greeter": { icon: "waving_hand", name: qsTr("Greeter") },
-        "tray": { icon: "expand_more", name: qsTr("System tray") },
-        "updateIndicator": { icon: "update", name: qsTr("Updates") },
-        "clock": { icon: "schedule", name: qsTr("Clock") },
-        "statusIcons": { icon: "wifi", name: qsTr("Status icons") },
-        "kbLayoutIndicator": { icon: "keyboard", name: qsTr("Keyboard layout") },
-        "notificationsIndicator": { icon: "notifications", name: qsTr("Notifications") },
-        "perfCpu": { icon: "memory", name: qsTr("CPU"), available: Cpu.name.length > 0, unavailableText: qsTr("CPU sensor not detected") },
-        "perfMemory": { icon: "memory_alt", name: qsTr("Memory"), available: Memory.total > 1, unavailableText: qsTr("Memory sensor not detected") },
-        "perfStorage": { icon: "hard_disk", name: qsTr("Storage"), available: Storage.disks.length > 0, unavailableText: qsTr("Storage disks not detected") },
-        "perfNetwork": { icon: "swap_vert", name: qsTr("Network") },
-        "perfGpu": { icon: "desktop_windows", name: qsTr("GPU"), available: Gpu.type !== Gpu.None, unavailableText: qsTr("GPU not detected") },
-        "perfBattery": { icon: "battery_full", name: qsTr("Battery"), available: UPower.displayDevice.isLaptopBattery, unavailableText: qsTr("Battery not detected") },
-        "dock": { icon: "apps", name: qsTr("Dock") },
-        "showDesktop": { icon: "keyboard_double_arrow_down", name: qsTr("Show Desktop") },
-        "power": { icon: "power_settings_new", name: qsTr("Power menu") },
-        "shortcuts": { icon: "toggle_on", name: qsTr("Shortcuts") },
-        "screencapture": { icon: "screenshot_region", name: qsTr("Screen Capture") },
-        "keepawake": { icon: "coffee", name: qsTr("Keep Awake") },
-        "notes": { icon: "sticky_note_2", name: qsTr("Notes") },
-        "performance": { icon: "speed", name: qsTr("Performance") },
-        "weather": { icon: "cloud", name: qsTr("Weather") }
+        const meta = {
+            "logo": { icon: "rocket_launch", name: qsTr("Logo") },
+            "workspaces": { icon: "workspaces", name: qsTr("Workspaces") },
+            "github": {
+                icon: "commit",
+                name: qsTr("GitHub"),
+                available: BarComponents.GithubStore.available,
+                unavailableText: qsTr("GitHub token not detected")
+            },
+            "media": { icon: "graphic_eq", name: qsTr("Now playing") },
+            "greeter": { icon: "waving_hand", name: qsTr("Greeter") },
+            "tray": { icon: "expand_more", name: qsTr("System tray") },
+            "updateIndicator": { icon: "update", name: qsTr("Updates") },
+            "clock": { icon: "schedule", name: qsTr("Clock") },
+            "statusIcons": { icon: "wifi", name: qsTr("Status icons") },
+            "kbLayoutIndicator": { icon: "keyboard", name: qsTr("Keyboard layout") },
+            "notificationsIndicator": { icon: "notifications", name: qsTr("Notifications") },
+            "perfCpu": { icon: "memory", name: qsTr("CPU"), available: Cpu.name.length > 0, unavailableText: qsTr("CPU sensor not detected") },
+            "perfMemory": { icon: "memory_alt", name: qsTr("Memory"), available: Memory.total > 1, unavailableText: qsTr("Memory sensor not detected") },
+            "perfStorage": { icon: "hard_disk", name: qsTr("Storage"), available: Storage.disks.length > 0, unavailableText: qsTr("Storage disks not detected") },
+            "perfNetwork": { icon: "swap_vert", name: qsTr("Network") },
+            "perfGpu": { icon: "desktop_windows", name: qsTr("GPU"), available: Gpu.type !== Gpu.None, unavailableText: qsTr("GPU not detected") },
+            "perfBattery": { icon: "battery_full", name: qsTr("Battery"), available: UPower.displayDevice.isLaptopBattery, unavailableText: qsTr("Battery not detected") },
+            "dock": { icon: "apps", name: qsTr("Dock") },
+            "showDesktop": { icon: "keyboard_double_arrow_down", name: qsTr("Show Desktop") },
+            "power": { icon: "power_settings_new", name: qsTr("Power menu") },
+            "shortcuts": { icon: "toggle_on", name: qsTr("Shortcuts") },
+            "screencapture": { icon: "screenshot_region", name: qsTr("Screen Capture") },
+            "keepawake": { icon: "coffee", name: qsTr("Keep Awake") },
+            "notes": { icon: "sticky_note_2", name: qsTr("Notes") },
+            "performance": { icon: "speed", name: qsTr("Performance") },
+            "weather": { icon: "cloud", name: qsTr("Weather") }
+        };
+
+        // Plugin widgets add themselves here; built-in ids win on collision.
+        for (const widget of BarWidgetRegistry.widgets) {
+            if (meta[widget.id])
+                continue;
+            meta[widget.id] = {
+                icon: widget.icon ?? "widgets",
+                name: widget.name ?? widget.id,
+                available: widget.available ?? true,
+                unavailableText: widget.unavailableText
+            };
+        }
+
+        return meta;
     }
     property bool isGlobalDragging: false
     property string globalDragCompId: ""
@@ -345,6 +361,9 @@ PageBase {
         for (let i = 0; i < entries.length; i++) {
             let entry = entries[i];
             if (entry.id === "spacer") continue;
+            // Skip entries whose widget no longer exists (e.g. a plugin that
+            // was uninstalled after its widget had been enabled).
+            if (!BarWidgets.isKnown(entry.id)) continue;
 
             activeCounts[entry.id] = (activeCounts[entry.id] || 0) + 1;
 
