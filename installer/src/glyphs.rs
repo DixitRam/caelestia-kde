@@ -30,6 +30,11 @@ impl Glyphs {
         Self { set: pick(env) }
     }
 
+    /// Whether this terminal was given the block and arrow set, or the plain one.
+    pub fn is_unicode(self) -> bool {
+        matches!(self.set, Set::Unicode)
+    }
+
     /// The width every status glyph occupies, so names line up whatever the state is.
     pub fn status_cell(self) -> usize {
         match self.set {

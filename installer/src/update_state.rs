@@ -77,6 +77,32 @@ fn record(bundle: &Path, config: &Path, build_skipped: bool) -> bool {
     true
 }
 
+/// The revision the config directory says is installed, as the update screen needs to name it.
+pub struct Installed {
+    pub version: String,
+    pub commit: String,
+    pub branch: String,
+}
+
+/// What is installed right now: the version file first, the commit and the branch beside it. All
+/// three are what `record_installed_revision` wrote, so this reads the same facts the shell's own
+/// update page does.
+pub fn installed(config: &Path) -> Option<Installed> {
+    let version = read_value(config, VERSION)?;
+    Some(Installed {
+        version,
+        commit: read_value(config, COMMIT).unwrap_or_default(),
+        branch: read_value(config, BRANCH).unwrap_or_default(),
+    })
+}
+
+fn read_value(config: &Path, name: &str) -> Option<String> {
+    fs::read_to_string(config.join(name))
+        .ok()
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+}
+
 #[cfg(test)]
 fn read(config: &Path, name: &str) -> Option<String> {
     fs::read_to_string(config.join(name))

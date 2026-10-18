@@ -6,7 +6,10 @@ use crate::install_kind;
 use crate::output;
 use crate::paths;
 use crate::process;
+use crate::report::{Report, Row};
 use crate::steps::{self, Context, Failure};
+use crate::theme::Role;
+use crate::update_state;
 
 // What an install recorded about the answers it was given. An update reads them back so the
 // steps it runs behave the way the install did: a user who declined Fish should not have it
@@ -33,11 +36,49 @@ pub fn run(bundle: &Path, requested: Option<String>) -> Result<(), Failure> {
         return Err("Another Caelestia update is already running.".into());
     };
 
-    section("Step 1 - Source Code Update");
-    check_dependencies()?;
-    update_checkout(bundle, requested)?;
+    let report = Report::for_terminal();
+    let channel = choose_channel(bundle, requested);
+    let installed = update_state::installed(&config_dir()).or_else(|| published_version(bundle));
+    let available = available(bundle, &channel);
+    report.panel("update", &channel, &revision_rows(&installed, &available), &[
+        "The deployed configuration is replaced, the shell is rebuilt and the system tweaks are \
+         applied again. Your own settings are kept."
+            .to_string(),
+        "Packages are not touched: those come from your package manager."
+            .to_string(),
+    ]);
 
-    section("Step 2 - Core Updates");
+    // Nothing to fetch, nothing to build: saying so here is the whole of the answer, and it is
+    // the one an update that has already run should give.
+    if let (Some(installed), Some(available)) = (&installed, &available)
+        && installed.commit == available.1
+        && installed.commit.len() >= 7
+    {
+        report.panel(
+            "update",
+            "nothing to do",
+            &[Row::new(
+                "installed",
+                format!(
+                    "{} \u{00b7} {} \u{00b7} latest",
+                    installed.version,
+                    short(&installed.commit)
+                ),
+                Role::Ok,
+            )],
+            &[format!(
+                "{} is the newest revision on {channel}.",
+                installed.version
+            )],
+        );
+        return Ok(());
+    }
+
+    report.section("Fetching the source");
+    check_dependencies()?;
+    update_checkout(bundle, &channel)?;
+
+    report.section("Rebuilding what the update changed");
     load_answers(&paths::home());
 
     for (id, fatal) in STEPS {
@@ -56,17 +97,116 @@ pub fn run(bundle: &Path, requested: Option<String>) -> Result<(), Failure> {
         }
     }
 
-    section("Update Completed Successfully");
-    println!();
-    output::info("The core shell and bridge scripts have been updated.");
-    output::info(
-        "System tweaks (OSD, desktops, CLI patches) have been re-applied to keep KDE in sync.",
+    let now = update_state::installed(&config_dir());
+    report.panel(
+        "update",
+        "done",
+        &revision_rows(&now, &available),
+        &[
+            "The shell and bridges are rebuilt, and the system tweaks are back in sync."
+                .to_string(),
+            "Restarting the shell to pick them up.".to_string(),
+        ],
     );
-    println!();
-    println!("Restarting bridge and shell to apply changes...");
-
     restart_shell();
     Ok(())
+}
+
+/// The version the bundle publishes, for an install that had no git to record one from: a release
+/// tarball knows what it is even when the state file is missing.
+fn published_version(bundle: &Path) -> Option<update_state::Installed> {
+    let published = std::fs::read_to_string(bundle.join(".github").join("version.env")).ok()?;
+    Some(update_state::Installed {
+        version: version_of(&published),
+        commit: String::new(),
+        branch: String::new(),
+    })
+}
+
+/// The config directory the shell keeps its update state in: the same one the build writes.
+fn config_dir() -> PathBuf {
+    paths::home().join(".config/quickshell/caelestia")
+}
+
+/// What the update screen says it found: what is installed, and what the channel carries.
+fn revision_rows(
+    installed: &Option<update_state::Installed>,
+    available: &Option<(String, String)>,
+) -> Vec<Row> {
+    let installed = match installed {
+        Some(installed) => {
+            // The branch is what the install tracks: a machine on dev and a machine on main are
+            // two different answers to "what am I updating to".
+            let tracked = if installed.branch.is_empty() {
+                String::new()
+            } else {
+                format!(" \u{00b7} {}", installed.branch)
+            };
+            Row::new(
+                "installed",
+                format!(
+                    "{} \u{00b7} {}{tracked}",
+                    installed.version,
+                    short(&installed.commit)
+                ),
+                Role::Foreground,
+            )
+        }
+        None => Row::new("installed", "version not recorded", Role::Muted),
+    };
+    let available = match available {
+        Some((version, commit)) => Row::new(
+            "available",
+            format!("{version} \u{00b7} {}", short(commit)),
+            Role::Ok,
+        ),
+        None => Row::new(
+            "available",
+            "not a git checkout: update comes from the package or the release",
+            Role::Muted,
+        ),
+    };
+    vec![installed, available]
+}
+
+fn short(commit: &str) -> String {
+    commit.chars().take(7).collect()
+}
+
+/// The revision the channel carries, as the version file it publishes and the commit it is on.
+/// The fetch is what makes this an answer rather than a guess, so it happens here - quietly, and
+/// before anything is checked out.
+fn available(bundle: &Path, channel: &str) -> Option<(String, String)> {
+    if !bundle.join(".git").is_dir() {
+        return None;
+    }
+    if !process::succeeds(
+        "git",
+        &["fetch", "--quiet", "origin", channel],
+        Some(bundle),
+    ) {
+        return None;
+    }
+    let commit = process::capture_in(
+        "git",
+        &["rev-parse", &format!("origin/{channel}")],
+        Some(bundle),
+    )?;
+    let published = process::capture_in(
+        "git",
+        &["show", &format!("origin/{channel}:.github/version.env")],
+        Some(bundle),
+    )?;
+    Some((version_of(&published), commit))
+}
+
+/// `VERSION=v2.6.1` in the file the release publishes, as just the version.
+fn version_of(published: &str) -> String {
+    published
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("VERSION="))
+        .map(|version| version.trim().to_string())
+        .unwrap_or_else(|| "unknown version".to_string())
 }
 
 // One update at a time: two of them pulling and building the same checkout at once is how a
@@ -108,13 +248,6 @@ fn try_lock(_file: &std::fs::File) -> bool {
     true
 }
 
-fn section(title: &str) {
-    println!();
-    println!("-------------------------------------------------------------");
-    println!("  {title}");
-    println!("-------------------------------------------------------------");
-}
-
 // The update builds the shell, so the tools the build needs have to be there before the
 // checkout is touched: asking afterwards would leave a half-pulled tree behind.
 fn check_dependencies() -> Result<(), Failure> {
@@ -130,7 +263,7 @@ fn check_dependencies() -> Result<(), Failure> {
     Ok(())
 }
 
-fn update_checkout(bundle: &Path, requested: Option<String>) -> Result<(), Failure> {
+fn update_checkout(bundle: &Path, channel: &str) -> Result<(), Failure> {
     if !bundle.join(".git").is_dir() {
         output::warn("Not a git repository. Skipping source code update.");
         return Ok(());
@@ -160,14 +293,13 @@ fn update_checkout(bundle: &Path, requested: Option<String>) -> Result<(), Failu
         true
     };
 
-    let channel = choose_channel(bundle, requested);
     output::info(&format!("Checking out {channel}..."));
-    if !process::succeeds("git", &["checkout", &channel], Some(bundle)) {
+    if !process::succeeds("git", &["checkout", channel], Some(bundle)) {
         return Err(format!("Failed to checkout {channel}").into());
     }
 
     output::info(&format!("Pulling latest changes for {channel}..."));
-    if !process::succeeds("git", &["pull", "origin", &channel], Some(bundle)) {
+    if !process::succeeds("git", &["pull", "origin", channel], Some(bundle)) {
         return Err(format!("Failed to pull from origin/{channel}").into());
     }
 
@@ -189,6 +321,11 @@ fn update_checkout(bundle: &Path, requested: Option<String>) -> Result<(), Failu
 // terminal to ask on - a choice between the two channels. Anything else falls back to main,
 // including a channel the remote does not carry.
 fn choose_channel(bundle: &Path, requested: Option<String>) -> String {
+    // A release bundle carries no git at all, so there is no channel to pick and nothing to say
+    // about one: the remote it would ask does not exist.
+    if !bundle.join(".git").is_dir() {
+        return DEFAULT_CHANNEL.to_string();
+    }
     let mut channel = match requested {
         Some(requested) => {
             output::info(&format!("Using provided branch: {requested}"));

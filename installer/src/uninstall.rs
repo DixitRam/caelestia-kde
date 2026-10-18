@@ -8,15 +8,9 @@ use crate::paths;
 use crate::pkg;
 use crate::privileges;
 use crate::process;
+use crate::report::{Report, Row};
 use crate::steps::Failure;
-
-// The banner the shell version printed, kept so the two entry points look the same.
-const BANNER: &str = r"   _____            _           _   _
-  / ____|          | |         | | (_)
- | |     __ _  ___ | | ___  ___| |_ _  __ _
- | |    / _` |/ _ \| |/ _ \/ __| __| |/ _` |
- | |___| (_| | (_) | |  __/\__ \ |_| | (_| |
-  \_____\__,_|\___/|_|\___||___/\__|_|\__,_|";
+use crate::theme::Role;
 
 // The panel the installer's own desktop setup creates. Restoring it by name is the only way
 // back to a usable desktop when there is no backup to restore from.
@@ -208,6 +202,9 @@ struct Uninstaller {
     shell_rc_restored: bool,
 }
 
+const SHELL_ROW: &str = "shell";
+const CONFIGS_ROW: &str = "configs";
+
 pub fn run(bundle: &Path) -> Result<(), Failure> {
     let mut uninstaller = Uninstaller {
         bundle: bundle.to_path_buf(),
@@ -236,16 +233,23 @@ pub fn run(bundle: &Path) -> Result<(), Failure> {
     uninstaller.clean_caches();
     uninstaller.reload_kde();
 
-    section("Uninstall Complete");
-    println!();
-    output::ok("Caelestia has been uninstalled.");
-    println!();
-    println!(
-        "  Backups of your original configs are in:  {}/backups/",
-        bundle.display()
+    Report::for_terminal().panel(
+        "uninstall",
+        "done",
+        &[
+            Row::new(
+                "removed",
+                "the shell, its configs and its integrations",
+                Role::Ok,
+            ),
+            Row::new(
+                "backups",
+                format!("{}/backups/", bundle.display()),
+                Role::Foreground,
+            ),
+        ],
+        &["Log out and back in for the desktop to be fully its own again.".to_string()],
     );
-    println!();
-    output::warn("Please log out and back in to fully apply all changes.");
     println!();
 
     if asked("Would you like to log out now?") {
@@ -280,17 +284,34 @@ impl Uninstaller {
             }
         }
 
-        println!("{BANNER}");
-        println!("+------------------------------------------------------------------+");
-        println!("|                       CAELESTIA UNINSTALLER                       |");
-        println!("+------------------------------------------------------------------+");
-        println!();
-        println!(" This will remove Caelestia shell files and configs.");
-        println!(
-            " Backups in {}/backups/ can be restored during uninstall.",
-            self.bundle.display()
+        let report = Report::for_terminal();
+        report.panel(
+            "uninstall",
+            self.family.label(),
+            &[
+                Row::new(
+                    SHELL_ROW,
+                    display_home(&self.path(".config/quickshell/caelestia"), &self.home),
+                    Role::Foreground,
+                ),
+                Row::new(
+                    CONFIGS_ROW,
+                    display_home(&self.path(".config/caelestia"), &self.home),
+                    Role::Foreground,
+                ),
+                Row::new(
+                    "integrations",
+                    "autostart, bridges, KWin script, lock screen greeter",
+                    Role::Foreground,
+                ),
+                Row::new("packages", "left in place unless you ask", Role::Muted),
+            ],
+            &[format!(
+                "Your original KDE settings are put back from the backup in {}/backups/, and \
+                     anything this does not recognise is left alone.",
+                self.bundle.display()
+            )],
         );
-        println!();
 
         self.prime_sudo()?;
 

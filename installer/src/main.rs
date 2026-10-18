@@ -22,6 +22,7 @@ mod pkg;
 mod plan;
 mod privileges;
 mod process;
+mod report;
 mod runner;
 mod screens;
 mod signals;
