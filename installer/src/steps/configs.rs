@@ -12,6 +12,15 @@ use crate::tmp::TempDir;
 const CACHE: &str = "caelestia-kde";
 const CAELESTIA_CONFIGS: [&str; 4] = ["btop", "foot", "kitty", "micro"];
 const EXTRA_CONFIGS: [&str; 2] = ["fish", "fastfetch"];
+const KDE_CONFIGS: [&str; 7] = [
+    "plasma-org.kde.plasma.desktop-appletsrc",
+    "kdeglobals",
+    "plasmarc",
+    "kwinrc",
+    "kwinrulesrc",
+    "kcminputrc",
+    "ksplashrc",
+];
 const BACKED_UP: [&str; 7] = [
     "btop",
     "fastfetch",
@@ -212,6 +221,15 @@ fn backup_configs(home: &Path, backup: &Path) {
         let source = home.join(".config").join(name);
         if source.exists() {
             let _ = copy::tree(&source, &config.join(name));
+        }
+    }
+
+    // The desktop the install is about to replace. The panel layout above all: it is the piece a
+    // restored machine misses most when it is gone, and the uninstaller restores it from here.
+    for name in KDE_CONFIGS {
+        let source = home.join(".config").join(name);
+        if source.is_file() {
+            let _ = copy::file(&source, &config.join(name));
         }
     }
 

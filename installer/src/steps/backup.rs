@@ -66,9 +66,18 @@ pub fn run(context: &Context) -> Result<(), Failure> {
 
     let _ = process::succeeds(&konsave, &["-r", PROFILE, "-f"], None);
 
-    output::info(&format!("Saving konsave profile '{PROFILE}'..."));
-    if !process::succeeds(&konsave, &["-s", PROFILE, "-f"], None) {
-        return Err("Failed to save the current KDE profile.".into());
+    // The profile is the desktop as it was before Caelestia. Saving it again on a second install
+    // would capture Caelestia's own desktop - and a restore that hands back the thing it was
+    // meant to undo is worse than no backup at all. The first one wins.
+    if konsave_profile_exists(&home, PROFILE) {
+        output::skip(&format!(
+            "The desktop from before Caelestia was installed is already saved as '{PROFILE}'."
+        ));
+    } else {
+        output::info(&format!("Saving konsave profile '{PROFILE}'..."));
+        if !process::succeeds(&konsave, &["-s", PROFILE, "-f"], None) {
+            return Err("Failed to save the current KDE profile.".into());
+        }
     }
 
     output::info(&format!(
@@ -92,6 +101,16 @@ pub fn run(context: &Context) -> Result<(), Failure> {
         .unwrap_or_default();
     output::ok(&format!("KDE settings backed up to {name}"));
     Ok(())
+}
+
+/// Whether konsave already holds a profile by this name: it keeps them as directories under the
+/// user's config, one per profile.
+fn konsave_profile_exists(home: &Path, profile: &str) -> bool {
+    home.join(".config")
+        .join("konsave")
+        .join("profiles")
+        .join(profile)
+        .is_dir()
 }
 
 struct KonsaveConf {
