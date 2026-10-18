@@ -71,9 +71,7 @@ fn home(frame: &mut Frame, app: &App, body: Rect) {
     let credits = credits(app);
     let rest = notice(app);
 
-    // The mark is the widest thing on the screen, so it sets the left column: a column narrower
-    // than the mark is a column the mark overflows into the panel beside it.
-    let left_width = HOME_LEFT.max(theme::SPLASH[0].chars().count() as u16);
+    let identity_lines = identity(app, named);
     let gap = column_gap(body.width);
     let panel_width = ui::panel_width(actions_width(app), body.width);
     let mark_rows = if named {
@@ -81,8 +79,23 @@ fn home(frame: &mut Frame, app: &App, body: Rect) {
     } else {
         theme::SPLASH.len() as u16 + 1
     };
+    // The left column is as wide as the mark where the whole mark fits beside the panel, and only
+    // as wide as the words under it where it does not. A terminal in between - which is most of
+    // them - still gets the panel beside the prose rather than a column of nothing on the right.
+    let mark_width = theme::SPLASH[0].chars().count() as u16;
+    let text_width = identity_lines
+        .iter()
+        .chain(credits.iter())
+        .map(|line| line.width() as u16)
+        .max()
+        .unwrap_or(0);
+    let left_width = if body.width >= mark_width + gap + panel_width {
+        HOME_LEFT.max(mark_width)
+    } else {
+        text_width
+    };
     let two_columns = body.width >= left_width + gap + panel_width;
-    let left_rows = identity(app, named).len() + 2 + credits.len();
+    let left_rows = identity_lines.len() + 2 + credits.len();
 
     // One composition: the mark, and under it either two columns or one. Sized together and
     // centred together, because a small block pinned to the corner of a large frame reads as a
@@ -96,7 +109,7 @@ fn home(frame: &mut Frame, app: &App, body: Rect) {
         (
             ui::PROSE_WIDTH.min(body.width),
             mark_rows
-                + identity(app, named).len() as u16
+                + identity_lines.len() as u16
                 + Action::ALL.len() as u16
                 + rest.len() as u16
                 + credits.len() as u16
@@ -136,16 +149,16 @@ fn home(frame: &mut Frame, app: &App, body: Rect) {
             width: below.width.saturating_sub(left.width + gap),
             ..below
         };
-        let mut lines = identity(app, named);
+        let mut lines = identity_lines.clone();
         lines.push(blank());
-        lines.extend(credits);
+        lines.extend(credits.clone());
         ui::prose(frame, left, lines, theme.body());
         actions_panel(frame, app, right);
         return;
     }
 
     // One column: the same content, in the order it is read.
-    let mut lines = identity(app, named);
+    let mut lines = identity_lines;
     lines.extend(actions(app, below.width));
     lines.extend(rest);
     lines.push(blank());
@@ -1698,12 +1711,11 @@ mod tests {
         let buffer = cells(&mut app, 100, 30);
         let chosen = row_of(&buffer, "Install Caelestia");
         let other = row_of(&buffer, "Uninstall Caelestia");
-        assert_eq!(
-            buffer[(6, chosen)].bg,
-            accent,
-            "the cursor's row is not filled"
-        );
-        assert_ne!(buffer[(6, other)].bg, accent, "every row is filled");
+        // Where the panel sits depends on how wide the frame is, so the row is asked whether it
+        // carries the fill anywhere rather than at a column that only one size puts it on.
+        let filled = |row: u16| (0..buffer.area.width).any(|x| buffer[(x, row)].bg == accent);
+        assert!(filled(chosen), "the cursor's row is not filled");
+        assert!(!filled(other), "a row the cursor is not on is filled");
     }
 
     /// How many blank cells there are between the frame's left edge and the first thing drawn,
@@ -1781,6 +1793,37 @@ mod tests {
         assert!(
             lines[rail_top].contains('\u{250c}'),
             "the map's corner is on the heading row:\n{text}"
+        );
+    }
+
+    #[test]
+    fn a_middling_terminal_still_puts_the_actions_beside_the_words() {
+        // Most terminals are wider than the mark plus the panel and narrower than the rest: the
+        // panel belongs beside the prose there too, not under it with a column of nothing on the
+        // right. What is left of the left column is the words the mark would have stood over.
+        let mut app = app();
+        let text = render(&mut app, 120, 40);
+        let lines: Vec<&str> = text.lines().collect();
+
+        let panel_row = lines
+            .iter()
+            .position(|line| line.contains("\u{25b6} Install Caelestia"))
+            .expect("the actions are on screen");
+        // The panel's own top-left corner, which is the only one on that row: the frame's corner
+        // is a different glyph.
+        let panel_col = lines[panel_row - 1]
+            .chars()
+            .collect::<Vec<char>>()
+            .iter()
+            .position(|cell| *cell == '\u{250c}')
+            .expect("the actions have a panel around them");
+        assert!(
+            panel_col > 20,
+            "the panel is not beside anything: {panel_col}"
+        );
+        assert!(
+            panel_col < 60,
+            "the panel belongs beside the words, not out past them: {panel_col}"
         );
     }
 
