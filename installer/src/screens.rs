@@ -434,11 +434,11 @@ fn detect(frame: &mut Frame, app: &App, body: Rect) {
         let label_width = label_column(&rows);
         let left_width = ui::panel_width(finding_width(&rows, label_width), body.width / 2);
 
-        let mut narrative = verdict_body(app, ui::PROSE_WIDTH);
-        let right_width = ui::panel_width(
-            narrative.iter().map(|line| line.width()).max().unwrap_or(0) as u16,
-            body.width / 2,
-        );
+        // The panel is as wide as the measure, and the prose inside it is wrapped to what is left
+        // of that once the borders and the inset are taken: wrapping to the measure and then
+        // drawing into a narrower panel leaves the last word of every line on a row of its own.
+        let right_width = ui::panel_width(ui::PROSE_WIDTH, body.width / 2);
+        let mut narrative = verdict_body(app, right_width.saturating_sub(2));
         // Added once the panel's width is known, so the bar fills it exactly the way Home's
         // selected action does rather than stopping at the end of its own text.
         narrative.push(blank());
