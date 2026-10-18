@@ -74,13 +74,14 @@ fn home(frame: &mut Frame, app: &App, body: Rect) {
     // The mark is the widest thing on the screen, so it sets the left column: a column narrower
     // than the mark is a column the mark overflows into the panel beside it.
     let left_width = HOME_LEFT.max(theme::SPLASH[0].chars().count() as u16);
+    let gap = column_gap(body.width);
     let panel_width = ui::panel_width(actions_width(app), body.width);
     let mark_rows = if named {
         0
     } else {
         theme::SPLASH.len() as u16 + 1
     };
-    let two_columns = body.width >= left_width + HOME_GAP + panel_width;
+    let two_columns = body.width >= left_width + gap + panel_width;
     let left_rows = identity(app, named).len() + 2 + credits.len();
 
     // One composition: the mark, and under it either two columns or one. Sized together and
@@ -88,7 +89,7 @@ fn home(frame: &mut Frame, app: &App, body: Rect) {
     // screen that stopped drawing rather than as a layout.
     let (width, height) = if two_columns {
         (
-            left_width + HOME_GAP + panel_width,
+            left_width + gap + panel_width,
             mark_rows + left_rows.max(ACTIONS_PANEL as usize + rest.len()) as u16,
         )
     } else {
@@ -131,8 +132,8 @@ fn home(frame: &mut Frame, app: &App, body: Rect) {
             ..below
         };
         let right = Rect {
-            x: below.x + left.width + HOME_GAP,
-            width: below.width.saturating_sub(left.width + HOME_GAP),
+            x: below.x + left.width + gap,
+            width: below.width.saturating_sub(left.width + gap),
             ..below
         };
         let mut lines = identity(app, named);
@@ -152,9 +153,15 @@ fn home(frame: &mut Frame, app: &App, body: Rect) {
     ui::prose(frame, below, lines, theme.body());
 }
 
-/// The left column of the home screen, and the gap beside it.
+/// The left column of the home screen, and the least air beside it.
 const HOME_LEFT: u16 = 54;
 const HOME_GAP: u16 = 4;
+
+/// How much air goes between two columns. It grows with the frame, so a composition on a wide
+/// screen is spread out rather than sitting in the corner as a small block.
+fn column_gap(width: u16) -> u16 {
+    HOME_GAP.max((width / 20).min(12))
+}
 
 /// The action list in its panel, with anything the machine has to say under it.
 fn actions_panel(frame: &mut Frame, app: &App, area: Rect) {
@@ -748,12 +755,13 @@ fn options(frame: &mut Frame, app: &App, body: Rect) {
 
     // Two columns: the questions down the left as a map of the setup, the question on the right.
     let rail_width = ui::panel_width(question_rail_width(), body.width);
-    let pane_width = PANE_WIDTH.min(body.width.saturating_sub(rail_width + HOME_GAP));
+    let gap = column_gap(body.width);
+    let pane_width = PANE_WIDTH.min(body.width.saturating_sub(rail_width + gap));
     if pane_width >= PANE_MIN {
         // The pane is as wide as its widest row needs and no wider, and the pair is centred as one
         // block: a question pinned to the left of a wide frame leaves a screen of nothing beside it.
         let listed = option_rows(app, pane_width).len() as u16 + 2;
-        let width = rail_width + HOME_GAP + pane_width;
+        let width = rail_width + gap + pane_width;
         // The heading, the list, and the rows the help and anything else the screen has to say
         // need under it: a pane clipped to the list is a pane whose help is never drawn.
         let height = (listed + HELP_ROWS + 2).max(question_rail(app).len() as u16 + 2);
@@ -775,7 +783,7 @@ fn options(frame: &mut Frame, app: &App, body: Rect) {
         ui::prose(frame, inner, rail, theme.body());
 
         let right = Rect {
-            x: block.x + rail_width + HOME_GAP,
+            x: block.x + rail_width + gap,
             width: pane_width,
             ..block
         };
