@@ -101,6 +101,10 @@ jobs:
             echo "Version bump - ensure version-release workflow will fire correctly." >> $GITHUB_STEP_SUMMARY
           fi
 
+          if grep -qE '^\.github/(workflows/(release-assets|version-release|release-rehearsal)\.yml|actions/runtime-smoke/)' /tmp/changed_files.txt; then
+            echo "Release pipeline changes - rehearse before merging: gh workflow run version-release.yml -f channel=rehearsal -f publish=false" >> $GITHUB_STEP_SUMMARY
+          fi
+
   commit-messages:
     runs-on: ubuntu-latest
     steps:

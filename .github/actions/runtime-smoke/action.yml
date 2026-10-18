@@ -3,6 +3,11 @@ description: >-
   Build the shell offline, install it into a prefix, and run the headless
   Weston/Quickshell runtime and lifecycle smoke test against the installed tree.
 
+  With `mode: archive` the tree is not built here: the caller has already
+  extracted the published artifact and laid it out as an install prefix, and the
+  smoke runs against those bytes. That is the only way the release layout gets
+  started before users start it.
+
   The directory inputs are workspace-relative on purpose. A path interpolated
   from `github.workspace` is the runner's host path, which inside a job
   container names a directory outside the workspace mount: the build would
@@ -11,9 +16,14 @@ description: >-
   the container's own view.
 
 inputs:
+  mode:
+    description: build compiles and installs the tree first; archive runs the tree as given
+    required: false
+    default: build
   deps-dir:
     description: Workspace-relative directory holding the pre-fetched pinned build dependency
-    required: true
+    required: false
+    default: ""
   install-root:
     description: Workspace-relative CMAKE_INSTALL_PREFIX for the runtime tree
     required: true
@@ -33,6 +43,7 @@ runs:
   using: composite
   steps:
     - name: Build and install runtime tree
+      if: inputs.mode == 'build'
       shell: bash
       run: |
         set -euo pipefail
@@ -42,6 +53,10 @@ runs:
             exit 2
           fi
         done
+        if [[ -z "${{ inputs.deps-dir }}" ]]; then
+          echo "mode: build needs deps-dir" >&2
+          exit 2
+        fi
         export CAELESTIA_DEPS_DIR="$PWD/${{ inputs.deps-dir }}"
         export http_proxy=http://127.0.0.1:9
         export https_proxy=http://127.0.0.1:9
@@ -51,6 +66,22 @@ runs:
           -DCAELESTIA_PACKAGE=OFF -DCMAKE_INSTALL_PREFIX="$PWD/${{ inputs.install-root }}"
         cmake --build build-runtime --parallel
         cmake --install build-runtime
+
+    - name: The given tree has to be an install prefix
+      if: inputs.mode != 'build'
+      shell: bash
+      run: |
+        set -euo pipefail
+        root="$PWD/${{ inputs.install-root }}"
+        for path in \
+          "$root/etc/xdg/quickshell/caelestia/shell.qml" \
+          "$root/usr/lib/qt6/qml/Caelestia" \
+          "$root/usr/lib/caelestia"; do
+          if [[ ! -e "$path" ]]; then
+            echo "the tree is not laid out as an install prefix: missing $path" >&2
+            exit 2
+          fi
+        done
 
     - name: Run installed runtime and lifecycle smoke
       shell: bash

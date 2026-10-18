@@ -120,7 +120,7 @@ test_shared_runtime_files_have_one_cmake_owner() {
     cmake="$(cat "$REPO_ROOT/shell/CMakeLists.txt")"
     pkgbuild="$(cat "$REPO_ROOT/packaging/aur/caelestia-kde/PKGBUILD")"
     build_script="$(cat "$REPO_ROOT/installer/src/steps/build_shell.rs")"
-    workflow="$(cat "$REPO_ROOT/.github/workflows/version-release.yml")"
+    workflow="$(cat "$REPO_ROOT/.github/workflows/release-assets.yml" "$REPO_ROOT/.github/workflows/version-release.yml")"
 
     assert_contains "$cmake" 'set(INSTALL_BINDIR "usr/bin"' \
         "CMake should define the executable install root"
@@ -276,7 +276,7 @@ test_the_package_sources_and_their_hashes_stay_in_step() {
 }
 test_the_release_tarball_is_the_thing_the_package_sources() {
     local workflow pkgbuild
-    workflow="$(cat "$REPO_ROOT/.github/workflows/version-release.yml")"
+    workflow="$(cat "$REPO_ROOT/.github/workflows/release-assets.yml" "$REPO_ROOT/.github/workflows/version-release.yml")"
     pkgbuild="$(cat "$REPO_ROOT/packaging/aur/caelestia-kde/PKGBUILD")"
 
     assert_contains "$workflow" 'ARTIFACT="caelestia-kde-v$PKGVER.tar.gz"' "the release job should build the versioned tarball"

@@ -1,0 +1,574 @@
+name: Release Assets
+
+# The build half of a release: every asset, compiled once and uploaded as a workflow
+# artifact. Nothing here publishes, so the same graph runs on a pull request, on a
+# schedule, and on the push that actually releases. `.github/workflows/version-release.yml`
+# owns the tag and the release; this file only has to hand it bytes that were built once.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to build; empty means the triggering SHA
+        type: string
+        required: false
+        default: ""
+      tag:
+        description: Tag the assets are built for; empty derives it from version.env
+        type: string
+        required: false
+        default: ""
+      verify_packages:
+        description: Also build the AUR package from the tarballs this run produced
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      tag:
+        description: The tag every asset was built for
+        value: ${{ jobs.build-shell.outputs.tag }}
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit to build; empty builds the dispatch ref
+        type: string
+        required: false
+        default: ""
+      tag:
+        description: Override the tag; empty derives it from version.env
+        type: string
+        required: false
+        default: ""
+      verify_packages:
+        description: Also build the AUR package from the tarballs this run produced
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-shell:
+    name: Precompile shell artifacts (x86_64)
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Install Shell Build Dependencies
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed git github-cli cmake ninja meson autoconf-archive \
+            qt6-base qt6-declarative qt6-shadertools qt6-wayland qt6-tools \
+            kwindowsystem kguiaddons kglobalaccel kconfig networkmanager-qt pulseaudio-qt \
+            libqalculate pipewire libpipewire aubio lm_sensors extra-cmake-modules \
+            fftw ncurses alsa-lib iniparser libglvnd sdl2 portaudio sndio libpulse \
+            protobuf openssl avahi
+
+      - name: Install Prebuilt CAVA SDK (Arch)
+        run: |
+          set -euo pipefail
+          source scripts/lib/toolchain.sh
+          install_cava_sdk arch
+
+      - name: Prepare Pinned Build Dependencies
+        run: |
+          set -euo pipefail
+          rm -rf shell/build
+          rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/caelestia-kde"
+          bash scripts/fetch-dependencies.sh
+
+      - name: Load Release Tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          source .github/version.env
+          TAG="${INPUT_TAG:-$VERSION}"
+          case "$TAG" in
+            v[0-9]*) ;;
+            rc-v[0-9]*) ;;
+            rehearsal[-./]*) ;;
+            *)
+              echo "::error::refusing to build for tag '$TAG' - a rehearsal must never publish under a version tag"
+              exit 1
+              ;;
+          esac
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Configure Shell
+        env:
+          http_proxy: http://127.0.0.1:9
+          https_proxy: http://127.0.0.1:9
+          all_proxy: http://127.0.0.1:9
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -B shell/build -S shell -DCMAKE_BUILD_TYPE=Release \
+            -DCAELESTIA_CACHE_DEPS=ON \
+            -DCAELESTIA_OFFLINE=ON \
+            -DCMAKE_INSTALL_PREFIX=/ \
+            -DINSTALL_BINDIR=usr/bin \
+            -DINSTALL_DATADIR=usr/lib/caelestia \
+            -DINSTALL_QSCONFDIR=etc/xdg/quickshell/caelestia \
+            -DINSTALL_LIBDIR=usr/lib/caelestia \
+            -DINSTALL_QMLDIR=usr/lib/qt6/qml
+
+      - name: Build Shell
+        env:
+          http_proxy: http://127.0.0.1:9
+          https_proxy: http://127.0.0.1:9
+          all_proxy: http://127.0.0.1:9
+        run: |
+          set -euo pipefail
+          cmake --build shell/build -j"$(nproc)"
+
+      - name: Stage Compiled Artifacts
+        env:
+          http_proxy: http://127.0.0.1:9
+          https_proxy: http://127.0.0.1:9
+          all_proxy: http://127.0.0.1:9
+        run: |
+          set -euo pipefail
+          QT_ABI="$(pkg-config --modversion Qt6Core | grep -oE '^[0-9]+\.[0-9]+')"
+          DESTDIR="$PWD/stage" cmake --install shell/build
+          mkdir -p dist/root/bin dist/root/lib/qt6/qml dist/root/lib/caelestia dist/root/quickshell
+          cp -a stage/usr/bin/. dist/root/bin/
+          cp -a stage/usr/lib/qt6/qml/Caelestia stage/usr/lib/qt6/qml/M3Shapes dist/root/lib/qt6/qml/
+          cp -a stage/usr/lib/caelestia/. dist/root/lib/caelestia/
+          cp -a stage/etc/xdg/quickshell/caelestia dist/root/quickshell/
+          ARTIFACT="dist/caelestia-kde-x86_64-qt${QT_ABI}.tar.gz"
+          tar -C dist/root -czf "$ARTIFACT" bin lib quickshell
+          python3 .github/scripts/check_release_archive.py "$ARTIFACT" dist/root
+          echo "ARTIFACT=$ARTIFACT" >> "$GITHUB_ENV"
+          CHECKSUM="${ARTIFACT}.sha256"
+          sha256sum "$ARTIFACT" | sed "s|$(dirname "$ARTIFACT")/||" > "$CHECKSUM"
+          echo "CHECKSUM=$CHECKSUM" >> "$GITHUB_ENV"
+
+      # Nothing here publishes: version-release.yml attaches these to the release once
+      # every job in this file has succeeded.
+      - name: Upload Shell Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: shell-artifacts
+          path: |
+            ${{ env.ARTIFACT }}
+            ${{ env.CHECKSUM }}
+          if-no-files-found: error
+
+  build-source:
+    name: Build AUR source tarball
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Materialize the Submodules the Tarball Inlines
+        run: |
+          set -euo pipefail
+          if [ ! -f .gitmodules ]; then
+            echo "::error::no .gitmodules; the submodules the tarball inlines cannot be resolved"
+            exit 1
+          fi
+
+          mapfile -t submodules < <(
+            git config -f .gitmodules --get-regexp '^submodule\..*\.path$' | cut -d' ' -f2-
+          )
+          if [ "${#submodules[@]}" -eq 0 ]; then
+            echo "::error::.gitmodules declares no submodules; the tarball would carry none"
+            exit 1
+          fi
+
+          for path in "${submodules[@]}"; do
+            echo "::group::submodule $path"
+            # A .gitmodules entry with no gitlink in this tree has nothing to inline:
+            # the path is either a real directory the tarball already carries or it is
+            # absent, which the PKGBUILD's prepare() reports by name.
+            if ! git ls-files --stage -- "$path" | grep -q '^160000'; then
+              echo "::warning::$path is declared in .gitmodules but is not a submodule in this tree"
+              echo "::endgroup::"
+              continue
+            fi
+            # scripts/lib/submodules.sh is not reused here on purpose: the installer
+            # helper it exposes ends in a plain clone of the submodule's default
+            # branch, and a release tarball has to carry the commits the tag pins.
+            if ! git submodule update --init --recursive --depth 1 --force "$path"; then
+              # A stale gitlink inside a submodule is not this repository's to fix, and
+              # the tarball only needs the submodule's own contents at its pinned commit.
+              echo "::warning::$path does not check out recursively, retrying without it"
+              git submodule update --init --depth 1 --force "$path"
+            fi
+            if [ -z "$(ls -A "$path")" ]; then
+              echo "::error::submodule $path is empty; the PKGBUILD refuses a tarball without it"
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: Load Release Tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          source .github/version.env
+          TAG="${INPUT_TAG:-$VERSION}"
+          case "$TAG" in
+            v[0-9]*) ;;
+            rc-v[0-9]*) ;;
+            rehearsal[-./]*) ;;
+            *)
+              echo "::error::refusing to build for tag '$TAG' - a rehearsal must never publish under a version tag"
+              exit 1
+              ;;
+          esac
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "PKGVER=${VERSION#v}" >> "$GITHUB_ENV"
+
+      - name: Stage the Tree
+        run: |
+          set -euo pipefail
+          ROOT="caelestia-kde-$PKGVER"
+          mkdir -p "dist/$ROOT"
+          # /dist is anchored: the staging directory lives inside the tree being
+          # staged, and without this rsync copies it into itself.
+          rsync -a --exclude '/dist' --exclude '.git' --exclude '.gitmodules' ./ "dist/$ROOT/"
+          git rev-parse HEAD > "dist/$ROOT/REVISION"
+
+      - name: Build the Tarball
+        run: |
+          set -euo pipefail
+          ARTIFACT="caelestia-kde-v$PKGVER.tar.gz"
+          tar -C dist -czf "$ARTIFACT" "caelestia-kde-$PKGVER"
+          sha256sum "$ARTIFACT" | tee "$ARTIFACT.sha256"
+          du -h "$ARTIFACT"
+          {
+            echo "### $ARTIFACT"
+            echo "```"
+            cat "$ARTIFACT.sha256"
+            echo "```"
+            echo "First entry of the PKGBUILD's \`sha256sums\` array."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "ARTIFACT=$ARTIFACT" >> "$GITHUB_ENV"
+
+      - name: Upload Source Tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-tarball
+          path: |
+            ${{ env.ARTIFACT }}
+            ${{ env.ARTIFACT }}.sha256
+          if-no-files-found: error
+
+  vendor-installer:
+    name: Vendor the installer's crates
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Load Release Tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          source .github/version.env
+          TAG="${INPUT_TAG:-$VERSION}"
+          case "$TAG" in
+            v[0-9]*) ;;
+            rc-v[0-9]*) ;;
+            rehearsal[-./]*) ;;
+            *)
+              echo "::error::refusing to build for tag '$TAG' - a rehearsal must never publish under a version tag"
+              exit 1
+              ;;
+          esac
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Use the newest stable Rust
+        run: rustup update stable && rustup default stable
+
+      - name: Vendor the crates the lockfile names
+        run: |
+          set -euo pipefail
+          # --locked refuses to vendor a dependency set the committed lockfile does
+          # not describe, which is what keeps the tarball and Cargo.lock in step.
+          cargo vendor --locked --versioned-dirs installer/vendor > /dev/null
+
+      - name: The vendored tree has to build offline
+        run: |
+          set -euo pipefail
+          mkdir -p .cargo
+          cat > .cargo/config.toml <<'EOF'
+          [source.crates-io]
+          replace-with = "vendored-sources"
+
+          [source.vendored-sources]
+          directory = "installer/vendor"
+          EOF
+          # No CARGO_HOME override: rustup resolves rustc through it, and this has
+          # to prove the vendored tree alone is enough.
+          cargo build --release --frozen --offline --manifest-path installer/Cargo.toml
+          rm -rf .cargo
+
+      - name: Pack the Vendored Crates
+        run: |
+          set -euo pipefail
+          TUI_VERSION="$(tr -d '[:space:]' < installer/data/tui.version)"
+          ARTIFACT="caelestia-vendor-v${TUI_VERSION}.tar.gz"
+          tar -C installer -czf "$ARTIFACT" vendor
+          sha256sum "$ARTIFACT" > "$ARTIFACT.sha256"
+          du -h "$ARTIFACT"
+          {
+            echo "### $ARTIFACT"
+            echo "```"
+            cat "$ARTIFACT.sha256"
+            echo "```"
+            echo "Second entry of the PKGBUILD's \`sha256sums\` array."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "ARTIFACT=$ARTIFACT" >> "$GITHUB_ENV"
+
+      - name: Upload Vendored Crates
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor-crates
+          path: |
+            ${{ env.ARTIFACT }}
+            ${{ env.ARTIFACT }}.sha256
+          if-no-files-found: error
+
+  build-installer:
+    name: Build installer TUI (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Load Release Tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          source .github/version.env
+          TAG="${INPUT_TAG:-$VERSION}"
+          case "$TAG" in
+            v[0-9]*) ;;
+            rc-v[0-9]*) ;;
+            rehearsal[-./]*) ;;
+            *)
+              echo "::error::refusing to build for tag '$TAG' - a rehearsal must never publish under a version tag"
+              exit 1
+              ;;
+          esac
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Use the newest stable Rust
+        run: rustup update stable && rustup default stable
+
+      - name: Install the musl toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq musl-tools
+
+      - name: Add the musl target
+        run: rustup target add ${{ matrix.arch }}-unknown-linux-musl
+
+      - name: Build the installer
+        run: |
+          set -euo pipefail
+          cargo build --release --manifest-path installer/Cargo.toml \
+            --target ${{ matrix.arch }}-unknown-linux-musl
+
+      - name: It has to be static
+        run: |
+          set -euo pipefail
+          binary="installer/target/${{ matrix.arch }}-unknown-linux-musl/release/caelestia-install"
+          if file "$binary" | grep -q "dynamically linked"; then
+            echo "::error::the published installer must be static: it has to run on any glibc"
+            file "$binary"
+            exit 1
+          fi
+          "$binary" --version
+
+      - name: Stage the Published Installer
+        run: |
+          set -euo pipefail
+          TUI_VERSION="$(tr -d '[:space:]' < installer/data/tui.version)"
+          BINARY="caelestia-install-${{ matrix.arch }}-v${TUI_VERSION}"
+          cp "installer/target/${{ matrix.arch }}-unknown-linux-musl/release/caelestia-install" "$BINARY"
+          sha256sum "$BINARY" > "$BINARY.sha256"
+          echo "BINARY=$BINARY" >> "$GITHUB_ENV"
+
+      - name: Upload Prebuilt Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.arch }}
+          path: |
+            ${{ env.BINARY }}
+            ${{ env.BINARY }}.sha256
+          if-no-files-found: error
+
+  # The archive is what users install, so this runs the archive: extracted, laid out the way
+  # the installer deploys it, and started from that tree. A build tree passing the smoke says
+  # nothing about whether the released bytes still load.
+  verify-shell-archive:
+    name: Run the released archive
+    needs: build-shell
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Install runtime and build dependencies
+        uses: ./.github/actions/install-build-deps
+        with:
+          extra-packages: dbus quickshell weston
+
+      - name: Download the built archive
+        uses: actions/download-artifact@v4
+        with:
+          name: shell-artifacts
+          path: dist
+
+      - name: Lay the archive out the way the installer deploys it
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(ls dist/*.tar.gz)"
+          mkdir -p extracted
+          tar -xzf "$ARCHIVE" -C extracted
+
+          # The archive carries the install prefix split into the trees the installer writes
+          # into $HOME. Naming them here is the contract the prebuilt path depends on.
+          test -d extracted/lib/qt6/qml/Caelestia
+          test -d extracted/lib/qt6/qml/M3Shapes
+          test -d extracted/lib/caelestia
+          test -f extracted/quickshell/caelestia/shell.qml
+
+          mkdir -p tree/usr tree/etc/xdg/quickshell
+          cp -a extracted/bin tree/usr/bin
+          cp -a extracted/lib tree/usr/lib
+          cp -a extracted/quickshell/. tree/etc/xdg/quickshell/
+
+      - name: Build and run the installed runtime smoke
+        uses: ./.github/actions/runtime-smoke
+        with:
+          mode: archive
+          install-root: tree
+          log-dir: runtime-smoke
+
+  # The package build is the one consumer that reads the release by checksum, so it is also
+  # the one that catches a source tarball whose submodules or vendor tree did not make it.
+  # Heavy (a full shell build), hence opt-in rather than on every asset run.
+  verify-pkgbuild:
+    name: Build the AUR package from the built tarballs
+    needs:
+      - build-shell
+      - build-source
+      - vendor-installer
+    if: inputs.verify_packages
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Install the shell build dependencies
+        uses: ./.github/actions/install-build-deps
+        with:
+          extra-packages: rust kwin vulkan-headers
+
+      - name: Download the tarballs this run built
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "{shell-artifacts,source-tarball,vendor-crates}"
+          path: dist
+          merge-multiple: true
+
+      - name: Prepare the package directory
+        run: |
+          set -euo pipefail
+          VERSION_LINE="$(sed -nE 's/^VERSION=//p' .github/version.env)"
+          PKGVER="${VERSION_LINE#v}"
+          TUI_VERSION="$(tr -d '[:space:]' < installer/data/tui.version)"
+
+          # The committed pkgver is bumped by hand at release time; this job builds the tree
+          # that is in front of it, so the copy carries the version this run actually built.
+          COMMITTED="$(sed -nE 's/^pkgver=//p' packaging/aur/caelestia-kde/PKGBUILD)"
+          if [[ "$COMMITTED" != "$PKGVER" ]]; then
+            echo "::warning::PKGBUILD pkgver is $COMMITTED, this tree is $PKGVER - building the copy as $PKGVER"
+          fi
+
+          mkdir -p /tmp/pkg
+          cp packaging/aur/caelestia-kde/PKGBUILD \
+             packaging/aur/caelestia-kde/caelestia-autostart \
+             packaging/aur/caelestia-kde/caelestia-shell.service \
+             /tmp/pkg/
+          sed -i "s/^pkgver=.*/pkgver=$PKGVER/" /tmp/pkg/PKGBUILD
+          sed -i "s/^_tui_version=\"\${_tui_version:-[^}]*}\"/_tui_version=\"\${_tui_version:-$TUI_VERSION}\"/" /tmp/pkg/PKGBUILD
+          echo "PKGVER=$PKGVER" >> "$GITHUB_ENV"
+
+      - name: Build the package
+        run: |
+          set -euo pipefail
+          SOURCE="$(ls "$PWD"/dist/caelestia-kde-v*.tar.gz)"
+          VENDOR="$(ls "$PWD"/dist/caelestia-vendor-v*.tar.gz)"
+          useradd -m builduser
+          chown -R builduser:builduser /tmp/pkg
+          # --nodeps: the package's depends include AUR-only names (quickshell, libcava) that
+          # are not this repository's to install. What is under test is the source build, and
+          # the build dependencies were installed above.
+          su - builduser -c "cd /tmp/pkg && \
+            _source_url='$SOURCE' \
+            _source_sum='$(sha256sum "$SOURCE" | cut -d' ' -f1)' \
+            _vendor_url='$VENDOR' \
+            _vendor_sum='$(sha256sum "$VENDOR" | cut -d' ' -f1)' \
+            makepkg --nodeps --noconfirm"
+
+      - name: The package has to exist
+        run: |
+          set -euo pipefail
+          ls -l /tmp/pkg/*.pkg.tar.*
+          test -f "/tmp/pkg/caelestia-kde-$PKGVER-1-$(uname -m).pkg.tar.zst" || \
+            test -n "$(ls /tmp/pkg/caelestia-kde-*.pkg.tar.zst)"

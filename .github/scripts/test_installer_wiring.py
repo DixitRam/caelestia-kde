@@ -23,6 +23,20 @@ INSTALLER_ENTRYPOINTS = [
 ]
 
 
+def release_workflow_text() -> str:
+    """The two halves of a release, as one text.
+
+    The build jobs live in release-assets.yml and the publish job in version-release.yml.
+    The assertions below are about the pair agreeing on asset names, which a split into
+    two files must not be able to break, so they read both.
+    """
+    workflows = ROOT / ".github" / "workflows"
+    return "\n".join(
+        (workflows / name).read_text(encoding="utf-8")
+        for name in ("release-assets.yml", "version-release.yml")
+    )
+
+
 class InstallerTests(unittest.TestCase):
     def test_installer_entrypoints_exist(self) -> None:
         for rel_path in INSTALLER_ENTRYPOINTS:
@@ -260,7 +274,7 @@ class InstallStepSafetyTests(unittest.TestCase):
         )
 
         backup_at = script.find("backup_shell_config(&home)?")
-        prebuilt_at = script.find("&& try_prebuilt_shell(")
+        prebuilt_at = script.find("try_prebuilt_shell(&home")
 
         self.assertNotEqual(
             backup_at, -1, "the build step should back up the shell config"
@@ -330,7 +344,7 @@ class InstallStepSafetyTests(unittest.TestCase):
         are the same contract, checked here rather than discovered by a user.
         """
         script = (ROOT / "scripts" / "setup.sh").read_text(encoding="utf-8")
-        release = (ROOT / ".github" / "workflows" / "version-release.yml").read_text(encoding="utf-8")
+        release = release_workflow_text()
 
         self.assertIn("fetch_installer", script, "setup.sh should fetch the installer")
         self.assertNotIn("cmake", script, "nothing is compiled on the user's machine any more")
@@ -433,7 +447,7 @@ class PackagingTests(unittest.TestCase):
         return (ROOT / "packaging" / "aur" / "caelestia-kde" / "PKGBUILD").read_text(encoding="utf-8")
 
     def release_workflow(self) -> str:
-        return (ROOT / ".github" / "workflows" / "version-release.yml").read_text(encoding="utf-8")
+        return release_workflow_text()
 
     def test_the_package_builds_and_installs_the_installer(self) -> None:
         """A packaged install runs its steps through the binary, so it has to ship one."""

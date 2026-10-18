@@ -1,24 +1,113 @@
 name: Version Release
 
+# One pipeline, three channels, and nothing published until the assets exist.
+#
+#   rehearsal  any ref, publishes a prerelease under `rehearsal-<sha>` - the simulated push
+#   rc         the version as a prerelease under `rc-v<version>`, for looking at before promoting
+#   stable     the push to main: `v<version>`, marked latest
+#
+# A tag is never a `v*` name unless the channel is stable: the shell's update checker walks
+# local `refs/tags/v*`, so any other name would offer users an unreleased version.
+
 on:
   push:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      channel:
+        description: What to publish
+        type: choice
+        options: [rehearsal, rc, stable]
+        default: rehearsal
+      ref:
+        description: Commit to build and publish
+        type: string
+        required: false
+        default: dev
+      tag:
+        description: Override the tag the channel would derive
+        type: string
+        required: false
+        default: ""
+      publish:
+        description: Publish; false builds and verifies only, with no tag or release
+        type: boolean
+        required: false
+        default: false
+      verify_packages:
+        description: Also build the AUR package from the built tarballs
+        type: boolean
+        required: false
+        default: false
+  workflow_call:
+    inputs:
+      channel:
+        description: What to publish
+        type: string
+        required: false
+        default: rehearsal
+      ref:
+        description: Commit to build and publish; empty means the triggering SHA
+        type: string
+        required: false
+        default: ""
+      tag:
+        description: Override the tag the channel would derive
+        type: string
+        required: false
+        default: ""
+      publish:
+        description: Publish; false builds and verifies only
+        type: boolean
+        required: false
+        default: false
+      verify_packages:
+        description: Also build the AUR package from the built tarballs
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
-  group: version-release
-  cancel-in-progress: true
+  group: release-${{ inputs.tag || inputs.channel || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
-  version-release:
+  assets:
+    uses: ./.github/workflows/release-assets.yml
+    with:
+      ref: ${{ inputs.ref || github.sha }}
+      tag: ${{ inputs.tag }}
+      verify_packages: ${{ inputs.verify_packages || inputs.channel == 'rc' || inputs.channel == 'stable' || github.event_name == 'push' }}
+  publish:
+    needs: assets
+    # A dispatch with publish=false is a rehearsal of the build graph and nothing else.
+    if: inputs.publish || github.event_name == 'push'
     runs-on: ubuntu-latest
+    # The gate: every asset exists and passed its checks before anything here can name a
+    # release. Configure this environment with required reviewers.
+    environment: release
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
+      - name: Collect the assets this run built
+        uses: actions/download-artifact@v4
+        with:
+          # Named explicitly: the verify jobs in this run upload diagnostics too, and those
+          # are not release assets.
+          pattern: "{shell-artifacts,source-tarball,vendor-crates,installer-*}"
+          path: assets
+          merge-multiple: true
+
       - name: Create GitHub App Token
         id: app-token
+        # A fork has no APP_CLIENT_ID; the tag and release still work on its own token.
+        if: vars.APP_CLIENT_ID != ''
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
@@ -29,7 +118,8 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ inputs.ref || github.sha }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
           persist-credentials: true
           fetch-depth: 0
           fetch-tags: true
@@ -56,6 +146,28 @@ jobs:
 
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
+          # The channel decides the tag name, and the tag name is what keeps a rehearsal
+          # out of every `refs/tags/v*` walk in the tree.
+          CHANNEL="${{ inputs.channel || 'stable' }}"
+          case "$CHANNEL" in
+            rehearsal) TAG="rehearsal-$(git rev-parse --short=12 HEAD)" ;;
+            rc)        TAG="rc-$VERSION" ;;
+            stable)    TAG="$VERSION" ;;
+            *) echo "::error::unknown channel: $CHANNEL"; exit 1 ;;
+          esac
+
+          if [[ -n "${{ inputs.tag }}" ]]; then
+            TAG="${{ inputs.tag }}"
+          fi
+
+          case "$TAG" in
+            v[0-9]* | rc-v[0-9]* | rehearsal[-./]*) ;;
+            *) echo "::error::refusing to publish under the tag '$TAG'"; exit 1 ;;
+          esac
+
+          echo "CHANNEL=$CHANNEL" >> $GITHUB_ENV
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
       - name: Validate Version Sync (Release-Only)
         run: |
           set -euo pipefail
@@ -70,7 +182,7 @@ jobs:
             exit 1
           fi
 
-      - name: Create or Update Version Tag
+      - name: Create or Update the Tag
         run: |
           set -euo pipefail
 
@@ -78,12 +190,18 @@ jobs:
 
           echo "LAST_TAG=$LAST_TAG" >> $GITHUB_ENV
 
-          git tag -f "$VERSION" "$GITHUB_SHA"
-          git push origin "refs/tags/$VERSION" --force
+          # A rehearsal tag names one rehearsal. Deleting it first is what lets a rerun move
+          # it, and what keeps it from ever pointing at a second commit.
+          if [[ "$CHANNEL" == "rehearsal" ]]; then
+            git push origin "refs/tags/$TAG" --delete 2>/dev/null || true
+          fi
+
+          git tag -f "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG" --force
 
       - name: Create or Update Release
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
 
@@ -134,21 +252,48 @@ jobs:
             fi
           } > release_notes.md
 
-          if gh release view "$VERSION" >/dev/null 2>&1; then
-            gh release edit "$VERSION" \
-              --title "Caelestia $VERSION" \
+          # Draft first: the release only becomes visible once every asset this run built is
+          # attached. That window used to be the whole build, and it was public.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "Caelestia $TAG" \
               --notes-file release_notes.md \
-              --prerelease=false \
-              --latest
+              --draft
           else
-            gh release create "$VERSION" \
-              --title "Caelestia $VERSION" \
+            gh release create "$TAG" \
+              --title "Caelestia $TAG" \
               --notes-file release_notes.md \
-              --prerelease=false \
-              --latest
+              --draft
           fi
 
+      - name: Attach the Assets
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          set -euo pipefail
+          ls -l assets
+          gh release upload "$TAG" assets/* --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Make the Release Visible
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          set -euo pipefail
+          case "$CHANNEL" in
+            rehearsal | rc)
+              # Published so the download URLs exist, but never `latest`, so nothing that
+              # asks for the newest release can land on it.
+              gh release edit "$TAG" --draft=false --prerelease --latest=false --repo "$GITHUB_REPOSITORY"
+              ;;
+            stable)
+              gh release edit "$TAG" --draft=false --prerelease=false --latest --repo "$GITHUB_REPOSITORY"
+              # The candidate this release was promoted from has done its job.
+              gh release delete "rc-$VERSION" --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+              ;;
+          esac
+
       - name: Open Sync PR to dev
+        if: env.CHANNEL == 'stable' && github.repository == 'ladybug-me/caelestia-kde'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -161,318 +306,3 @@ jobs:
             --head main \
             --title "chore: sync main back to dev after $VERSION" \
             --body "This is an automated PR to sync the new release tags from \`main\` back into \`dev\`." || true
-
-  build-shell:
-    name: Precompile shell artifacts (x86_64)
-    needs: version-release
-    runs-on: ubuntu-latest
-    container: archlinux:base-devel
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Install Shell Build Dependencies
-        run: |
-          set -euo pipefail
-          pacman -Syu --noconfirm --needed git github-cli cmake ninja meson autoconf-archive \
-            qt6-base qt6-declarative qt6-shadertools qt6-wayland qt6-tools \
-            kwindowsystem kguiaddons kglobalaccel kconfig networkmanager-qt pulseaudio-qt \
-            libqalculate pipewire libpipewire aubio lm_sensors extra-cmake-modules \
-            fftw ncurses alsa-lib iniparser libglvnd sdl2 portaudio sndio libpulse \
-            protobuf openssl avahi
-
-      - name: Install Prebuilt CAVA SDK (Arch)
-        run: |
-          set -euo pipefail
-          source scripts/lib/toolchain.sh
-          install_cava_sdk arch
-
-      - name: Prepare Pinned Build Dependencies
-        run: |
-          set -euo pipefail
-          rm -rf shell/build
-          rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/caelestia-kde"
-          bash scripts/fetch-dependencies.sh
-
-      - name: Load Release Tag
-        run: |
-          set -euo pipefail
-          source .github/version.env
-          echo "TAG=$VERSION" >> "$GITHUB_ENV"
-
-      - name: Configure Shell
-        env:
-          http_proxy: http://127.0.0.1:9
-          https_proxy: http://127.0.0.1:9
-          all_proxy: http://127.0.0.1:9
-        run: |
-          set -euo pipefail
-          cmake -G Ninja -B shell/build -S shell -DCMAKE_BUILD_TYPE=Release \
-            -DCAELESTIA_CACHE_DEPS=ON \
-            -DCAELESTIA_OFFLINE=ON \
-            -DCMAKE_INSTALL_PREFIX=/ \
-            -DINSTALL_BINDIR=usr/bin \
-            -DINSTALL_DATADIR=usr/lib/caelestia \
-            -DINSTALL_QSCONFDIR=etc/xdg/quickshell/caelestia \
-            -DINSTALL_LIBDIR=usr/lib/caelestia \
-            -DINSTALL_QMLDIR=usr/lib/qt6/qml
-
-      - name: Build Shell
-        env:
-          http_proxy: http://127.0.0.1:9
-          https_proxy: http://127.0.0.1:9
-          all_proxy: http://127.0.0.1:9
-        run: |
-          set -euo pipefail
-          cmake --build shell/build -j"$(nproc)"
-
-      - name: Stage Compiled Artifacts
-        env:
-          http_proxy: http://127.0.0.1:9
-          https_proxy: http://127.0.0.1:9
-          all_proxy: http://127.0.0.1:9
-        run: |
-          set -euo pipefail
-          QT_ABI="$(pkg-config --modversion Qt6Core | grep -oE '^[0-9]+\.[0-9]+')"
-          DESTDIR="$PWD/stage" cmake --install shell/build
-          mkdir -p dist/root/bin dist/root/lib/qt6/qml dist/root/lib/caelestia dist/root/quickshell
-          cp -a stage/usr/bin/. dist/root/bin/
-          cp -a stage/usr/lib/qt6/qml/Caelestia stage/usr/lib/qt6/qml/M3Shapes dist/root/lib/qt6/qml/
-          cp -a stage/usr/lib/caelestia/. dist/root/lib/caelestia/
-          cp -a stage/etc/xdg/quickshell/caelestia dist/root/quickshell/
-          ARTIFACT="dist/caelestia-kde-x86_64-qt${QT_ABI}.tar.gz"
-          tar -C dist/root -czf "$ARTIFACT" bin lib quickshell
-          python3 .github/scripts/check_release_archive.py "$ARTIFACT" dist/root
-          echo "ARTIFACT=$ARTIFACT" >> "$GITHUB_ENV"
-          CHECKSUM="${ARTIFACT}.sha256"
-          sha256sum "$ARTIFACT" | sed "s|$(dirname "$ARTIFACT")/||" > "$CHECKSUM"
-          echo "CHECKSUM=$CHECKSUM" >> "$GITHUB_ENV"
-
-      - name: Attach Shell Artifacts to Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # --repo: inside a container gh's git-based repo detection fails ("not a git
-          gh release upload "$TAG" "$ARTIFACT" "$CHECKSUM" --repo "$GITHUB_REPOSITORY" --clobber
-
-  build-source:
-    name: Build AUR source tarball
-    needs: version-release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Materialize the Submodules the Tarball Inlines
-        run: |
-          set -euo pipefail
-          if [ ! -f .gitmodules ]; then
-            echo "::error::no .gitmodules; the submodules the tarball inlines cannot be resolved"
-            exit 1
-          fi
-
-          mapfile -t submodules < <(
-            git config -f .gitmodules --get-regexp '^submodule\..*\.path$' | cut -d' ' -f2-
-          )
-          if [ "${#submodules[@]}" -eq 0 ]; then
-            echo "::error::.gitmodules declares no submodules; the tarball would carry none"
-            exit 1
-          fi
-
-          for path in "${submodules[@]}"; do
-            echo "::group::submodule $path"
-            # A .gitmodules entry with no gitlink in this tree has nothing to inline:
-            # the path is either a real directory the tarball already carries or it is
-            # absent, which the PKGBUILD's prepare() reports by name.
-            if ! git ls-files --stage -- "$path" | grep -q '^160000'; then
-              echo "::warning::$path is declared in .gitmodules but is not a submodule in this tree"
-              echo "::endgroup::"
-              continue
-            fi
-            # scripts/lib/submodules.sh is not reused here on purpose: the installer
-            # helper it exposes ends in a plain clone of the submodule's default
-            # branch, and a release tarball has to carry the commits the tag pins.
-            if ! git submodule update --init --recursive --depth 1 --force "$path"; then
-              # A stale gitlink inside a submodule is not this repository's to fix, and
-              # the tarball only needs the submodule's own contents at its pinned commit.
-              echo "::warning::$path does not check out recursively, retrying without it"
-              git submodule update --init --depth 1 --force "$path"
-            fi
-            if [ -z "$(ls -A "$path")" ]; then
-              echo "::error::submodule $path is empty; the PKGBUILD refuses a tarball without it"
-              exit 1
-            fi
-            echo "::endgroup::"
-          done
-
-      - name: Load Release Tag
-        run: |
-          set -euo pipefail
-          source .github/version.env
-          echo "TAG=$VERSION" >> "$GITHUB_ENV"
-          echo "PKGVER=${VERSION#v}" >> "$GITHUB_ENV"
-
-      - name: Stage the Tree
-        run: |
-          set -euo pipefail
-          ROOT="caelestia-kde-$PKGVER"
-          mkdir -p "dist/$ROOT"
-          # /dist is anchored: the staging directory lives inside the tree being
-          # staged, and without this rsync copies it into itself.
-          rsync -a --exclude '/dist' --exclude '.git' --exclude '.gitmodules' ./ "dist/$ROOT/"
-          git rev-parse HEAD > "dist/$ROOT/REVISION"
-
-      - name: Build the Tarball
-        run: |
-          set -euo pipefail
-          ARTIFACT="caelestia-kde-v$PKGVER.tar.gz"
-          tar -C dist -czf "$ARTIFACT" "caelestia-kde-$PKGVER"
-          sha256sum "$ARTIFACT" | tee "$ARTIFACT.sha256"
-          du -h "$ARTIFACT"
-          {
-            echo "### $ARTIFACT"
-            echo "```"
-            cat "$ARTIFACT.sha256"
-            echo "```"
-            echo "First entry of the PKGBUILD's \`sha256sums\` array."
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "ARTIFACT=$ARTIFACT" >> "$GITHUB_ENV"
-
-      - name: Attach to Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh release upload "$TAG" "$ARTIFACT" "$ARTIFACT.sha256" \
-            --repo "$GITHUB_REPOSITORY" --clobber
-
-  vendor-installer:
-    name: Vendor the installer's crates
-    needs: version-release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Load Release Tag
-        run: |
-          set -euo pipefail
-          source .github/version.env
-          echo "TAG=$VERSION" >> "$GITHUB_ENV"
-
-      - name: Use the newest stable Rust
-        run: rustup update stable && rustup default stable
-
-      - name: Vendor the crates the lockfile names
-        run: |
-          set -euo pipefail
-          # --locked refuses to vendor a dependency set the committed lockfile does
-          # not describe, which is what keeps the tarball and Cargo.lock in step.
-          cargo vendor --locked --versioned-dirs installer/vendor > /dev/null
-
-      - name: The vendored tree has to build offline
-        run: |
-          set -euo pipefail
-          mkdir -p .cargo
-          cat > .cargo/config.toml <<'EOF'
-          [source.crates-io]
-          replace-with = "vendored-sources"
-
-          [source.vendored-sources]
-          directory = "installer/vendor"
-          EOF
-          # No CARGO_HOME override: rustup resolves rustc through it, and this has
-          # to prove the vendored tree alone is enough.
-          cargo build --release --frozen --offline --manifest-path installer/Cargo.toml
-          rm -rf .cargo
-
-      - name: Attach the Vendored Crates to Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TUI_VERSION="$(tr -d '[:space:]' < installer/data/tui.version)"
-          ARTIFACT="caelestia-vendor-v${TUI_VERSION}.tar.gz"
-          tar -C installer -czf "$ARTIFACT" vendor
-          sha256sum "$ARTIFACT" > "$ARTIFACT.sha256"
-          du -h "$ARTIFACT"
-          {
-            echo "### $ARTIFACT"
-            echo "```"
-            cat "$ARTIFACT.sha256"
-            echo "```"
-            echo "Second entry of the PKGBUILD's \`sha256sums\` array."
-          } >> "$GITHUB_STEP_SUMMARY"
-          gh release upload "$TAG" "$ARTIFACT" "$ARTIFACT.sha256" \
-            --repo "$GITHUB_REPOSITORY" --clobber
-
-  build-installer:
-    name: Build installer TUI (${{ matrix.arch }})
-    needs: version-release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-22.04
-            arch: x86_64
-          - runner: ubuntu-24.04-arm
-            arch: aarch64
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Load Release Tag
-        run: |
-          set -euo pipefail
-          source .github/version.env
-          echo "TAG=$VERSION" >> "$GITHUB_ENV"
-
-      - name: Use the newest stable Rust
-        run: rustup update stable && rustup default stable
-
-      - name: Install the musl toolchain
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq musl-tools
-
-      - name: Add the musl target
-        run: rustup target add ${{ matrix.arch }}-unknown-linux-musl
-
-      - name: Build the installer
-        run: |
-          set -euo pipefail
-          cargo build --release --manifest-path installer/Cargo.toml \
-            --target ${{ matrix.arch }}-unknown-linux-musl
-
-      - name: It has to be static
-        run: |
-          set -euo pipefail
-          binary="installer/target/${{ matrix.arch }}-unknown-linux-musl/release/caelestia-install"
-          if file "$binary" | grep -q "dynamically linked"; then
-            echo "::error::the published installer must be static: it has to run on any glibc"
-            file "$binary"
-            exit 1
-          fi
-          "$binary" --version
-
-      - name: Attach Prebuilt Installer to Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TUI_VERSION="$(tr -d '[:space:]' < installer/data/tui.version)"
-          BINARY="caelestia-install-${{ matrix.arch }}-v${TUI_VERSION}"
-          cp "installer/target/${{ matrix.arch }}-unknown-linux-musl/release/caelestia-install" "$BINARY"
-          sha256sum "$BINARY" > "$BINARY.sha256"
-          gh release upload "$TAG" "$BINARY" "$BINARY.sha256" --repo "$GITHUB_REPOSITORY" --clobber

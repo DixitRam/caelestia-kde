@@ -84,7 +84,14 @@ class RuntimeSmokeWiringTests(unittest.TestCase):
         self.assertTrue(callers, f"no workflow step calls {SMOKE_ACTION}")
 
         for caller, inputs in callers.items():
-            for name in self.DIRECTORY_INPUTS:
+            # An archive-mode caller runs a tree it was handed, so it has nothing to build
+            # and no pre-fetched dependency directory to name.
+            required = [
+                name
+                for name in self.DIRECTORY_INPUTS
+                if not (name == "deps-dir" and inputs.get("mode") == "archive")
+            ]
+            for name in required:
                 with self.subTest(caller=caller, input=name):
                     value = inputs.get(name)
                     self.assertIsNotNone(value, f"{caller} does not pass {name}")
