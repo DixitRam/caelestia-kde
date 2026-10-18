@@ -147,13 +147,6 @@ impl Glyphs {
         }
     }
 
-    pub fn rule(self) -> char {
-        match self.set {
-            Set::Unicode => '─',
-            Set::Ascii => '-',
-        }
-    }
-
     pub fn bar_full(self) -> char {
         match self.set {
             Set::Unicode => '█',
@@ -237,22 +230,6 @@ impl Glyphs {
         }
     }
 }
-
-/// The state, spelled out. Color is the third channel, the label is the one that always works.
-pub fn status_label(status: Status) -> &'static str {
-    match status {
-        Status::Pending => "PENDING",
-        Status::Running => "RUNNING",
-        Status::Ok => "OK",
-        Status::Warn => "WARNING",
-        Status::Failed => "FAILED",
-        Status::Skipped => "SKIPPED",
-        Status::Ignored => "IGNORED",
-    }
-}
-
-/// The width the widest label needs, so labels sit in a column of their own.
-pub const LABEL_CELL: usize = 7;
 
 fn pick(env: &Env) -> Set {
     match env.glyphs.as_deref() {
@@ -349,15 +326,10 @@ mod tests {
     }
 
     #[test]
-    fn every_status_has_a_glyph_and_a_label() {
+    fn every_status_has_a_glyph() {
         for status in Status::ALL {
             assert!(!unicode().status(status).is_empty());
             assert!(!ascii().status(status).is_empty());
-            assert!(!status_label(status).is_empty());
-            assert!(
-                status_label(status).len() <= LABEL_CELL,
-                "{status:?} does not fit its column"
-            );
         }
     }
 

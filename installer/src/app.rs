@@ -20,7 +20,7 @@ use crate::menu::{self, Answers, Entry};
 use crate::privileges::{self, Credential, Inhibitor};
 use crate::runner::Running;
 use crate::signals;
-use crate::steps::{self, Phase, STEPS, Status};
+use crate::steps::{self, STEPS, Status};
 use crate::theme::Theme;
 use crate::ui::{self, Key};
 
@@ -502,58 +502,12 @@ impl App {
             .count()
     }
 
-    pub fn step_elapsed(&self, index: usize) -> Option<Duration> {
-        if self.statuses[index] == Status::Running {
-            return self.running_since.map(|since| since.elapsed());
-        }
-        self.durations[index]
-    }
-
-    pub fn phase_elapsed(&self, phase: Phase) -> Duration {
-        STEPS
-            .iter()
-            .enumerate()
-            .filter(|(_, step)| step.phase == phase)
-            .filter_map(|(index, _)| self.step_elapsed(index))
-            .sum()
-    }
-
     pub fn total_elapsed(&self) -> Duration {
         self.durations.iter().flatten().sum::<Duration>()
             + self
                 .running_since
                 .map(|since| since.elapsed())
                 .unwrap_or_default()
-    }
-
-    pub fn phase_status(&self, phase: Phase) -> Status {
-        let statuses: Vec<Status> = STEPS
-            .iter()
-            .enumerate()
-            .filter(|(_, step)| step.phase == phase)
-            .map(|(index, _)| self.statuses[index])
-            .collect();
-        statuses
-            .iter()
-            .copied()
-            .max_by_key(|status| rank(*status))
-            .unwrap_or(Status::Pending)
-    }
-
-    /// How far through its phase a phase is, and how many steps it has. A step being worked on
-    /// counts as reached, so the line reads as a position rather than a score.
-    pub fn phase_progress(&self, phase: Phase) -> (usize, usize) {
-        let steps: Vec<usize> = STEPS
-            .iter()
-            .enumerate()
-            .filter(|(_, step)| step.phase == phase)
-            .map(|(index, _)| index)
-            .collect();
-        let reached = steps
-            .iter()
-            .filter(|index| self.statuses[**index] != Status::Pending)
-            .count();
-        (reached, steps.len())
     }
 
     /// The step being worked on, as an index into the table.
@@ -655,8 +609,14 @@ impl App {
     }
 
     pub fn run_layout(&self) -> ui::RunLayout {
-        let body = ui::body(self.area);
-        ui::run_layout(body, crate::screens::checklist_rows(self))
+        ui::run_layout(ui::body(self.area))
+    }
+
+    /// The first step that has not started: what the run screen names between two steps.
+    pub fn next_step(&self) -> Option<usize> {
+        self.statuses
+            .iter()
+            .position(|status| *status == Status::Pending)
     }
 
     /// Where the log pane starts, sized for a pane: the run screen passes the pane it drew, and
@@ -1760,19 +1720,6 @@ impl Tally {
     }
 }
 
-/// What a set of statuses amounts to, loudest first.
-fn rank(status: Status) -> u8 {
-    match status {
-        Status::Failed => 6,
-        Status::Ignored => 5,
-        Status::Warn => 4,
-        Status::Ok => 3,
-        Status::Running => 2,
-        Status::Skipped => 1,
-        Status::Pending => 0,
-    }
-}
-
 fn needs_password() -> bool {
     !privileges::is_root() && !privileges::sudo_cached()
 }
@@ -2591,19 +2538,15 @@ mod tests {
     }
 
     #[test]
-    fn the_checklist_collapses_a_phase_that_has_finished() {
-        let app = run_with(&[
-            Status::Ok,
-            Status::Ok,
-            Status::Ok,
-            Status::Ok,
-            Status::Running,
-        ]);
-        let lines = crate::screens::checklist(&app);
-        // One line per phase, plus the running step's own line: six rows where the old screen
-        // spent nineteen.
-        assert_eq!(lines.len(), 6, "{lines:?}");
-        assert!(lines.len() < STEPS.len());
+    fn the_run_screen_names_the_step_it_is_on_and_the_one_that_comes_next() {
+        // Between two steps nothing is running, and a screen with no step on it reads as a hang.
+        let mut app = run_with(&[Status::Ok, Status::Running]);
+        assert_eq!(app.running_step(), Some(1));
+        assert_eq!(app.next_step(), Some(2));
+
+        app.statuses[1] = Status::Ok;
+        assert_eq!(app.running_step(), None);
+        assert_eq!(app.next_step(), Some(2), "the next step is still named");
     }
 
     #[test]
@@ -2710,27 +2653,6 @@ mod tests {
         char_key(&mut app, 'r');
         assert_eq!(app.stage, Stage::Done);
         assert!(app.notice.is_some());
-    }
-
-    #[test]
-    fn a_phase_reports_the_worst_thing_that_happened_in_it() {
-        let mut app = app();
-        app.begin_install();
-        app.statuses[1] = Status::Warn;
-        assert_eq!(app.phase_status(Phase::Prepare), Status::Warn);
-        let (reached, total) = app.phase_progress(Phase::Prepare);
-        assert_eq!((reached, total), (4, 4));
-        assert_eq!(app.phase_status(Phase::Finalize), Status::Ok);
-        assert!(app.phase_elapsed(Phase::Prepare) > Duration::ZERO);
-    }
-
-    #[test]
-    fn a_phase_that_has_not_started_reports_nothing_and_the_worst_wins() {
-        let app = run_with(&[Status::Ok, Status::Warn, Status::Failed]);
-        assert_eq!(app.phase_status(Phase::Prepare), Status::Failed);
-        assert_eq!(app.phase_status(Phase::Configure), Status::Pending);
-        assert_eq!(app.phase_elapsed(Phase::Prepare), Duration::ZERO);
-        assert_eq!(app.phase_progress(Phase::Prepare), (3, 4));
     }
 
     #[test]

@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 
 use crate::app::App;
-use crate::glyphs::{Glyphs, LABEL_CELL, status_label};
+use crate::glyphs::Glyphs;
 use crate::steps::Status;
 use crate::theme::{NAME, Role, Theme};
 
@@ -111,18 +111,6 @@ fn what_this_is(theme: &Theme, header: &Header) -> Line<'static> {
 /// The box a screen draws into; the key handlers ask for the same one.
 pub fn body(area: Rect) -> Rect {
     content(rows(area).body)
-}
-
-/// A horizontal rule, the only separator the TUI uses.
-pub fn rule(frame: &mut Frame, area: Rect, theme: &Theme, glyphs: Glyphs) {
-    if area.height == 0 || area.width == 0 {
-        return;
-    }
-    let line = Line::from(Span::styled(
-        glyphs.rule().to_string().repeat(area.width as usize),
-        theme.rule(),
-    ));
-    frame.render_widget(Paragraph::new(line), area);
 }
 
 /// The body's box: every column the frame gave it, indented by the gutter.
@@ -279,9 +267,9 @@ pub fn card(
 }
 
 pub struct RunLayout {
-    pub checklist: Rect,
-    pub rule: Rect,
-    pub progress: Rect,
+    pub step: Rect,
+    pub bar: Rect,
+    pub note: Rect,
     pub log: Rect,
 }
 
@@ -334,14 +322,6 @@ pub fn gutter(text: &str, style: Style, glyphs: Glyphs) -> Span<'static> {
     Span::styled(
         format!(" {:>width$} ", text, width = glyphs.status_cell()),
         style,
-    )
-}
-
-/// The state, spelled out, padded to a column of its own.
-pub fn label_cell(status: Status, theme: &Theme) -> Span<'static> {
-    Span::styled(
-        format!("{:>width$}", status_label(status), width = LABEL_CELL),
-        theme.status(status),
     )
 }
 
@@ -440,43 +420,22 @@ pub fn log_rows(log: Rect) -> u16 {
     log.height.saturating_sub(LOG_HEADER_ROWS)
 }
 
-/// The most rows the phase checklist may take, leaving the log the room to be read.
-pub fn checklist_budget(body: Rect) -> u16 {
-    body.height.saturating_sub(6).max(2)
-}
-
-/// The column the phase list takes where the run screen has room to put the log beside it.
-const PHASE_COLUMN: u16 = 46;
-
-/// Where the phases and the log go: side by side where there is room, stacked where there is not.
-pub fn run_layout(body: Rect, checklist_rows: u16) -> RunLayout {
-    if let Some((left, right)) = rail(body, PHASE_COLUMN) {
-        let rows = Layout::vertical([
-            Constraint::Length(checklist_rows),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .areas::<4>(left);
-        return RunLayout {
-            checklist: rows[0],
-            rule: rows[1],
-            progress: rows[2],
-            log: right,
-        };
-    }
+/// Where the run screen puts the step it is on, its bar, anything that did not go cleanly, and the
+/// log. The log runs the full width: it is the only thing on the screen with something to read.
+pub fn run_layout(body: Rect) -> RunLayout {
     let rows = Layout::vertical([
-        Constraint::Length(checklist_rows),
+        Constraint::Length(1),
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(3),
     ])
-    .areas::<4>(body);
+    .areas::<5>(body);
     RunLayout {
-        checklist: rows[0],
-        rule: rows[1],
-        progress: rows[2],
-        log: rows[3],
+        step: rows[0],
+        bar: rows[1],
+        note: rows[2],
+        log: rows[4],
     }
 }
 
@@ -723,8 +682,7 @@ mod tests {
     fn the_log_keeps_its_rows_whatever_the_terminal_size() {
         for height in MIN_HEIGHT..=60 {
             let area = body(100, height);
-            let budget = checklist_budget(area);
-            let layout = run_layout(area, budget);
+            let layout = run_layout(area);
             assert!(
                 log_rows(layout.log) >= 3,
                 "{height} rows left the log {}",
@@ -734,15 +692,12 @@ mod tests {
                 layout.log.y + layout.log.height <= area.height,
                 "{height} rows overflow"
             );
-            assert_eq!(layout.checklist.y, 0);
-            assert_eq!(layout.progress.y, budget + 1);
+            // The step, the bar and the note are stacked from the top, in that order.
+            assert_eq!(layout.step.y, 0);
+            assert_eq!(layout.bar.y, 1);
+            assert_eq!(layout.note.y, 2);
+            assert!(layout.log.y > layout.note.y, "{height} rows");
         }
-    }
-
-    #[test]
-    fn the_checklist_is_capped_so_the_log_is_never_squeezed_out() {
-        assert_eq!(checklist_budget(body(100, MIN_HEIGHT)), MIN_HEIGHT - 6);
-        assert!(checklist_budget(body(100, 4)) >= 2);
     }
 
     #[test]
@@ -778,22 +733,15 @@ mod tests {
     }
 
     #[test]
-    fn a_wide_run_screen_puts_the_log_beside_the_phases() {
-        let area = body(240, 40);
-        let layout = run_layout(area, 8);
-        assert_eq!(layout.log.x, layout.checklist.x + PHASE_COLUMN + RAIL_GAP);
-        assert_eq!(layout.log.height, area.height, "the log is only half tall");
-        assert!(layout.log.x + layout.log.width <= area.width);
-        assert!(layout.progress.y > layout.checklist.y);
-    }
-
-    #[test]
-    fn a_narrow_run_screen_stacks_the_log_under_the_phases() {
-        let area = body(100, 30);
-        let layout = run_layout(area, 8);
-        assert_eq!(layout.log.x, area.x);
-        assert_eq!(layout.log.y, layout.progress.y + 1);
-        assert!(log_rows(layout.log) >= 3);
+    fn the_run_screen_gives_the_log_the_whole_width_at_any_size() {
+        for width in [100u16, 160, 240] {
+            let area = body(width, 40);
+            let layout = run_layout(area);
+            assert_eq!(layout.log.x, area.x, "{width} wide");
+            assert_eq!(layout.log.width, area.width, "{width} wide");
+            assert_eq!(layout.bar.width, area.width, "{width} wide");
+            assert!(log_rows(layout.log) >= 3, "{width} wide");
+        }
     }
 
     #[test]

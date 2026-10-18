@@ -1118,198 +1118,95 @@ fn run(frame: &mut Frame, app: &App) {
     let theme = &app.theme;
     let layout = app.run_layout();
 
-    ui::prose(frame, layout.checklist, checklist(app), theme.body());
-    ui::rule(frame, layout.rule, theme, app.glyphs);
+    // The step it is on, how far along, and anything that did not go cleanly: three lines, the way
+    // DMS draws an install. Everything else is the log, which is the only thing with something to
+    // read; the phases and their step counts were the installer's business, not the reader's.
+    ui::prose(frame, layout.step, vec![step_line(app)], theme.body());
     ui::prose(
         frame,
-        layout.progress,
-        vec![ui::progress(
-            app.finished(),
-            STEPS.len(),
-            layout.progress.width,
-            &format!(
-                "{}/{} · {}",
-                app.finished(),
-                STEPS.len(),
-                ui::elapsed(app.total_elapsed().as_secs())
-            ),
-            theme,
-            app.glyphs,
-        )],
+        layout.bar,
+        vec![bar_line(app, layout.bar.width)],
         theme.body(),
     );
+    ui::prose(frame, layout.note, vec![note_line(app)], theme.body());
     log_pane(frame, app, layout.log, app.log_rows());
 }
 
-/// The checklist, one line per phase.
-pub(crate) fn checklist(app: &App) -> Vec<Line<'static>> {
+/// What is happening now: the spinner and the step's own name.
+fn step_line(app: &App) -> Line<'static> {
     let theme = &app.theme;
-    let glyphs = app.glyphs;
-    let mut lines = Vec::new();
-
-    for phase in Phase::ALL {
-        let status = app.phase_status(phase);
-        let (done, total) = app.phase_progress(phase);
-        let running = STEPS
-            .iter()
-            .enumerate()
-            .any(|(index, step)| step.phase == phase && app.statuses[index] == Status::Running);
-        let glyph = if running {
-            ui::running_glyph(app)
-        } else {
-            glyphs.status(status)
-        };
-        let style = if running {
-            theme.selected()
-        } else {
-            theme.status(status)
-        };
-
-        let mut spans = vec![
-            ui::gutter(glyph, style, glyphs),
-            Span::styled(
-                phase.title().to_string(),
-                if running {
-                    theme.selected()
-                } else {
-                    theme.body()
-                },
-            ),
-        ];
-        if running {
-            spans.push(Span::styled(
-                format!(" · {done} of {total} steps"),
-                theme.muted(),
-            ));
-        } else {
-            spans.push(Span::styled(
-                format!(" · {}", ui::plural(total, "step", "steps")),
-                theme.muted(),
-            ));
-            let elapsed = app.phase_elapsed(phase);
-            if elapsed.as_secs() > 0 {
-                spans.push(Span::styled(
-                    format!(" · {}", ui::elapsed(elapsed.as_secs())),
-                    theme.muted(),
-                ));
-            }
-            spans.extend(phase_notes(app, phase));
-        }
-        lines.push(Line::from(spans));
-
-        if let Some(index) = phase_detail(app, phase) {
-            lines.push(detail_line(app, index));
-        }
-    }
-    lines
-}
-
-/// What did not go cleanly in a phase that has finished.
-fn phase_notes(app: &App, phase: Phase) -> Vec<Span<'static>> {
-    let theme = &app.theme;
-    let count = |status: Status| {
-        STEPS
-            .iter()
-            .enumerate()
-            .filter(|(index, step)| step.phase == phase && app.statuses[*index] == status)
-            .count()
+    let running = app.running_step();
+    let index = running.or_else(|| app.next_step());
+    let Some(index) = index else {
+        return Line::from(Span::styled(
+            format!("{} Finishing up", app.glyphs.status(Status::Ok)),
+            theme.status(Status::Ok),
+        ));
     };
-    let mut spans = Vec::new();
-    for (count, one, many, style) in [
-        (
-            count(Status::Failed),
-            "failure",
-            "failures",
-            theme.error_text(),
-        ),
-        (
-            count(Status::Ignored),
-            "ignored",
-            "ignored",
-            theme.ignored_text(),
-        ),
-        (
-            count(Status::Warn),
-            "warning",
-            "warnings",
-            theme.warn_text(),
-        ),
-        (count(Status::Skipped), "skipped", "skipped", theme.muted()),
-    ] {
-        if count > 0 {
-            spans.push(Span::styled(
-                format!(" · {}", ui::plural(count, one, many)),
-                style,
-            ));
-        }
-    }
-    spans
-}
-
-/// The step of a phase that deserves a line of its own.
-fn phase_detail(app: &App, phase: Phase) -> Option<usize> {
-    let running = STEPS
-        .iter()
-        .enumerate()
-        .find(|(index, step)| step.phase == phase && app.statuses[*index] == Status::Running);
-    if let Some((index, _)) = running {
-        return Some(index);
-    }
-    if !app.paused {
-        return None;
-    }
-    STEPS
-        .iter()
-        .enumerate()
-        .find(|(index, step)| step.phase == phase && app.statuses[*index].is_failure())
-        .map(|(index, _)| index)
-}
-
-fn detail_line(app: &App, index: usize) -> Line<'static> {
-    let theme = &app.theme;
-    let glyphs = app.glyphs;
-    let status = app.statuses[index];
-    let running = status == Status::Running;
-    let glyph = if running {
+    let style = if running.is_some() {
+        theme.selected()
+    } else {
+        theme.body()
+    };
+    let glyph = if running.is_some() {
         ui::running_glyph(app)
     } else {
-        glyphs.status(status)
+        app.glyphs.status(Status::Pending)
     };
-    let mut spans = vec![
-        Span::styled("  ".to_string(), theme.body()),
-        ui::gutter(
-            glyph,
-            if running {
-                theme.selected()
-            } else {
-                theme.status(status)
-            },
+    Line::from(vec![
+        ui::gutter(glyph, style, app.glyphs),
+        Span::styled(STEPS[index].name.to_string(), style),
+    ])
+}
+
+/// The one bar on the screen, with how far along and how long it has taken.
+fn bar_line(app: &App, width: u16) -> Line<'static> {
+    let done = app.finished();
+    let total = STEPS.len();
+    let percent = done
+        .saturating_mul(100)
+        .checked_div(total)
+        .unwrap_or_default();
+    let elapsed = app.total_elapsed().as_secs();
+    // A run that has only just started has no time to report, and "0:00" beside the bar reads as
+    // a stopwatch that is not moving.
+    let caption = if elapsed == 0 {
+        format!("{percent:>3}%")
+    } else {
+        format!("{percent:>3}%   {}", ui::elapsed(elapsed))
+    };
+    ui::progress(done, total, width, &caption, &app.theme, app.glyphs)
+}
+
+/// What did not go cleanly, on the line under the bar, so that a warning is seen without opening
+/// the log. Nothing here means nothing went wrong, and the line stays empty.
+fn note_line(app: &App) -> Line<'static> {
+    let theme = &app.theme;
+    let glyphs = app.glyphs;
+    let counts = app.tally();
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for (count, status, one, many) in [
+        (counts.failed, Status::Failed, "failure", "failures"),
+        (counts.warn, Status::Warn, "warning", "warnings"),
+        (counts.ignored, Status::Ignored, "ignored", "ignored"),
+    ] {
+        if count == 0 {
+            continue;
+        }
+        if !spans.is_empty() {
+            spans.push(Span::styled("   ".to_string(), theme.muted()));
+        }
+        spans.push(ui::gutter(
+            glyphs.status(status),
+            theme.status(status),
             glyphs,
-        ),
-        Span::styled(
-            STEPS[index].name.to_string(),
-            if running {
-                theme.selected()
-            } else {
-                theme.body()
-            },
-        ),
-        Span::raw("  "),
-        ui::label_cell(status, theme),
-    ];
-    if let Some(elapsed) = app.step_elapsed(index) {
+        ));
         spans.push(Span::styled(
-            format!("  {}", ui::elapsed(elapsed.as_secs())),
-            theme.muted(),
+            ui::plural(count, one, many),
+            theme.status(status),
         ));
     }
     Line::from(spans)
-}
-
-/// How many rows the checklist needs, capped so the log is never squeezed out.
-pub fn checklist_rows(app: &App) -> u16 {
-    let lines = checklist(app).len() as u16;
-    lines.min(ui::checklist_budget(ui::body(app.area))).max(1)
 }
 
 /// A log pane: a heading row, the lines, then a scrollbar. The run screen and the full-screen log
@@ -2302,23 +2199,25 @@ mod tests {
     }
 
     #[test]
-    fn a_wide_run_screen_draws_the_log_in_a_column_of_its_own() {
+    fn a_wide_run_screen_gives_the_log_the_whole_width() {
         let mut app = running(&[Status::Ok, Status::Running], &["* fetching packages"]);
+        let long = format!("{}END", "x".repeat(120));
+        app.log = (0..30)
+            .map(|index| LogLine::parse(&format!("  [INFO]  {index} {long}")))
+            .collect();
         let text = render(&mut app, 200, 40);
-        let phases = rows_with(&text, "Prepare");
-        let log = rows_with(&text, "install log");
-        let (phases, log) = (
-            phases.first().expect("no phases"),
-            log.first().expect("no log heading"),
-        );
-        // The phases and the log are in different columns, in the same rows.
+        let log = rows_with(&text, "install log")
+            .first()
+            .expect("no log heading")
+            .clone();
+        // Nothing sits beside the log: it starts at the left gutter and runs to the frame.
         assert!(
-            phases.find("Prepare").expect("a phase name") < 40,
-            "the phases moved:\n{text}"
+            log.find("install log").expect("a log heading") < 20,
+            "the log was pushed into a column:\n{text}"
         );
         assert!(
-            log.find("install log").expect("a log heading") > 40,
-            "the log is not beside the phases:\n{text}"
+            text.contains("END"),
+            "the log is clipped to a column:\n{text}"
         );
     }
 
@@ -2653,32 +2552,24 @@ mod tests {
     }
 
     #[test]
-    fn the_run_screen_shows_the_worst_of_each_phase_on_one_line() {
+    fn the_run_screen_names_the_step_it_is_on_and_how_far_along_it_is() {
+        // DMS's install screen, which is what this one now is: the step, one bar, and the log.
+        // Phases and their step counts were the installer's business, not the reader's.
         let mut app = running(
-            &[
-                Status::Ok,
-                Status::Warn,
-                Status::Ok,
-                Status::Ok,
-                Status::Running,
-            ],
+            &[Status::Ok, Status::Warn, Status::Running],
             &["  [INFO]  syncing databases", "  [WARN]  slow mirror"],
         );
         let text = render(&mut app, 100, 30);
-        assert!(text.contains("Prepare"), "{text}");
+        let step = STEPS[2].name;
+        assert!(text.contains(step), "the step it is on: {text}");
+        assert!(text.contains('%'), "how far along: {text}");
         assert!(
             text.contains("1 warning"),
-            "the phase says what happened: {text}"
+            "what did not go cleanly: {text}"
         );
-        assert!(text.contains("Packages"), "{text}");
         assert!(
-            text.contains("1 of 2 steps"),
-            "and how far along it is: {text}"
-        );
-        assert!(text.contains("RUNNING"), "the state is spelled out: {text}");
-        assert!(
-            !text.contains("Update submodules"),
-            "past steps are collapsed: {text}"
+            !text.contains("PENDING") && !text.contains("RUNNING"),
+            "the states are no longer spelled out: {text}"
         );
     }
 
