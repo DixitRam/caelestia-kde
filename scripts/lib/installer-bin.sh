@@ -41,6 +41,12 @@ caelestia_installer_version() {
 
 caelestia_release_tag() {
     local bundle tag
+    # A rehearsal publishes under a tag that is not the one version.env names, so the run
+    # that installs it says which tag to read. Unset in every normal install.
+    if [[ -n "${CAELESTIA_RELEASE_TAG:-}" ]]; then
+        printf '%s\n' "$CAELESTIA_RELEASE_TAG"
+        return 0
+    fi
     bundle="$(caelestia_bundle_dir)" || return 1
     tag="$(sed -nE 's/^[[:space:]]*VERSION=//p' "$bundle/.github/version.env" 2>/dev/null | tr -d '[:space:]')"
     [[ -n "$tag" ]] || return 1
@@ -58,7 +64,8 @@ caelestia_installer_url() {
     version="$(caelestia_installer_version)" || return 1
     tag="$(caelestia_release_tag)" || return 1
 
-    printf 'https://github.com/ladybug-me/caelestia-kde/releases/download/%s/caelestia-install-%s-v%s\n' \
+    printf '%s/%s/caelestia-install-%s-v%s\n' \
+        "${CAELESTIA_RELEASES_BASE:-https://github.com/ladybug-me/caelestia-kde/releases/download}" \
         "$tag" "$arch" "$version"
 }
 

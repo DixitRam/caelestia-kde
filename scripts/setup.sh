@@ -109,11 +109,17 @@ tui_version() {
 }
 
 release_tag() {
+    # A rehearsal publishes under a tag that is not the one version.env names, so the run
+    # that installs it says which tag to read. Unset in every normal install.
+    if [[ -n "${CAELESTIA_RELEASE_TAG:-}" ]]; then
+        printf '%s\n' "$CAELESTIA_RELEASE_TAG"
+        return 0
+    fi
     sed -nE 's/^[[:space:]]*VERSION=//p' "$BUNDLE_DIR/.github/version.env" 2>/dev/null | tr -d '[:space:]'
 }
 
 fetch_installer() {
-    local arch version tag url status=0
+    local arch version tag url status=0 releases_base
     arch="$(uname -m)"
     case "$arch" in
         x86_64|aarch64) ;;
@@ -130,7 +136,8 @@ fetch_installer() {
         return 1
     fi
 
-    url="https://github.com/ladybug-me/caelestia-kde/releases/download/${tag}/caelestia-install-${arch}-v${version}"
+    releases_base="${CAELESTIA_RELEASES_BASE:-https://github.com/ladybug-me/caelestia-kde/releases/download}"
+    url="${releases_base%/}/${tag}/caelestia-install-${arch}-v${version}"
     rm -f "$BIN"
     if ! fetch_asset "$url" "$BIN" --max-time 60 2>/dev/null; then
         echo "[FATAL] Could not download the installer for v${version}." >&2

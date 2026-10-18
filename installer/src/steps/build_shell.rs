@@ -76,10 +76,13 @@ pub fn run(context: &Context) -> Result<(), Failure> {
 
     backup_shell_config(&home)?;
 
+    let release = release_tag(bundle);
     let prebuilt = context.variable("CAELESTIA_FORCE_BUILD_SHELL").is_none()
-        && checkout_may_use_prebuilt(bundle)
+        && checkout_may_use_prebuilt(bundle, release.as_deref())
         && process::available("curl")
-        && try_prebuilt_shell(bundle, &home);
+        && release
+            .as_deref()
+            .is_some_and(|tag| try_prebuilt_shell(&home, tag));
 
     if prebuilt {
         output::ok("Using prebuilt shell artifacts from the release.");
@@ -608,7 +611,29 @@ fn run_logged(
 // ---------------------------------------------------------------------------
 // The prebuilt archive
 
-fn release_tag(bundle: &Path) -> Option<String> {
+const DEFAULT_RELEASES_BASE: &str = "https://github.com/ladybug-me/caelestia-kde/releases/download";
+
+// A rehearsal publishes its assets under a tag that is not the one version.env names, and may
+// serve them from a fork's releases. Both overrides are unset in every normal install.
+fn releases_base_from(explicit: Option<String>) -> String {
+    explicit
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_RELEASES_BASE.to_string())
+}
+
+fn releases_base() -> String {
+    releases_base_from(std::env::var("CAELESTIA_RELEASES_BASE").ok())
+}
+
+fn effective_tag(bundle: &Path, explicit: Option<String>) -> Option<String> {
+    explicit
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| version_env_tag(bundle))
+}
+
+fn version_env_tag(bundle: &Path) -> Option<String> {
     let text = fs::read_to_string(bundle.join(".github/version.env")).ok()?;
     text.lines()
         .find_map(|line| line.trim().strip_prefix("VERSION="))
@@ -616,14 +641,18 @@ fn release_tag(bundle: &Path) -> Option<String> {
         .filter(|tag| !tag.is_empty())
 }
 
+fn release_tag(bundle: &Path) -> Option<String> {
+    effective_tag(bundle, std::env::var("CAELESTIA_RELEASE_TAG").ok())
+}
+
 // The prebuilt archive holds one released revision, so it may only stand in for a tree that
-// is that revision: the released tag itself (an update pinned to a version) or main sitting
+// is that revision: the released tag itself (an update pinned to a version), or main sitting
 // on its remote tip. A branch, a stale main, or a checkout carrying commits of its own builds
 // locally instead of letting the archive replace them. Main that has moved on since its last
 // release cannot be told apart from that release here, so such a tree is replaced by the
 // release the archive was built from.
-fn checkout_may_use_prebuilt(bundle: &Path) -> bool {
-    let Some(release) = release_tag(bundle) else {
+fn checkout_may_use_prebuilt(bundle: &Path, release: Option<&str>) -> bool {
+    let Some(release) = release else {
         return false;
     };
     let Some(head) = process::capture_in("git", &["rev-parse", "HEAD"], Some(bundle)) else {
@@ -636,7 +665,7 @@ fn checkout_may_use_prebuilt(bundle: &Path) -> bool {
         Some(bundle),
     )
     .as_deref()
-        == Some(release.as_str())
+        == Some(release)
     {
         return true;
     }
@@ -666,14 +695,14 @@ fn shell_qt_abi() -> Option<String> {
         .filter(|version| !version.is_empty())
 }
 
-fn try_prebuilt_shell(bundle: &Path, home: &Path) -> bool {
+fn try_prebuilt_shell(home: &Path, tag: &str) -> bool {
     if process::capture("uname", &["-m"]).as_deref() != Some("x86_64") {
         return false;
     }
     if !Path::new("/etc/arch-release").exists() {
         return false;
     }
-    let (Some(abi), Some(tag)) = (shell_qt_abi(), release_tag(bundle)) else {
+    let Some(abi) = shell_qt_abi() else {
         return false;
     };
 
@@ -687,9 +716,7 @@ fn try_prebuilt_shell(bundle: &Path, home: &Path) -> bool {
     ));
     let mut published = None;
     for asset in PREBUILT_ASSETS {
-        let url = format!(
-            "https://github.com/ladybug-me/caelestia-kde/releases/download/{tag}/{asset}-x86_64-qt{abi}.tar.gz"
-        );
+        let url = format!("{}/{tag}/{asset}-x86_64-qt{abi}.tar.gz", releases_base());
         if download::fetch(&url, &archive, &["--progress-bar"]) {
             published = Some(url);
             break;
@@ -1518,7 +1545,7 @@ mod tests {
         let work = TempDir::new("caelestia-build-shell-test").expect("a temporary directory");
         let repo = seed_checkout(&work, "repo", "v1.0.0");
 
-        assert!(checkout_may_use_prebuilt(&repo));
+        assert!(checkout_may_use_prebuilt(&repo, Some("v1.0.0")));
     }
 
     #[test]
@@ -1533,7 +1560,7 @@ mod tests {
         run_git(&repo, &["commit", "--quiet", "-m", "unreleased local work"]);
 
         assert!(
-            !checkout_may_use_prebuilt(&repo),
+            !checkout_may_use_prebuilt(&repo, Some("v1.0.0")),
             "main with commits of its own must not be overwritten by the prebuilt"
         );
     }
@@ -1554,7 +1581,7 @@ mod tests {
         run_git(&repo, &["reset", "--quiet", "--hard", "HEAD~1"]);
 
         assert!(
-            !checkout_may_use_prebuilt(&repo),
+            !checkout_may_use_prebuilt(&repo, Some("v1.0.0")),
             "a stale main checkout must not be treated as the released revision"
         );
     }
@@ -1569,7 +1596,7 @@ mod tests {
         run_git(&repo, &["checkout", "--quiet", "-b", "dev"]);
 
         assert!(
-            !checkout_may_use_prebuilt(&repo),
+            !checkout_may_use_prebuilt(&repo, Some("v1.0.0")),
             "dev must never install the prebuilt shell"
         );
     }
@@ -1589,7 +1616,7 @@ mod tests {
         run_git(&repo, &["tag", "v2.0.0"]);
         fs::write(repo.join(".github/version.env"), "VERSION=v2.0.0\n").expect("the version");
 
-        assert!(checkout_may_use_prebuilt(&repo));
+        assert!(checkout_may_use_prebuilt(&repo, Some("v2.0.0")));
     }
 
     #[test]
@@ -1607,7 +1634,7 @@ mod tests {
         // version.env still names the older release, so the prebuilt would be older than
         // the tree it replaces.
 
-        assert!(!checkout_may_use_prebuilt(&repo));
+        assert!(!checkout_may_use_prebuilt(&repo, Some("v1.0.0")));
     }
 
     #[test]
@@ -1620,8 +1647,64 @@ mod tests {
         fs::remove_file(repo.join(".github/version.env")).expect("the version goes");
 
         assert!(
-            !checkout_may_use_prebuilt(&repo),
+            !checkout_may_use_prebuilt(&repo, None),
             "without a version there is no release artifact to fetch"
+        );
+    }
+
+    #[test]
+    fn a_named_tag_wins_over_the_version_file() {
+        let work = TempDir::new("caelestia-build-shell-test").expect("a temporary directory");
+        let repo = seed_checkout(&work, "repo", "v1.0.0");
+
+        assert_eq!(
+            effective_tag(&repo, Some("rehearsal-abc".to_string())).as_deref(),
+            Some("rehearsal-abc")
+        );
+        assert_eq!(effective_tag(&repo, None).as_deref(), Some("v1.0.0"));
+        assert_eq!(
+            effective_tag(&repo, Some("  ".to_string())).as_deref(),
+            Some("v1.0.0"),
+            "a blank override falls back to the version file"
+        );
+    }
+
+    #[test]
+    fn a_rehearsal_tag_may_use_the_prebuilt() {
+        if !process::available("git") {
+            return;
+        }
+        let work = TempDir::new("caelestia-build-shell-test").expect("a temporary directory");
+        let repo = seed_checkout(&work, "repo", "v1.0.0");
+        // A rehearsal publishes under a tag of its own, and checks that tag out. version.env
+        // still names the last release, which is what the override exists for.
+        run_git(&repo, &["tag", "rehearsal-abc123"]);
+        run_git(
+            &repo,
+            &["checkout", "--quiet", "--detach", "rehearsal-abc123"],
+        );
+
+        assert!(
+            checkout_may_use_prebuilt(&repo, Some("rehearsal-abc123")),
+            "a rehearsal tag names the revision it was built from"
+        );
+        assert!(
+            !checkout_may_use_prebuilt(&repo, Some("v1.0.0")),
+            "the version tag is not what this checkout is"
+        );
+    }
+
+    #[test]
+    fn a_release_root_override_keeps_its_shape() {
+        assert_eq!(releases_base_from(None), DEFAULT_RELEASES_BASE);
+        assert_eq!(
+            releases_base_from(Some("https://example.test/download/".to_string())),
+            "https://example.test/download",
+            "a trailing slash must not double up in the asset URL"
+        );
+        assert_eq!(
+            releases_base_from(Some("   ".to_string())),
+            DEFAULT_RELEASES_BASE
         );
     }
 
@@ -1633,7 +1716,7 @@ mod tests {
         fs::write(tree.join(".github/version.env"), "VERSION=v1.0.0\n").expect("the version");
 
         assert!(
-            !checkout_may_use_prebuilt(&tree),
+            !checkout_may_use_prebuilt(&tree, Some("v1.0.0")),
             "a source tree without git history must build locally"
         );
     }
