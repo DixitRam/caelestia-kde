@@ -124,14 +124,6 @@ pub fn content(area: Rect) -> Rect {
     }
 }
 
-/// The column a screen of prose reads in.
-pub fn measure(area: Rect) -> Rect {
-    Rect {
-        width: area.width.min(PROSE_WIDTH),
-        ..area
-    }
-}
-
 /// The same area, started `rows` further down.
 pub fn dropped(area: Rect, rows: u16) -> Rect {
     let rows = rows.min(area.height.saturating_sub(1));
@@ -145,6 +137,20 @@ pub fn dropped(area: Rect, rows: u16) -> Rect {
 /// How far down a short block starts inside a tall area, so it is not pinned to the top edge.
 pub fn slack(area: Rect, height: u16) -> u16 {
     (area.height.saturating_sub(height) / 2).min(16)
+}
+
+/// A block of a fixed size, centred in the area in both directions and never larger than it. A
+/// composition of a fixed size has to be placed in the middle of the frame: pinned to a corner it
+/// reads as a screen that gave up part way through, however much room is left over.
+pub fn middle(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width).max(1);
+    let height = height.min(area.height).max(1);
+    Rect {
+        x: area.x + (area.width - width) / 2,
+        y: area.y + (area.height - height) / 2,
+        width,
+        height,
+    }
 }
 
 /// The gap between columns, and the least room the second one gets before a screen stays one.
@@ -630,11 +636,18 @@ mod tests {
     }
 
     #[test]
-    fn a_column_of_prose_stops_at_the_measure() {
-        let wide = measure(body(240, 20));
-        assert_eq!(wide.width, PROSE_WIDTH);
-        assert_eq!(wide.x, 0);
-        assert_eq!(measure(body(80, 20)).width, 80);
+    fn a_composition_is_placed_in_the_middle_of_the_frame() {
+        let area = body(240, 60);
+        let block = middle(area, 120, 20);
+        assert_eq!(block.width, 120);
+        assert_eq!(block.x, area.x + 60);
+        assert_eq!(block.height, 20);
+        assert_eq!(block.y, area.y + 20, "and not pinned to the top edge");
+
+        // Nothing is placed outside the room it was given.
+        let tight = middle(body(80, 20), 200, 40);
+        assert_eq!((tight.width, tight.height), (80, 20));
+        assert_eq!((tight.x, tight.y), (0, 0));
     }
 
     #[test]

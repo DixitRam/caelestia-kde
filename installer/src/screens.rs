@@ -68,65 +68,93 @@ fn home(frame: &mut Frame, app: &App, body: Rect) {
     let theme = &app.theme;
     let mark = banner(body);
     let named = mark.is_none();
-    let mut head = identity(app, named);
     let credits = credits(app);
+    let rest = notice(app);
 
-    // One composition, so the mark and the columns under it are placed together.
-    let two_columns = ui::rail(body, 54).is_some();
+    // The mark is the widest thing on the screen, so it sets the left column: a column narrower
+    // than the mark is a column the mark overflows into the panel beside it.
+    let left_width = HOME_LEFT.max(theme::SPLASH[0].chars().count() as u16);
+    let panel_width = ui::panel_width(actions_width(app), body.width);
     let mark_rows = if named {
         0
     } else {
         theme::SPLASH.len() as u16 + 1
     };
-    let mut actions_lines = head.len() + 1;
-    if two_columns {
-        actions_lines = actions_lines.max(ACTIONS_PANEL as usize);
-    } else {
-        actions_lines += Action::ALL.len() + 1 + notice(app).len() + 1 + credits.len();
-    }
-    // A row of air under the frame, so the mark does not read as clipped.
-    let pad = ui::slack(body, mark_rows + actions_lines as u16).max(1);
+    let two_columns = body.width >= left_width + HOME_GAP + panel_width;
+    let left_rows = identity(app, named).len() + 2 + credits.len();
 
-    let mut y = body.y + pad;
-    if let Some(area) = mark {
-        ui::prose(
-            frame,
+    // One composition: the mark, and under it either two columns or one. Sized together and
+    // centred together, because a small block pinned to the corner of a large frame reads as a
+    // screen that stopped drawing rather than as a layout.
+    let (width, height) = if two_columns {
+        (
+            left_width + HOME_GAP + panel_width,
+            mark_rows + left_rows.max(ACTIONS_PANEL as usize + rest.len()) as u16,
+        )
+    } else {
+        (
+            ui::PROSE_WIDTH.min(body.width),
+            mark_rows
+                + identity(app, named).len() as u16
+                + Action::ALL.len() as u16
+                + rest.len() as u16
+                + credits.len() as u16
+                + 3,
+        )
+    };
+    let block = ui::middle(body, width, height);
+
+    let below = match mark {
+        Some(area) => {
+            ui::prose(
+                frame,
+                Rect {
+                    height: area.height,
+                    ..block
+                },
+                mark_lines(app),
+                theme.accent(),
+            );
             Rect {
-                y,
-                height: area.height,
-                ..body
-            },
-            mark_lines(app),
-            theme.accent(),
-        );
-        y += mark_rows;
-    }
-    let below = Rect {
-        y,
-        height: body.height.saturating_sub(y - body.y),
-        ..body
+                y: block.y + mark_rows,
+                height: block.height.saturating_sub(mark_rows),
+                ..block
+            }
+        }
+        None => block,
     };
 
-    // Two columns where there is room: what the program is on the left, what it can do on the
-    // right.
     if two_columns {
-        let (left, right) = ui::rail(below, 54).expect("the width it was measured at");
-        head.push(blank());
-        head.extend(credits);
-        ui::prose(frame, left, head, theme.body());
+        // What the program is on the left, what it can do on the right.
+        let left = Rect {
+            width: left_width.min(below.width),
+            ..below
+        };
+        let right = Rect {
+            x: below.x + left.width + HOME_GAP,
+            width: below.width.saturating_sub(left.width + HOME_GAP),
+            ..below
+        };
+        let mut lines = identity(app, named);
+        lines.push(blank());
+        lines.extend(credits);
+        ui::prose(frame, left, lines, theme.body());
         actions_panel(frame, app, right);
         return;
     }
 
     // One column: the same content, in the order it is read.
-    let column = ui::measure(below);
-    head.push(blank());
-    head.extend(actions(app, column.width));
-    head.extend(notice(app));
-    head.push(blank());
-    head.extend(credits);
-    ui::prose(frame, column, head, theme.body());
+    let mut lines = identity(app, named);
+    lines.extend(actions(app, below.width));
+    lines.extend(rest);
+    lines.push(blank());
+    lines.extend(credits);
+    ui::prose(frame, below, lines, theme.body());
 }
+
+/// The left column of the home screen, and the gap beside it.
+const HOME_LEFT: u16 = 54;
+const HOME_GAP: u16 = 4;
 
 /// The action list in its panel, with anything the machine has to say under it.
 fn actions_panel(frame: &mut Frame, app: &App, area: Rect) {
@@ -719,16 +747,26 @@ fn options(frame: &mut Frame, app: &App, body: Rect) {
     let theme = &app.theme;
 
     // Two columns: the questions down the left as a map of the setup, the question on the right.
-    if let Some((left, right)) = ui::rail(body, 30) {
-        let pad = ui::slack(body, 11);
-        let left = ui::dropped(left, pad);
-        let right = ui::dropped(right, pad);
+    let rail_width = ui::panel_width(question_rail_width(), body.width);
+    let pane_width = PANE_WIDTH.min(body.width.saturating_sub(rail_width + HOME_GAP));
+    if pane_width >= PANE_MIN {
+        // The pane is as wide as its widest row needs and no wider, and the pair is centred as one
+        // block: a question pinned to the left of a wide frame leaves a screen of nothing beside it.
+        let listed = option_rows(app, pane_width).len() as u16 + 2;
+        let width = rail_width + HOME_GAP + pane_width;
+        // The heading, the list, and the rows the help and anything else the screen has to say
+        // need under it: a pane clipped to the list is a pane whose help is never drawn.
+        let height = (listed + HELP_ROWS + 2).max(question_rail(app).len() as u16 + 2);
+        let block = ui::middle(body, width, height);
 
         let rail = question_rail(app);
-        let width = ui::panel_width(question_rail_width(), left.width);
+        let left = Rect {
+            width: rail_width,
+            ..block
+        };
         let inner = ui::section(
             frame,
-            ui::panel_rect(left, width, rail.len() as u16),
+            ui::panel_rect(left, rail_width, rail.len() as u16),
             theme,
             app.glyphs,
             None,
@@ -736,12 +774,28 @@ fn options(frame: &mut Frame, app: &App, body: Rect) {
         );
         ui::prose(frame, inner, rail, theme.body());
 
+        let right = Rect {
+            x: block.x + rail_width + HOME_GAP,
+            width: pane_width,
+            ..block
+        };
         question_pane(frame, app, right);
         return;
     }
 
-    question_pane(frame, app, body);
+    question_pane(
+        frame,
+        app,
+        ui::middle(body, body.width.min(PANE_WIDE), body.height),
+    );
 }
+
+/// The room the question pane asks for, and the least it will be drawn at before the map is given
+/// up instead. The heading and the help are rows the pane keeps whatever is in the list.
+const PANE_WIDTH: u16 = 74;
+const PANE_WIDE: u16 = 96;
+const PANE_MIN: u16 = 44;
+const HELP_ROWS: u16 = 2;
 
 /// The map of the setup: every question, and which one is on screen. How far along the wizard is,
 /// is on the bar at the bottom of the frame, where it is for every screen.
@@ -1644,6 +1698,84 @@ mod tests {
         assert_ne!(buffer[(6, other)].bg, accent, "every row is filled");
     }
 
+    /// How many blank cells there are between the frame's left edge and the first thing drawn,
+    /// counting cells rather than bytes.
+    fn left_margin(line: &str) -> usize {
+        let inside: String = line.chars().skip(1).collect();
+        inside.chars().count() - inside.trim_start().chars().count()
+    }
+
+    #[test]
+    fn a_wide_frame_puts_the_home_composition_in_the_middle() {
+        // The mark and the panel are one block of a fixed size. Pinned to the corner of a large
+        // frame it reads as a screen that stopped drawing part way; it belongs in the middle.
+        let width = 236u16;
+        let height = 60u16;
+        let mut app = app();
+        let text = render(&mut app, width, height);
+        let lines: Vec<&str> = text.lines().collect();
+
+        let mark_row = lines
+            .iter()
+            .position(|line| line.contains('\u{2588}'))
+            .unwrap_or_else(|| panic!("the mark is on screen:\n{text}"));
+        let panel_bottom = lines
+            .iter()
+            .position(|line| line.contains('\u{2514}'))
+            .expect("the action panel is on screen");
+
+        let left = left_margin(lines[mark_row]);
+        let corner = lines[panel_bottom]
+            .chars()
+            .collect::<Vec<char>>()
+            .iter()
+            .rposition(|cell| *cell == '\u{2518}')
+            .expect("a panel corner");
+        let right = width as usize - corner - 2;
+        assert!(
+            left > 20,
+            "the composition is against the left edge: {left} columns of air"
+        );
+        assert!(
+            (left as isize - right as isize).abs() <= 4,
+            "the block is off centre: {left} columns on the left, {right} on the right"
+        );
+
+        let below = height as usize - 1 - panel_bottom;
+        assert!(
+            (mark_row as isize - below as isize).abs() <= 4,
+            "the block is off centre: {mark_row} rows above, {below} below"
+        );
+    }
+
+    #[test]
+    fn a_wide_frame_puts_the_questions_in_the_middle() {
+        let width = 236u16;
+        let mut app = app();
+        app.stage = Stage::Options;
+        let text = render(&mut app, width, 60);
+        let lines: Vec<&str> = text.lines().collect();
+        let rail_top = lines
+            .iter()
+            .position(|line| line.contains('\u{250c}') && line.contains("Appearance"))
+            .expect("the map is on screen");
+        let left = left_margin(lines[rail_top]);
+        // The map and the question beside it are one block: the map starts where the block
+        // starts, so its own margin is the block's margin.
+        assert!(left > 20, "the map is against the left edge: {left}");
+        assert!(
+            left < (width / 2) as usize,
+            "the block is past the middle, not in it: {left}"
+        );
+
+        // And the question is beside the map rather than under it: the row the map's own top
+        // corner is on is the row the question's heading is on.
+        assert!(
+            lines[rail_top].contains('\u{250c}'),
+            "the map's corner is on the heading row:\n{text}"
+        );
+    }
+
     #[test]
     fn a_wide_terminal_spends_its_width_on_a_second_column() {
         let mut wide = app();
@@ -1656,7 +1788,7 @@ mod tests {
         let mut narrow = app();
         narrow.stage = Stage::Options;
         narrow.action = crate::app::Action::Install;
-        let text = render(&mut narrow, 80, 30);
+        let text = render(&mut narrow, 62, 24);
         assert!(!text.contains("Advanced"), "a map in one column:\n{text}");
         assert!(
             text.contains("Appearance"),
@@ -2009,7 +2141,10 @@ mod tests {
         app.overlay = Some(Overlay::Confirm);
         let text = render(&mut app, 100, 30);
         assert!(text.contains("Install Caelestia now?"), "{text}");
-        assert!(text.contains("Install (y)"), "the answer is a button: {text}");
+        assert!(
+            text.contains("Install (y)"),
+            "the answer is a button: {text}"
+        );
         assert!(text.contains("Cancel (n)"), "and so is the other: {text}");
         // What a person is told is what happens to their machine, not how many steps it takes.
         assert!(text.contains("backed up"), "{text}");
@@ -2327,13 +2462,14 @@ mod tests {
 
         // The row that does carry a fact shows it, and only while it is under the cursor.
         app.cursor = 1;
+        let shot = render(&mut app, 100, 30);
         assert!(
-            render(&mut app, 100, 30).contains("mini is the login card alone"),
-            "the row's own help is on screen"
+            shot.contains("the login card alone"),
+            "the row's own help is on screen:\n{shot}"
         );
         app.cursor = 0;
         assert!(
-            !render(&mut app, 100, 30).contains("mini is the login card alone"),
+            !render(&mut app, 100, 30).contains("the login card alone"),
             "and it goes with the cursor"
         );
 
