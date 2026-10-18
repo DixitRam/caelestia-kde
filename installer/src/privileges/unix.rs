@@ -315,26 +315,57 @@ pub fn sudo_cached() -> bool {
 }
 
 /// Whether this machine can authorize with a fingerprint: sudo's own stack has a fingerprint
-/// module in it, and fprintd has a reader to offer that module.
+/// module in it, fprintd has a reader to offer that module, and this user has a finger enrolled.
+/// All three, because a read that cannot succeed is not free — it is a failed authentication.
+///
+/// Read once: what the machine has is a property of the machine, not of a screen, and the answer
+/// costs processes either way.
+pub fn fingerprint_ready() -> bool {
+    static READY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *READY.get_or_init(|| fingerprint_configured() && reader_present() && finger_enrolled())
+}
+
+/// Whether this user has a finger enrolled, believed only when it is said plainly.
+///
+/// The prints themselves live under a root-only directory and the daemon's answer may be refused
+/// rather than prompted for, where the polkit action has no policy, so the prints are asked for
+/// through the one command that reports them. Being wrong is what matters: a route offered on a
+/// guess costs a failed authentication to learn that nothing was ever enrolled, and that
+/// authentication spends the same tally a wrong password does.
+pub fn finger_enrolled() -> bool {
+    if !crate::process::available("fprintd-list") {
+        return false;
+    }
+    let user = std::env::var("SUDO_USER")
+        .ok()
+        .filter(|name| !name.is_empty())
+        .or_else(|| crate::process::capture("id", &["-un"]))
+        .unwrap_or_default();
+    if user.is_empty() {
+        return false;
+    }
+    std::process::Command::new("fprintd-list")
+        .arg(&user)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map(|output| prints_listed(&String::from_utf8_lossy(&output.stdout)))
+        .unwrap_or(false)
+}
+
+/// fprintd-list prints one ` - #N: <finger>` line per enrolled print, and the sentence "has no
+/// fingerprints enrolled" when there are none — a test for the word finger matches that sentence
+/// and offers a route that cannot work.
+fn prints_listed(answer: &str) -> bool {
+    answer
+        .lines()
+        .any(|line| line.trim_start().starts_with("- #"))
+}
+
+/// Whether sudo's own stack has a fingerprint module in it.
 ///
 /// The module is looked for in the stack sudo resolves rather than in `system-auth` alone, because
 /// where it lives depends on who set it up: CachyOS's hardware tooling writes it straight into the
 /// sudo service, where a check of `system-auth` would never see it.
-///
-/// Read once: what the machine has is a property of the machine, not of a screen, and the answer
-/// costs a process either way.
-pub fn fingerprint_ready() -> bool {
-    static READY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *READY.get_or_init(|| fingerprint_configured() && reader_present())
-}
-
-/// Whether a finger has been enrolled is not asked, because it cannot be asked from here: the
-/// daemon's answer is behind a polkit action with no policy on this machine, so it is refused
-/// rather than prompted for, and the prints themselves live under a root-only directory. A route
-/// offered on the stack plus a reader is therefore offered on what the machine is set up for; a
-/// finger that was never enrolled is answered by the read itself, which says no finger was
-/// recognized
-/// and leaves the password route where it was.
 pub fn fingerprint_configured() -> bool {
     let Ok(text) = fs::read_to_string(SUDO_PAM) else {
         return false;
@@ -974,6 +1005,22 @@ mod tests {
         assert!(!readers_listed(""));
         assert!(!readers_listed(
             "Failed to call method: The name net.reactivated.Fprint was not provided\n"
+        ));
+    }
+
+    #[test]
+    fn only_a_listed_print_counts_as_an_enrolled_finger() {
+        // fprintd-list names every print on a line of its own.
+        assert!(prints_listed(
+            "User camus has 2 fingerprints enrolled:\n - #0: right-index-finger\n - #1: left-thumb\n"
+        ));
+        // The sentence a machine with nothing enrolled prints carries the word "fingerprints" and
+        // must not be read as an answer: a route offered there costs a failed authentication.
+        assert!(!prints_listed("User camus has no fingerprints enrolled.\n"));
+        assert!(!prints_listed(""));
+        // A refused polkit action is not an answer either.
+        assert!(!prints_listed(
+            "Failed to list fingerprints: Not Authorized\n"
         ));
     }
 

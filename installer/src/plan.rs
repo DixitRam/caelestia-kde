@@ -1,7 +1,7 @@
 //! What a run would do, printed instead of done.
 //!
-//! The Review screen already works this out before the user commits; this is the same plan for
-//! anyone outside the TUI — a pipeline that wants to see the steps, a person deciding whether to
+//! The installer works this out before the user commits; this is the same plan for anyone outside
+//! the TUI — a pipeline that wants to see the steps, a person deciding whether to
 //! run the thing, or a support engineer asking what this machine would actually attempt. Nothing
 //! in here touches the machine: no package manager, no sudo, no writes.
 
@@ -48,7 +48,7 @@ fn count(rows: &[Row]) -> (usize, usize) {
     (rows.iter().filter(|row| row.runs).count(), rows.len())
 }
 
-/// One line per step, grouped by phase, with the same tally the Review screen prints. Plain text
+/// One line per step, grouped by phase, with the same tally the run screen keeps. Plain text
 /// on purpose: this is read by people piping it into a file as often as by people reading it.
 pub fn text(bundle: &Path, version: &str, answers: &Answers, rows: &[Row]) -> String {
     let mut out = String::new();

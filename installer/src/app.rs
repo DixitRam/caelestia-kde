@@ -87,7 +87,6 @@ pub enum Stage {
     Home,
     Detect,
     Options,
-    Review,
     Auth,
     Privilege,
     Run,
@@ -110,16 +109,43 @@ pub enum Confirm {
     Quit,
 }
 
-/// How the wizard will become root: its own helper can ask, the reader can answer, or the user can
-/// authorize elsewhere.
+impl Confirm {
+    /// The buttons, the first being the one that does the thing.
+    pub fn buttons(self) -> &'static [&'static str] {
+        match self {
+            Confirm::Handoff(Action::Update) => &["Update now", "Cancel"],
+            Confirm::Handoff(Action::Uninstall) => &["Uninstall now", "Cancel"],
+            Confirm::Handoff(Action::Install) | Confirm::Install => &["Install", "Cancel"],
+            Confirm::Quit => &["Stop", "Keep going"],
+        }
+    }
+
+    /// Where the highlight starts. Stopping a running install is the one question whose safe answer
+    /// is not the first button: the key that opened it must not be able to end the run.
+    pub fn focus(self) -> usize {
+        match self {
+            Confirm::Quit => 1,
+            _ => 0,
+        }
+    }
+
+    /// The button a letter stands for, in the order they are drawn.
+    pub fn shortcut(self, letter: char) -> Option<usize> {
+        match letter {
+            'y' | 'Y' => Some(0),
+            'n' | 'N' => Some(self.buttons().len() - 1),
+            _ => None,
+        }
+    }
+}
+
+/// How the wizard will become root: its own helper can ask, or the reader can answer.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AuthMethod {
     /// Offer a finger to the reader the machine already has.
     Fingerprint,
     /// Ask for the password here and pass it to sudo.
     Password,
-    /// Let the user run `sudo -v` in their own terminal.
-    External,
 }
 
 impl AuthMethod {
@@ -127,7 +153,6 @@ impl AuthMethod {
         match self {
             AuthMethod::Fingerprint => "Touch the fingerprint reader",
             AuthMethod::Password => "Type your password here",
-            AuthMethod::External => "Authorize in another terminal",
         }
     }
 }
@@ -288,10 +313,6 @@ pub struct App {
     /// Whether root has to be asked for at all, read once when the wizard starts. Kept as a field
     /// so a test can say which machine it is testing instead of inheriting the host's sudo.
     pub needs_password: bool,
-    /// How the wizard re-checks that root is available when the user says they authorized
-    /// somewhere else. A field for the same reason: on a host whose sudo needs no password the
-    /// real check says yes, which is the wrong answer for a test about being refused.
-    pub authorized: fn() -> bool,
     /// Read from the machine when the wizard starts and re-read at the confirmation. What the
     /// machine is, and whether Caelestia is already on it, are asked of this rather than kept in
     /// fields of their own: two records of one fact are two records that can disagree.
@@ -325,6 +346,11 @@ pub struct App {
     /// through. Nothing on the command line sets it, and it is false everywhere else.
     pub pretend: bool,
     pub attempts: usize,
+    /// Set once the reader has been asked and did not answer. Every read that goes unanswered is a
+    /// failed authentication against sudo, which spends an entry in the same tally a wrong password
+    /// spends and can lock the account for minutes; so the reader is asked once per run and the
+    /// password route takes over from it.
+    pub fingerprint_spent: bool,
     pub problem: Option<String>,
     pub notice: Option<String>,
     pub failure: Option<FailureCard>,
@@ -335,7 +361,8 @@ pub struct App {
     pub log_follow: bool,
     pub log_scroll: usize,
     pub log_loud_only: bool,
-    pub review_scroll: usize,
+    /// Which of the confirm overlay's buttons is highlighted.
+    pub confirm_focus: usize,
     pub area: Rect,
     pub spinner: usize,
     durations: Vec<Option<Duration>>,
@@ -373,7 +400,6 @@ impl App {
             apps,
             fingerprint,
             needs_password: needs_password(),
-            authorized: privileges::sudo_cached,
             env,
             // Read once, here, and again when it matters. The header is drawn thirty times a
             // second, and detection reads the filesystem and the PATH.
@@ -394,6 +420,7 @@ impl App {
             checking: None,
             pretend: false,
             attempts: 0,
+            fingerprint_spent: false,
             problem: None,
             notice: None,
             failure: None,
@@ -404,7 +431,7 @@ impl App {
             log_follow: true,
             log_scroll: 0,
             log_loud_only: false,
-            review_scroll: 0,
+            confirm_focus: 0,
             area: Rect::new(0, 0, 0, 0),
             spinner: 0,
             durations: vec![None; STEPS.len()],
@@ -447,14 +474,6 @@ impl App {
         self
     }
 
-    /// Say whether root is available, for the route that re-checks it after the user says they
-    /// authorized somewhere else.
-    #[cfg(test)]
-    pub fn with_authorized(mut self, answer: fn() -> bool) -> Self {
-        self.authorized = answer;
-        self
-    }
-
     /// The answers a script gave rather than the wizard asking. They are where the wizard starts,
     /// so they are the baseline as well: a script that switched something on is not a change the
     /// user made, and resetting goes back to what the script asked for.
@@ -481,10 +500,9 @@ impl App {
 
     pub fn counter(&self) -> Option<String> {
         match self.stage {
-            // Progress, where there is progress to report. The review screen used to show the
-            // same counter as the run screen and always read "step 0 of 17", which is a
-            // progress bar for something that has not started; its summary already says how
-            // many steps will run.
+            // Progress, where there is progress to report. The questions used to be followed by a
+            // screen that showed the same counter as the run screen and always read "step 0 of
+            // 17", which is a progress bar for something that has not started.
             Stage::Run => Some(format!("step {}/{}", self.finished(), STEPS.len())),
             Stage::Options => Some(format!(
                 "question {}/{}",
@@ -632,16 +650,6 @@ impl App {
         (start, rows)
     }
 
-    pub fn review_rows(&self) -> usize {
-        let (_, list) = ui::review_layout(ui::body(self.area));
-        list.height.max(1) as usize
-    }
-
-    /// How far the review list can be scrolled before it is showing its last page.
-    pub fn review_limit(&self) -> usize {
-        crate::screens::review_total(self).saturating_sub(self.review_rows())
-    }
-
     // The loop ----------------------------------------------------------------------
 
     pub fn leaving(&self) -> Option<Outcome> {
@@ -665,8 +673,7 @@ impl App {
             return self.stop_and_leave();
         }
         if self.busy() {
-            self.confirm = Some(Confirm::Quit);
-            self.overlay = Some(Overlay::Confirm);
+            self.ask(Confirm::Quit);
             return Flow::Continue;
         }
         Flow::Done(Outcome::Interrupted)
@@ -728,7 +735,6 @@ impl App {
             Stage::Home => self.home_key(key),
             Stage::Detect => self.detect_key(key),
             Stage::Options => self.options_key(key),
-            Stage::Review => self.review_key(key),
             Stage::Auth => self.auth_key(key),
             Stage::Privilege => self.privilege_key(key),
             Stage::Run => self.run_key(key),
@@ -753,7 +759,10 @@ impl App {
                 ui::key("q", "stop"),
                 ui::key(glyphs.escape(), "decide later"),
             ],
-            Some(Overlay::Confirm) => vec![ui::key("y", "yes"), ui::key("n", "no")],
+            Some(Overlay::Confirm) => vec![
+                ui::key(glyphs.up_down(), "move"),
+                ui::key(glyphs.enter(), "choose"),
+            ],
             None => match self.stage {
                 Stage::Home => vec![
                     ui::key(glyphs.up_down(), "choose"),
@@ -772,22 +781,15 @@ impl App {
                     }
                     keys
                 }
-                Stage::Auth if self.auth == Some(AuthMethod::External) => vec![
-                    ui::key(glyphs.enter(), "I have done it"),
-                    ui::key(glyphs.escape(), "back"),
-                ],
                 Stage::Auth => vec![
                     ui::key(glyphs.up_down(), "move"),
                     ui::key(glyphs.enter(), "choose"),
                     ui::key(glyphs.escape(), "back"),
                 ],
                 Stage::Privilege if self.checking.is_some() => Vec::new(),
-                // A reader is not typed into and its answer is not "continue": the key asks the
-                // same question again.
-                Stage::Privilege if self.auth == Some(AuthMethod::Fingerprint) => vec![
-                    ui::key(glyphs.enter(), "read again"),
-                    ui::key(glyphs.escape(), "back"),
-                ],
+                Stage::Privilege if self.auth == Some(AuthMethod::Fingerprint) => {
+                    vec![ui::key(glyphs.escape(), "back")]
+                }
                 Stage::Privilege if self.attempts > 0 => vec![
                     ui::key(glyphs.enter(), "continue"),
                     ui::key("r", "try again"),
@@ -806,11 +808,6 @@ impl App {
                     // lose: the way on and the way back belong ahead of them.
                     ui::key("r", "reset"),
                     ui::key("R", "reset all"),
-                ],
-                Stage::Review => vec![
-                    ui::key(glyphs.up_down(), "scroll"),
-                    ui::key(glyphs.enter(), "install"),
-                    ui::key(glyphs.escape(), "back"),
                 ],
                 Stage::Run if self.paused => vec![
                     ui::key(glyphs.enter(), "the failure"),
@@ -878,8 +875,7 @@ impl App {
                 self.stage = Stage::Detect;
             }
             Action::Update | Action::Uninstall => {
-                self.confirm = Some(Confirm::Handoff(action));
-                self.overlay = Some(Overlay::Confirm);
+                self.ask(Confirm::Handoff(action));
             }
         }
         Flow::Continue
@@ -922,8 +918,7 @@ impl App {
                     .position(|action| *action == Action::Update)
                     .unwrap_or(self.home);
                 self.action = Action::Update;
-                self.confirm = Some(Confirm::Handoff(Action::Update));
-                self.overlay = Some(Overlay::Confirm);
+                self.ask(Confirm::Handoff(Action::Update));
             }
             KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
             KeyCode::Esc => {
@@ -1053,6 +1048,19 @@ impl App {
             Ok(false) => {
                 self.checking = None;
                 self.password.clear();
+                if self.auth == Some(AuthMethod::Fingerprint) {
+                    // The read went unanswered. A reader that says no is a failed authentication
+                    // like a wrong password is, and sudo counts them in one tally: the second
+                    // miss is what starts locking people out, so the reader is not offered again
+                    // and the password - which clears the tally when it is right - takes over.
+                    let problem = self.refusal();
+                    self.fingerprint_spent = true;
+                    self.auth = None;
+                    self.cursor = 0;
+                    self.problem = Some(problem);
+                    self.stage = Stage::Auth;
+                    return;
+                }
                 self.attempts += 1;
                 self.problem = Some(self.refusal());
             }
@@ -1065,17 +1073,14 @@ impl App {
     }
 
     /// What to say when sudo would not take what it was offered. A reader that was not offered is
-    /// told apart from a password that was wrong, because they are different things to try again.
+    /// told apart from a password that was wrong, because they lead to different next steps.
     fn refusal(&self) -> String {
         if self.auth == Some(AuthMethod::Fingerprint) {
             // "Not recognized" rather than "no finger was read": a stack that never asks the reader
             // for anything fails here too, and the reader cannot tell the user which happened. The
-            // read still costs the account an entry in the same tally a wrong password does.
-            return if !self.pretend && privileges::on_the_last_entry() {
-                "No finger was recognized. Another miss locks the account.".to_string()
-            } else {
-                "No finger was recognized.".to_string()
-            };
+            // read still costs the account an entry in the same tally a wrong password does, which
+            // is why this is the only one the reader gets and the password is offered from here.
+            return "No finger was recognized. Type your password instead.".to_string();
         }
         if !self.pretend && privileges::on_the_last_entry() {
             // The system counts refusals, and once it has counted enough it stops accepting the
@@ -1133,39 +1138,19 @@ impl App {
     }
 
     /// The routes that would actually work here, in the order they are offered. A reader is asked
-    /// first when there is one: it is the only route that needs nothing typed, and on a machine
-    /// whose tally is spent it is the only one that still opens.
+    /// first when there is one worth asking: it is the only route that needs nothing typed. Once it
+    /// has been asked and not answered it is gone from the list, because asking again is another
+    /// failed authentication against sudo and those are the entries that lock the account.
     pub fn auth_methods(&self) -> Vec<AuthMethod> {
         let mut methods = Vec::new();
-        if self.fingerprint {
+        if self.fingerprint && !self.fingerprint_spent {
             methods.push(AuthMethod::Fingerprint);
         }
         methods.push(AuthMethod::Password);
-        methods.push(AuthMethod::External);
         methods
     }
 
     fn auth_key(&mut self, key: KeyEvent) -> Flow {
-        // Waiting on the user's own terminal: nothing to navigate, only to carry on from.
-        if self.auth == Some(AuthMethod::External) {
-            match key.code {
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    if (self.authorized)() {
-                        self.begin_install();
-                    } else {
-                        self.problem =
-                            Some("sudo is still not authorized. Run `sudo -v` first.".to_string());
-                    }
-                }
-                KeyCode::Esc => {
-                    self.auth = None;
-                    self.problem = None;
-                }
-                _ => {}
-            }
-            return Flow::Continue;
-        }
-
         let methods = self.auth_methods();
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
@@ -1193,11 +1178,14 @@ impl App {
                         self.start_check();
                     }
                     AuthMethod::Password => self.stage = Stage::Privilege,
-                    AuthMethod::External => {}
                 }
             }
             KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
-            KeyCode::Esc => self.stage = Stage::Review,
+            // Back to the answers, with the cursor where it was left: on the row that goes on.
+            KeyCode::Esc => {
+                self.problem = None;
+                self.stage = Stage::Options;
+            }
             _ => {}
         }
         Flow::Continue
@@ -1254,14 +1242,15 @@ impl App {
         self.cursor >= self.current_entries().len()
     }
 
-    /// Onward: the next question, or the review once there is nothing left to ask.
+    /// Onward: the next question, or the confirmation once there is nothing left to ask. The
+    /// confirmation is the last question's own step rather than a screen of its own: a page that
+    /// only repeats the answers already given asks the user to read what they just wrote.
     pub fn next_question(&mut self) {
         if self.question + 1 < menu::question_count() {
             self.question += 1;
             self.cursor = 0;
         } else {
-            self.stage = Stage::Review;
-            self.review_scroll = 0;
+            self.ask(Confirm::Install);
         }
     }
 
@@ -1289,41 +1278,6 @@ impl App {
     fn reset_all(&mut self) {
         self.answers = self.baseline.clone();
         self.notice = Some("every option is back at its default".to_string());
-    }
-
-    // Review ------------------------------------------------------------------------
-
-    fn review_key(&mut self, key: KeyEvent) -> Flow {
-        let rows = self.review_rows();
-        let limit = self.review_limit();
-        match key.code {
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.review_scroll = self.review_scroll.saturating_sub(1);
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.review_scroll = (self.review_scroll + 1).min(limit);
-            }
-            KeyCode::PageUp => self.review_scroll = self.review_scroll.saturating_sub(rows),
-            KeyCode::PageDown => {
-                self.review_scroll = (self.review_scroll + rows).min(limit);
-            }
-            KeyCode::Home | KeyCode::Char('g') => self.review_scroll = 0,
-            KeyCode::End | KeyCode::Char('G') => self.review_scroll = limit,
-            KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
-            // Nothing is deployed on the strength of the key that walked into the screen: the
-            // confirmation is its own deliberate step, separate from editing the answers.
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                self.confirm = Some(Confirm::Install);
-                self.overlay = Some(Overlay::Confirm);
-            }
-            KeyCode::Esc => {
-                self.question = menu::question_count().saturating_sub(1);
-                self.cursor = 0;
-                self.stage = Stage::Options;
-            }
-            _ => {}
-        }
-        Flow::Continue
     }
 
     // Run ---------------------------------------------------------------------------
@@ -1355,10 +1309,7 @@ impl App {
             KeyCode::Char('w') => self.toggle_loud_only(),
             KeyCode::Char('l') => self.overlay = Some(Overlay::Log),
             KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
-            KeyCode::Char('q') => {
-                self.confirm = Some(Confirm::Quit);
-                self.overlay = Some(Overlay::Confirm);
-            }
+            KeyCode::Char('q') => self.ask(Confirm::Quit),
             _ => {}
         }
         Flow::Continue
@@ -1505,17 +1456,43 @@ impl App {
     }
 
     fn confirm_key(&mut self, key: KeyEvent) -> Flow {
-        let confirmed = match key.code {
-            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => true,
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => false,
-            _ => return Flow::Continue,
-        };
-        let Some(confirm) = self.confirm.take() else {
+        let Some(confirm) = self.confirm else {
             self.overlay = None;
             return Flow::Continue;
         };
+        let buttons = confirm.buttons().len();
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.confirm_focus = if self.confirm_focus == 0 {
+                    buttons - 1
+                } else {
+                    self.confirm_focus - 1
+                };
+                return Flow::Continue;
+            }
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => {
+                self.confirm_focus = (self.confirm_focus + 1) % buttons;
+                return Flow::Continue;
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {}
+            // The letters still work for people who learned them, and they mean the buttons they
+            // sit next to rather than a hidden pair of answers.
+            KeyCode::Char(letter) => match confirm.shortcut(letter) {
+                Some(index) => self.confirm_focus = index,
+                None => return Flow::Continue,
+            },
+            // Closing is the answer that changes nothing, wherever it is pressed.
+            KeyCode::Esc => {
+                self.confirm = None;
+                self.overlay = None;
+                return Flow::Continue;
+            }
+            _ => return Flow::Continue,
+        }
+        let chosen = self.confirm_focus.min(buttons - 1);
+        self.confirm = None;
         self.overlay = None;
-        if !confirmed {
+        if chosen != 0 {
             return Flow::Continue;
         }
         match confirm {
@@ -1527,6 +1504,13 @@ impl App {
             }
             Confirm::Install => self.confirm_install(),
         }
+    }
+
+    /// Open the confirmation, with the highlight where that question wants it.
+    pub(crate) fn ask(&mut self, confirm: Confirm) {
+        self.confirm = Some(confirm);
+        self.confirm_focus = confirm.focus();
+        self.overlay = Some(Overlay::Confirm);
     }
 
     /// The point of no return. The machine is read one last time here, because every question
@@ -1800,8 +1784,7 @@ mod tests {
         .with_fingerprint(false)
         // And same for the password gate: a machine whose sudo needs no password would otherwise
         // walk straight past the screen these tests are about.
-        .with_password_gate(true)
-        .with_authorized(|| false);
+        .with_password_gate(true);
         // The screens and the page keys agree on a size; the tests have to give them one.
         app.area = Rect::new(0, 0, 100, 30);
         app.pretend = true;
@@ -1997,7 +1980,6 @@ mod tests {
             Stage::Home,
             Stage::Detect,
             Stage::Options,
-            Stage::Review,
             Stage::Auth,
             Stage::Run,
             Stage::Done,
@@ -2068,8 +2050,7 @@ mod tests {
         assert_eq!(app.stage, Stage::Options);
 
         // And the confirmation now lets it through rather than stopping it again.
-        app.stage = Stage::Review;
-        press(&mut app, KeyCode::Enter);
+        app.ask(Confirm::Install);
         char_key(&mut app, 'y');
         assert_ne!(app.stage, Stage::Detect);
     }
@@ -2081,8 +2062,7 @@ mod tests {
         let mut app = app();
         app.detection = installable();
         app.installed_when_started = false;
-        app.stage = Stage::Review;
-        press(&mut app, KeyCode::Enter);
+        app.ask(Confirm::Install);
 
         app.detection.installed = true;
         char_key(&mut app, 'y');
@@ -2109,8 +2089,7 @@ mod tests {
             package_manager: None,
             ..installable()
         };
-        app.stage = Stage::Review;
-        press(&mut app, KeyCode::Enter);
+        app.ask(Confirm::Install);
         app.reinstall_acknowledged = true;
 
         char_key(&mut app, 'y');
@@ -2203,13 +2182,16 @@ mod tests {
     fn the_password_is_asked_for_last_because_it_is_needed_last() {
         let mut app = app();
         app.detection = installable();
-        app.stage = Stage::Review;
 
-        // Enter asks before it acts: nothing starts on the key that arrived at the screen.
+        // The last question's way on asks before it acts: nothing starts on the key that arrived
+        // at the end of the answers.
+        app.stage = Stage::Options;
+        app.question = menu::question_count() - 1;
+        app.cursor = app.current_entries().len();
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.overlay, Some(Overlay::Confirm));
         assert_eq!(app.confirm, Some(Confirm::Install));
-        assert_eq!(app.stage, Stage::Review, "and nothing has started yet");
+        assert_eq!(app.stage, Stage::Options, "and nothing has started yet");
 
         char_key(&mut app, 'y');
         // A test process is not root and has no cached sudo, so there is a route to choose. The
@@ -2232,23 +2214,15 @@ mod tests {
     }
 
     #[test]
-    fn the_route_the_user_did_not_pick_still_works_after_they_take_it() {
+    fn a_gate_with_one_route_still_has_to_be_answered() {
+        // No reader, so the password is the only thing on the list: the screen is still the place
+        // the answer is given, and the key that takes it goes to the field.
         let mut app = app();
         app.stage = Stage::Auth;
-        app.cursor = 1;
+        app.cursor = 0;
         press(&mut app, KeyCode::Enter);
-        assert_eq!(app.auth, Some(AuthMethod::External), "the second route");
-        assert_eq!(app.stage, Stage::Auth, "and it waits there for the user");
-
-        // Nothing is authorized yet, so saying "I have done it" is refused rather than
-        // believed: the wizard checks rather than takes the word for it.
-        press(&mut app, KeyCode::Enter);
-        assert_eq!(app.stage, Stage::Auth);
-        assert!(
-            app.problem.is_some(),
-            "{}",
-            app.problem.clone().unwrap_or_default()
-        );
+        assert_eq!(app.auth, Some(AuthMethod::Password));
+        assert_eq!(app.stage, Stage::Privilege);
         assert_eq!(app.leaving(), None);
     }
 
@@ -2257,18 +2231,14 @@ mod tests {
         let with_reader = app().with_fingerprint(true);
         assert_eq!(
             with_reader.auth_methods(),
-            vec![
-                AuthMethod::Fingerprint,
-                AuthMethod::Password,
-                AuthMethod::External
-            ],
+            vec![AuthMethod::Fingerprint, AuthMethod::Password],
             "the reader is the only route that needs nothing typed, so it is first"
         );
 
         let without = app();
         assert_eq!(
             without.auth_methods(),
-            vec![AuthMethod::Password, AuthMethod::External],
+            vec![AuthMethod::Password],
             "a route that cannot open is not offered"
         );
     }
@@ -2303,7 +2273,7 @@ mod tests {
     }
 
     #[test]
-    fn a_read_that_did_not_happen_is_asked_for_again_rather_than_passed_off_as_a_password() {
+    fn a_read_that_did_not_happen_hands_the_gate_to_the_password_rather_than_asking_again() {
         let mut app = app().with_fingerprint(true);
         app.stage = Stage::Privilege;
         app.auth = Some(AuthMethod::Fingerprint);
@@ -2314,19 +2284,28 @@ mod tests {
         app.checking = Some(receiver);
         app.tick();
 
-        assert_eq!(app.stage, Stage::Privilege, "it waits where the reader is");
-        assert_eq!(app.auth, Some(AuthMethod::Fingerprint));
+        // A read that goes unanswered is a failed authentication against sudo, and those are the
+        // entries that lock the account: the reader is not offered a second time.
+        assert_eq!(app.stage, Stage::Auth, "the gate goes back to its routes");
+        assert_eq!(app.auth, None);
+        assert_eq!(
+            app.auth_methods(),
+            vec![AuthMethod::Password],
+            "the route that cannot open is gone"
+        );
+        assert!(app.fingerprint_spent);
         assert_eq!(
             app.problem.as_deref(),
-            Some("No finger was recognized."),
+            Some("No finger was recognized. Type your password instead."),
             "and says what happened, not what a wrong password means"
         );
-        assert_eq!(app.attempts, 1);
+        assert_eq!(app.attempts, 0, "the reader is not the password's count");
 
-        // Asking again is a key, and it starts another read rather than a password check.
-        press(&mut app, KeyCode::Enter);
-        assert!(app.checking.is_some(), "the reader is asked again");
-        assert_eq!(app.password, "");
+        // Nothing offers the reader again, however the gate is walked.
+        assert!(
+            !app.auth_methods().contains(&AuthMethod::Fingerprint),
+            "and it stays gone"
+        );
     }
 
     #[test]
@@ -2376,6 +2355,52 @@ mod tests {
     }
 
     #[test]
+    fn the_confirmation_is_answered_by_the_button_under_the_highlight() {
+        // The question has buttons, so the arrows and the key that acts are enough to answer it:
+        // nothing has to be guessed from a footer hint.
+        let mut app = app();
+        app.detection.installed = true;
+        app.home = 2;
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.confirm, Some(Confirm::Handoff(Action::Uninstall)));
+        assert_eq!(
+            app.confirm_focus, 0,
+            "the action is what the user came here to do"
+        );
+
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.confirm_focus, 1, "the other button is reachable");
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.overlay, None, "choosing cancel closes the question");
+        assert_eq!(app.leaving(), None, "and nothing happened");
+
+        // The same key on the action goes through.
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(
+            app.session(Outcome::Ok).handoff,
+            Some(Handoff::Uninstall),
+            "the highlighted button is what enter chooses"
+        );
+    }
+
+    #[test]
+    fn stopping_a_run_does_not_put_the_stopping_button_under_the_highlight() {
+        // The key that opens this is pressed to stop a step, and one key too many must not end the
+        // run: the highlight starts on the answer that keeps it going.
+        let mut app = app();
+        app.stage = Stage::Run;
+        app.statuses[0] = Status::Running;
+        char_key(&mut app, 'q');
+        assert_eq!(app.confirm, Some(Confirm::Quit));
+        assert_eq!(app.confirm_focus, 1, "the safe answer is the focused one");
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.leaving(), None, "the run carries on");
+        assert_eq!(app.overlay, None);
+    }
+
+    #[test]
     fn uninstall_is_refused_where_there_is_nothing_installed() {
         let mut app = app();
         app.detection.installed = false;
@@ -2398,9 +2423,9 @@ mod tests {
         assert_eq!(app.password, "", "and it forgets the password");
         assert_eq!(app.leaving(), None);
 
-        // The review is one step behind the answers, and the last question is one step behind
-        // the review.
-        app.stage = Stage::Review;
+        // The gate is one step behind the last answer.
+        app.stage = Stage::Auth;
+        app.question = menu::question_count() - 1;
         press(&mut app, KeyCode::Esc);
         assert_eq!(app.stage, Stage::Options);
         assert_eq!(app.question, menu::question_count() - 1);
@@ -2710,11 +2735,16 @@ mod tests {
             "walking through the questions leaves the answers alone"
         );
 
-        // The last one leads to the review rather than off the end.
+        // The last one leads to the confirmation rather than off the end.
         for _ in 1..menu::question_count() {
             press(&mut app, KeyCode::Enter);
         }
-        assert_eq!(app.stage, Stage::Review);
+        assert_eq!(
+            app.stage,
+            Stage::Options,
+            "the answers stay where they were"
+        );
+        assert_eq!(app.overlay, Some(Overlay::Confirm));
     }
 
     #[test]
@@ -2745,26 +2775,6 @@ mod tests {
         assert_eq!(app.answers.get(select).map(String::as_str), Some("fish"));
         char_key(&mut app, ' ');
         assert_eq!(app.answers.get(select).map(String::as_str), Some("zsh"));
-    }
-
-    #[test]
-    fn review_scrolls_inside_its_own_list() {
-        let mut app = app();
-        app.area = Rect::new(0, 0, 80, 24);
-        app.stage = Stage::Review;
-        let rows = app.review_rows();
-        let limit = app.review_limit();
-        assert!(rows > 3, "the test terminal has a list to scroll");
-        assert!(limit > 0, "and the list is longer than the pane");
-
-        press(&mut app, KeyCode::End);
-        assert_eq!(app.review_scroll, limit);
-        press(&mut app, KeyCode::Down);
-        assert_eq!(app.review_scroll, limit, "and it stops at the end");
-        press(&mut app, KeyCode::PageUp);
-        assert_eq!(app.review_scroll, limit.saturating_sub(rows));
-        press(&mut app, KeyCode::Home);
-        assert_eq!(app.review_scroll, 0);
     }
 
     #[test]
@@ -2847,7 +2857,6 @@ mod tests {
             Stage::Home,
             Stage::Privilege,
             Stage::Options,
-            Stage::Review,
             Stage::Run,
             Stage::Done,
         ];

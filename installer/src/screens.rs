@@ -3,14 +3,14 @@
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::Style;
-use ratatui::text::{Line, Span, Text};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 
 use crate::app::{Action, App, AuthMethod, Confirm, FailureCard, Overlay, Stage};
 use crate::glyphs::Glyphs;
 use crate::logline::{Kind, LogLine};
 use crate::menu::{self, Entry};
-use crate::steps::{Phase, STEPS, Status};
+use crate::steps::{STEPS, Status};
 use crate::theme::{self, Role, Theme};
 use crate::ui;
 
@@ -49,7 +49,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Stage::Privilege => privilege(frame, app, body),
         Stage::Auth => auth(frame, app, body),
         Stage::Options => options(frame, app, body),
-        Stage::Review => review(frame, app, body),
         Stage::Run => run(frame, app),
         Stage::Done => done(frame, app, body),
     }
@@ -675,39 +674,23 @@ fn auth(frame: &mut Frame, app: &App, body: Rect) {
     const MEASURE: u16 = 68;
     let mut lines: Vec<Line<'static>> = Vec::new();
 
-    if app.auth == Some(AuthMethod::External) {
-        lines.push(Line::from(Span::styled(
-            "Run this in another terminal:".to_string(),
-            theme.body(),
-        )));
-        lines.push(Line::from(Span::styled(
-            " sudo -v".to_string(),
-            theme.accent(),
-        )));
-        lines.push(blank());
-        lines.push(Line::from(Span::styled(
-            "Then come back here and confirm.".to_string(),
-            theme.muted(),
-        )));
-    } else {
-        for (index, method) in app.auth_methods().iter().enumerate() {
-            let chosen = index == app.cursor;
-            // A selected row looks the same on every screen: the pointer on a filled bar, which
-            // is what Home's actions have always used. Anything else and the user has to learn
-            // the highlight again per screen.
-            if chosen {
-                lines.push(ui::cursor_row(
-                    theme,
-                    glyphs,
-                    &format!("{} {}", glyphs.cursor(), method.title()),
-                    MEASURE,
-                ));
-            } else {
-                lines.push(Line::from(vec![
-                    Span::styled("   ".to_string(), theme.body()),
-                    Span::styled(method.title().to_string(), theme.body()),
-                ]));
-            }
+    for (index, method) in app.auth_methods().iter().enumerate() {
+        let chosen = index == app.cursor;
+        // A selected row looks the same on every screen: the pointer on a filled bar, which is
+        // what Home's actions have always used. Anything else and the user has to learn the
+        // highlight again per screen.
+        if chosen {
+            lines.push(ui::cursor_row(
+                theme,
+                glyphs,
+                &format!("{} {}", glyphs.cursor(), method.title()),
+                MEASURE,
+            ));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled("   ".to_string(), theme.body()),
+                Span::styled(method.title().to_string(), theme.body()),
+            ]));
         }
     }
 
@@ -972,144 +955,6 @@ fn value_cell(entry: &'static Entry, app: &App) -> (String, Style) {
         ),
         Entry::Submenu { .. } => (glyphs.submenu().to_string(), theme.muted()),
     }
-}
-
-// Review ----------------------------------------------------------------------------
-
-fn review(frame: &mut Frame, app: &App, body: Rect) {
-    let theme = &app.theme;
-    let glyphs = app.glyphs;
-    let (summary, list) = ui::review_layout(body);
-
-    let changed = count_changed(app);
-    // What the user is about to get, in their terms. How many internal steps it takes is the
-    // installer's business: it says nothing about what will happen to their machine.
-    let mut headline = vec![Span::styled(
-        "Caelestia will be installed.".to_string(),
-        theme.heading(),
-    )];
-    if changed > 0 {
-        headline.push(Span::styled(
-            format!("  {} changed.", ui::plural(changed, "option", "options")),
-            theme.accent(),
-        ));
-    }
-    ui::prose(
-        frame,
-        summary,
-        vec![
-            Line::from(headline),
-            Line::from(Span::styled(
-                "Your own settings are backed up first.".to_string(),
-                theme.muted(),
-            )),
-        ],
-        theme.body(),
-    );
-
-    let (left, right) = review_columns(app);
-    let total = left.len().max(right.as_ref().map_or(0, Vec::len));
-    let rows = list.height.max(1) as usize;
-    let offset = app.review_scroll.min(total.saturating_sub(rows)) as u16;
-
-    let (left_area, right_area) = ui::columns(list);
-    render_list(frame, left_area, left, offset);
-    if let (Some(right_lines), Some(area)) = (right, right_area) {
-        render_list(frame, area, right_lines, offset);
-    }
-    if total > rows {
-        let bar = Rect {
-            x: list.x + list.width.saturating_sub(1),
-            width: 1,
-            ..list
-        };
-        ui::scrollbar(frame, bar, app.review_scroll, total, theme, glyphs);
-    }
-}
-
-fn render_list(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>, offset: u16) {
-    frame.render_widget(Paragraph::new(Text::from(lines)).scroll((offset, 0)), area);
-}
-
-/// Every phase with its steps, as one block per phase.
-fn review_sections(app: &App) -> Vec<Vec<Line<'static>>> {
-    let theme = &app.theme;
-    let glyphs = app.glyphs;
-    let mut sections = Vec::new();
-    for phase in Phase::ALL {
-        // The heading is the phase and nothing else. Counting steps here told the reader how the
-        // installer is built rather than what it is about to do.
-        let mut section: Vec<Line<'static>> = vec![Line::from(Span::styled(
-            phase.title().to_uppercase(),
-            theme.title(),
-        ))];
-        for step in STEPS.iter().filter(|step| step.phase == phase) {
-            let skipped = crate::steps::is_skipped(step, &app.answers);
-            let status = if skipped {
-                Status::Skipped
-            } else {
-                Status::Pending
-            };
-            section.push(Line::from(vec![
-                Span::styled(" ".to_string(), theme.body()),
-                ui::gutter(glyphs.status(status), theme.status(status), glyphs),
-                Span::styled(
-                    ui::fit(step.name, 52, glyphs.ellipsis()),
-                    if skipped { theme.muted() } else { theme.body() },
-                ),
-            ]));
-        }
-        section.push(blank());
-        sections.push(section);
-    }
-    sections
-}
-
-/// The review list split into two columns where there is room, balanced by line count.
-fn review_columns(app: &App) -> (Vec<Line<'static>>, Option<Vec<Line<'static>>>) {
-    let sections = review_sections(app);
-    let (_, list) = ui::review_layout(ui::body(app.area));
-    if ui::columns(list).1.is_none() {
-        return (sections.concat(), None);
-    }
-
-    let heights: Vec<usize> = sections.iter().map(Vec::len).collect();
-    let total: usize = heights.iter().sum();
-    // One column whenever the plan needs scrolling. Two columns share one scroll offset, so a
-    // taller right column leaves the left one blank and scrolls the phase headings off the top -
-    // a half-empty screen that looks like it stopped drawing. Side by side only when it all fits.
-    if total > list.height as usize {
-        return (sections.concat(), None);
-    }
-    let mut running = 0;
-    let mut split = 0;
-    for (index, height) in heights.iter().enumerate() {
-        if running + height > total / 2 {
-            break;
-        }
-        running += height;
-        split = index + 1;
-    }
-    let mut left = Vec::new();
-    let mut right = Vec::new();
-    for (index, section) in sections.into_iter().enumerate() {
-        if index < split {
-            left.extend(section);
-        } else {
-            right.extend(section);
-        }
-    }
-    (left, Some(right))
-}
-
-/// How many lines the review list holds: what the page keys clamp against.
-pub fn review_total(app: &App) -> usize {
-    let (left, right) = review_columns(app);
-    left.len().max(right.as_ref().map_or(0, Vec::len))
-}
-
-fn count_changed(app: &App) -> usize {
-    app.changed_answers()
 }
 
 // Run -------------------------------------------------------------------------------
@@ -1595,6 +1440,7 @@ fn failure_overlay(frame: &mut Frame, app: &App) {
 fn confirm_overlay(frame: &mut Frame, app: &App) {
     let theme = &app.theme;
     let glyphs = app.glyphs;
+    let asked = app.confirm.unwrap_or(Confirm::Install);
     let (subject, question, border) = match app.confirm {
         Some(Confirm::Handoff(action)) => (
             action.title(),
@@ -1614,7 +1460,7 @@ fn confirm_overlay(frame: &mut Frame, app: &App) {
         ),
     };
 
-    let inner = ui::panel(frame, frame.area(), theme, glyphs, None, (70, 12), border);
+    let inner = ui::panel(frame, frame.area(), theme, glyphs, None, (70, 15), border);
     let mut lines = vec![
         Line::from(Span::styled(subject.to_string(), theme.heading())),
         blank(),
@@ -1624,7 +1470,7 @@ fn confirm_overlay(frame: &mut Frame, app: &App) {
     }
     // What the yes actually starts, in the terms of the person saying it.
     if app.confirm == Some(Confirm::Install) {
-        let changed = count_changed(app);
+        let changed = app.changed_answers();
         lines.push(blank());
         lines.push(Line::from(Span::styled(
             "Your settings are backed up first.".to_string(),
@@ -1641,6 +1487,25 @@ fn confirm_overlay(frame: &mut Frame, app: &App) {
         }
     }
     lines.push(blank());
+    // The choices are rows the arrows can reach, drawn the way every other choice is drawn: the
+    // highlighted one is filled from edge to edge, so the key that acts is never in doubt.
+    for (index, label) in asked.buttons().iter().enumerate() {
+        let chosen = index == app.confirm_focus;
+        let pointer = format!(" {} ", if chosen { glyphs.cursor() } else { " " });
+        if chosen {
+            let spans = vec![
+                Span::raw(pointer),
+                Span::raw(format!("{label} ")),
+                Span::raw(format!("({})", if index == 0 { "y" } else { "n" })),
+            ];
+            lines.push(ui::cursor_spans(theme, spans, inner.width));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled(pointer, theme.muted()),
+                Span::styled(label.to_string(), theme.body()),
+            ]));
+        }
+    }
     ui::prose(frame, inner, lines, theme.body());
 }
 
@@ -2006,15 +1871,9 @@ mod tests {
         let mut app = app();
         app.stage = Stage::Auth;
         let text = render(&mut app, 100, 30);
-        for phrase in [
-            "root privileges",
-            "Type your password here",
-            "Authorize in another terminal",
-        ] {
+        for phrase in ["root privileges", "Type your password here"] {
             assert!(text.contains(phrase), "{phrase} is missing from:\n{text}");
         }
-        // Neither route carries a caption: each is named by its title, and the command the other
-        // one needs is shown beside it once it is chosen.
         assert!(
             !text.contains("sudo -v"),
             "the command appears with the route that needs it, not before: {text}"
@@ -2023,16 +1882,6 @@ mod tests {
             !text.contains("For when it cannot ask"),
             "and nothing is said twice: {text}"
         );
-    }
-
-    #[test]
-    fn the_do_it_yourself_route_says_exactly_what_to_run() {
-        let mut app = app();
-        app.stage = Stage::Auth;
-        app.auth = Some(AuthMethod::External);
-        let text = render(&mut app, 100, 30);
-        assert!(text.contains("sudo -v"), "{text}");
-        assert!(text.contains("another terminal"), "{text}");
     }
 
     #[test]
@@ -2145,7 +1994,6 @@ mod tests {
     #[test]
     fn the_confirmation_states_what_saying_yes_starts() {
         let mut app = app();
-        app.stage = Stage::Review;
         app.confirm = Some(Confirm::Install);
         app.overlay = Some(Overlay::Confirm);
         let text = render(&mut app, 100, 30);
@@ -2487,71 +2335,6 @@ mod tests {
         assert!(after.contains(menu::question(0)), "{after}");
     }
     #[test]
-    fn the_review_screen_lists_every_phase_and_marks_what_is_switched_off() {
-        let mut app = app();
-        app.stage = Stage::Review;
-        app.answers.insert("SKIP_SYSTEM_UPDATE", "true".to_string());
-        let text = render(&mut app, 80, 40);
-        assert!(text.contains("PREPARE"), "{text}");
-        assert!(text.contains("FINALIZE"), "{text}");
-        assert!(text.contains("Update system"), "{text}");
-        assert!(
-            text.contains("will be installed"),
-            "the summary answers the question in the user's terms: {text}"
-        );
-        assert!(
-            text.contains("– "),
-            "and a switched-off step is marked: {text}"
-        );
-    }
-
-    #[test]
-    fn scrolling_the_plan_never_leaves_half_the_screen_blank() {
-        // Two columns share one scroll offset, so a plan that needs scrolling scrolls in one
-        // column: otherwise the shorter left column runs out and the screen looks half-drawn.
-        let mut app = app();
-        app.stage = Stage::Review;
-        app.area = Rect::new(0, 0, 120, 24);
-        let (left, right) = review_columns(&app);
-        assert!(
-            right.is_none(),
-            "a plan taller than the screen is one column, not two"
-        );
-        assert!(!left.is_empty(), "and it still has the plan in it");
-
-        // Where everything fits, the two columns are still used.
-        app.area = Rect::new(0, 0, 160, 60);
-        let (_, wide) = review_columns(&app);
-        assert!(wide.is_some(), "a plan that fits reads side by side");
-    }
-
-    #[test]
-    fn the_review_screen_scrolls_rather_than_cutting_the_list_off() {
-        let mut app = app();
-        app.stage = Stage::Review;
-        let narrow = render(&mut app, 80, 24);
-        assert!(narrow.contains("PREPARE"), "{narrow}");
-        assert!(
-            !narrow.contains("FINALIZE"),
-            "the end of the list is below the fold: {narrow}"
-        );
-
-        app.review_scroll = app.review_limit();
-        let scrolled = render(&mut app, 80, 24);
-        assert!(scrolled.contains("FINALIZE"), "{scrolled}");
-    }
-
-    #[test]
-    fn the_review_screen_uses_two_columns_where_there_is_room() {
-        let mut app = app();
-        app.stage = Stage::Review;
-        let wide = render(&mut app, 140, 30);
-        // Both the first phase and the last are on screen at once, which one column could not do.
-        assert!(wide.contains("PREPARE"), "{wide}");
-        assert!(wide.contains("FINALIZE"), "{wide}");
-    }
-
-    #[test]
     fn the_run_screen_names_the_step_it_is_on_and_how_far_along_it_is() {
         // DMS's install screen, which is what this one now is: the step, one bar, and the log.
         // Phases and their step counts were the installer's business, not the reader's.
@@ -2726,15 +2509,21 @@ mod tests {
         let mut app = app();
         app.stage = Stage::Run;
         app.statuses[0] = Status::Running;
-        app.confirm = Some(crate::app::Confirm::Quit);
-        app.overlay = Some(Overlay::Confirm);
+        app.ask(crate::app::Confirm::Quit);
         let text = render(&mut app, 100, 30);
         assert!(text.contains("Stop the install here?"), "{text}");
         assert!(
             text.contains("A step that is running") && text.contains("stopped first"),
             "true whether or not a step happens to be running: {text}"
         );
-        assert!(text.contains("y yes"), "{text}");
+        // The question has buttons, and the one that stops the run is not under the highlight:
+        // the key that opened this must not be able to end the run.
+        assert!(text.contains("Stop"), "the answer is a button: {text}");
+        assert!(
+            text.contains("Keep going"),
+            "and so is the one that keeps it: {text}"
+        );
+        assert_eq!(app.confirm_focus, 1);
     }
 
     #[test]
@@ -2779,7 +2568,7 @@ mod tests {
             Stage::Home,
             Stage::Privilege,
             Stage::Options,
-            Stage::Review,
+            Stage::Auth,
             Stage::Run,
             Stage::Done,
         ];

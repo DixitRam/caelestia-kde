@@ -439,33 +439,6 @@ pub fn run_layout(body: Rect) -> RunLayout {
     }
 }
 
-/// The summary and the list of the review screen.
-pub fn review_layout(body: Rect) -> (Rect, Rect) {
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Min(3),
-    ])
-    .areas::<4>(body);
-    (rows[1], rows[3])
-}
-
-/// Two columns of phases where there is room for them, one where there is not.
-pub fn columns(list: Rect) -> (Rect, Option<Rect>) {
-    if list.width < 90 {
-        return (list, None);
-    }
-    let width = list.width.saturating_sub(4) / 2;
-    let left = Rect { width, ..list };
-    let right = Rect {
-        x: list.x + width + 4,
-        width,
-        ..list
-    };
-    (left, Some(right))
-}
-
 /// Render prose into a box, wrapping rather than clipping it.
 pub fn prose(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>, style: Style) {
     frame.render_widget(
@@ -744,16 +717,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn two_columns_only_appear_where_they_fit() {
-        assert!(columns(body(60, 20)).1.is_none());
-        assert!(columns(body(80, 20)).1.is_none());
-        let (left, right) = columns(body(100, 20));
-        let right = right.expect("a second column");
-        assert!(left.width > 10);
-        assert!(right.x > left.x + left.width);
-        assert!(right.x + right.width <= 100);
-    }
     #[test]
     fn a_scrollbar_thumb_stays_inside_the_pane() {
         for total in [1usize, 5, 20, 200] {
