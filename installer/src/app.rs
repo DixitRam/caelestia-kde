@@ -4,12 +4,11 @@
 // back, `q` always leaves, `ctrl+c` always stops.
 
 use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::DefaultTerminal;
 use ratatui::layout::Rect;
 
 use crate::env::Env;
@@ -376,6 +375,50 @@ pub struct App {
     credential: Option<Credential>,
     inhibitor: Option<Inhibitor>,
     running: Option<Running>,
+    /// Set when something may have drawn on the screen besides the wizard, so the next frame is
+    /// painted whole instead of diffed against a record that no longer matches.
+    pub repaint: bool,
+    /// What the finished run left on the machine. Read once when it finishes, because a screen
+    /// drawn eight times a second has no business reading the filesystem to say what it did.
+    pub landed: Option<Landed>,
+}
+
+/// Where the install landed: what it installed, which version of it, and where the settings it
+/// replaced were put. Everything here is read from the machine rather than remembered from the
+/// run, so a screen that shows it can only say what is actually there.
+pub struct Landed {
+    pub version: Option<String>,
+    pub commit: Option<String>,
+    pub branch: Option<String>,
+    pub shell: PathBuf,
+    pub configs: PathBuf,
+    pub backup: Option<PathBuf>,
+}
+
+impl Landed {
+    pub fn read(bundle: &Path) -> Self {
+        let shell = crate::update::config_dir();
+        // A checkout records its revision as it builds; a tarball has no revision to record and
+        // still knows which version it is, so the bundle answers when the record does not.
+        let installed = crate::update_state::installed(&shell)
+            .or_else(|| crate::update::published_version(bundle));
+        let (version, commit, branch) = match installed {
+            Some(installed) => (
+                Some(installed.version),
+                Some(installed.commit).filter(|commit| !commit.is_empty()),
+                Some(installed.branch).filter(|branch| !branch.is_empty()),
+            ),
+            None => (None, None, None),
+        };
+        Self {
+            version,
+            commit,
+            branch,
+            shell,
+            configs: crate::paths::home().join(".config").join("caelestia"),
+            backup: crate::steps::recorded_backup_dir(bundle),
+        }
+    }
 }
 
 impl App {
@@ -446,6 +489,8 @@ impl App {
             credential: None,
             inhibitor: None,
             running: None,
+            repaint: false,
+            landed: None,
         }
     }
 
@@ -543,12 +588,9 @@ impl App {
     pub fn tally(&self) -> Tally {
         let count = |status: Status| self.statuses.iter().filter(|each| **each == status).count();
         Tally {
-            ok: count(Status::Ok),
             warn: count(Status::Warn),
             failed: count(Status::Failed),
             ignored: count(Status::Ignored),
-            skipped: count(Status::Skipped),
-            total: STEPS.len(),
         }
     }
 
@@ -827,12 +869,17 @@ impl App {
                     ui::key("l", "log"),
                     ui::key("q", "quit"),
                 ],
-                Stage::Done => vec![
-                    ui::key("r", "retry failed"),
-                    ui::key("l", "log"),
-                    ui::key(glyphs.enter(), "finish"),
-                    ui::key("q", "quit"),
-                ],
+                Stage::Done => {
+                    let mut keys = Vec::new();
+                    // A key that would only answer "nothing failed" is not a key to advertise.
+                    if self.tally().unresolved() > 0 {
+                        keys.push(ui::key("r", "retry failed"));
+                    }
+                    keys.push(ui::key("l", "log"));
+                    keys.push(ui::key(glyphs.enter(), "finish"));
+                    keys.push(ui::key("q", "quit"));
+                    keys
+                }
             },
         }
     }
@@ -1655,6 +1702,7 @@ impl App {
             }
         }
         self.stage = Stage::Done;
+        self.landed = Some(Landed::read(&self.bundle));
         self.credential = None;
         self.inhibitor = None;
     }
@@ -1685,6 +1733,9 @@ impl App {
                         .map(|since| since.elapsed())
                         .unwrap_or_default(),
                 );
+                // A step runs programs of its own, and one of them may have written past the log
+                // it was handed. Nothing on the screen can be trusted to be what was drawn.
+                self.repaint = true;
                 if outcome.is_failure() {
                     self.failure = Some(FailureCard::new(&STEPS[self.current], &self.log));
                     self.paused = true;
@@ -1696,6 +1747,7 @@ impl App {
             Ok(None) => self.running = Some(running),
             Err(problem) => {
                 self.statuses[self.current] = Status::Failed;
+                self.repaint = true;
                 self.durations[self.current] =
                     self.running_since.take().map(|since| since.elapsed());
                 self.log
@@ -1707,24 +1759,19 @@ impl App {
     }
 }
 
-/// Counted once, so the screen and the exit code cannot disagree.
+/// Counted once, so the screen and the exit code cannot disagree. Only what the screens ask for:
+/// an install that went through is described by what it left behind, not by how many steps it
+/// took to get there.
 pub struct Tally {
-    pub ok: usize,
     pub warn: usize,
     pub failed: usize,
     pub ignored: usize,
-    pub skipped: usize,
-    pub total: usize,
 }
 
 impl Tally {
     /// Steps that did not do what they were asked to do.
     pub fn unresolved(&self) -> usize {
         self.failed + self.ignored
-    }
-
-    pub fn ran(&self) -> usize {
-        self.ok + self.warn
     }
 }
 
@@ -1746,7 +1793,9 @@ pub fn run(
         };
     }
     signals::install();
-    let mut terminal = match ratatui::try_init() {
+    // The screen is the wizard's until it is done with it: it draws on a handle of its own, and
+    // everything it starts writes to the log rather than over the frame.
+    let mut terminal = match crate::tui::Tui::start(&log_path) {
         Ok(terminal) => terminal,
         Err(error) => {
             eprintln!("caelestia-install: cannot open a terminal: {error}");
@@ -1759,14 +1808,19 @@ pub fn run(
     let mut app = App::new(bundle, log_path, env);
     app.apply_settings(settings);
     let outcome = event_loop(&mut terminal, &mut app);
-    ratatui::try_restore().ok();
+    terminal.finish();
     app.session(outcome)
 }
 
-fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Outcome {
+fn event_loop(terminal: &mut crate::tui::Tui, app: &mut App) -> Outcome {
     loop {
         if let Some(outcome) = app.leaving() {
             return outcome;
+        }
+        // Something the wizard started may have written past the log it was given. Whatever it
+        // left behind, the next frame is painted whole rather than diffed against it.
+        if std::mem::take(&mut app.repaint) {
+            terminal.repaint();
         }
         if terminal
             .draw(|frame| crate::screens::draw(frame, app))
@@ -2692,11 +2746,12 @@ mod tests {
         let mut app = app();
         app.begin_install();
         assert_eq!(app.stage, Stage::Done);
-        let tally = app.tally();
-        assert_eq!(
-            tally.ran() + tally.skipped,
-            STEPS.len(),
-            "every step either ran or was switched off"
+        assert!(
+            app.statuses
+                .iter()
+                .all(|status| matches!(status, Status::Ok | Status::Skipped)),
+            "every step either ran or was switched off: {:?}",
+            app.statuses
         );
         assert_eq!(app.finished(), STEPS.len());
         assert!(app.total_elapsed() > Duration::ZERO);

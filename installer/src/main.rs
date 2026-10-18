@@ -30,6 +30,7 @@ mod steps;
 mod theme;
 mod tmp;
 mod toolchain;
+mod tui;
 mod ui;
 mod uninstall;
 mod update;

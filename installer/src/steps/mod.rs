@@ -16,6 +16,8 @@ mod window_rules;
 
 use std::path::PathBuf;
 
+pub use configs::recorded_backup_dir;
+
 use crate::menu::Answers;
 use crate::output;
 use crate::packages;

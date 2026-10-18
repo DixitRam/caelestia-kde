@@ -114,7 +114,9 @@ pub fn run(bundle: &Path, requested: Option<String>) -> Result<(), Failure> {
 
 /// The version the bundle publishes, for an install that had no git to record one from: a release
 /// tarball knows what it is even when the state file is missing.
-fn published_version(bundle: &Path) -> Option<update_state::Installed> {
+/// The version this tree publishes, whether or not a build recorded it: a tarball has no revision
+/// to name, and its `version.env` is still the honest answer to "what was installed".
+pub fn published_version(bundle: &Path) -> Option<update_state::Installed> {
     let published = std::fs::read_to_string(bundle.join(".github").join("version.env")).ok()?;
     Some(update_state::Installed {
         version: version_of(&published),
@@ -124,7 +126,7 @@ fn published_version(bundle: &Path) -> Option<update_state::Installed> {
 }
 
 /// The config directory the shell keeps its update state in: the same one the build writes.
-fn config_dir() -> PathBuf {
+pub fn config_dir() -> PathBuf {
     paths::home().join(".config/quickshell/caelestia")
 }
 

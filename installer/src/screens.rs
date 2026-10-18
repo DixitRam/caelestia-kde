@@ -1265,15 +1265,26 @@ fn log_line(line: &LogLine, theme: &Theme, glyphs: Glyphs) -> Line<'static> {
 
 // Done ------------------------------------------------------------------------------
 
+/// Which steps ended in a given state, in the order they ran.
+fn steps_with(app: &App, status: Status) -> Vec<usize> {
+    app.statuses
+        .iter()
+        .enumerate()
+        .filter(|(_, each)| **each == status)
+        .map(|(index, _)| index)
+        .collect()
+}
+
 fn done(frame: &mut Frame, app: &App, body: Rect) {
     let theme = &app.theme;
     let glyphs = app.glyphs;
     let tally = app.tally();
-    let rows = Layout::vertical([Constraint::Min(6), Constraint::Length(2)]).areas::<2>(body);
 
-    let (glyph, title, style) = if tally.failed > 0 {
+    // One sentence for the outcome, with the count stated in it rather than again underneath: what
+    // went wrong is worth naming, but the tally of it is not worth repeating.
+    let (status, ending, style) = if tally.failed > 0 {
         (
-            glyphs.status(Status::Failed),
+            Status::Failed,
             format!(
                 "finished with {}",
                 ui::plural(tally.failed, "failed step", "failed steps")
@@ -1282,7 +1293,7 @@ fn done(frame: &mut Frame, app: &App, body: Rect) {
         )
     } else if tally.ignored > 0 {
         (
-            glyphs.status(Status::Ignored),
+            Status::Ignored,
             format!(
                 "finished with {}",
                 ui::plural(tally.ignored, "ignored step", "ignored steps")
@@ -1291,114 +1302,150 @@ fn done(frame: &mut Frame, app: &App, body: Rect) {
         )
     } else if tally.warn > 0 {
         (
-            glyphs.status(Status::Warn),
+            Status::Warn,
             format!(
-                "complete, with {}",
+                "finished with {}",
                 ui::plural(tally.warn, "warning", "warnings")
             ),
             theme.warn_text(),
         )
     } else {
-        (
-            glyphs.status(Status::Ok),
-            "complete".to_string(),
-            theme.ok_text(),
-        )
+        (Status::Ok, "finished".to_string(), theme.ok_text())
     };
 
-    let mut lines: Vec<Line<'static>> = vec![
-        Line::from(vec![
-            Span::styled(format!(" {glyph} "), style),
-            Span::styled("The install ".to_string(), theme.body()),
-            Span::styled(title, theme.title()),
-        ]),
-        blank(),
-        Line::from(Span::styled(
-            format!("{} of {} finished", tally.ran(), tally.total),
-            theme.body(),
-        )),
-    ];
-    if tally.warn > 0 {
-        lines.push(Line::from(Span::styled(
-            format!(
-                "{} reported warnings",
-                ui::plural(tally.warn, "step", "steps")
-            ),
-            theme.warn_text(),
-        )));
-    }
-    if tally.unresolved() > 0 {
-        lines.push(Line::from(Span::styled(
-            ui::plural(
-                tally.unresolved(),
-                "step needs your attention",
-                "steps need your attention",
-            ),
-            theme.error_text(),
-        )));
-    }
-    if tally.skipped > 0 {
-        lines.push(Line::from(Span::styled(
-            ui::plural(
-                tally.skipped,
-                "step was switched off",
-                "steps were switched off",
-            ),
-            theme.muted(),
-        )));
-    }
+    // What the reader wants off this screen is not a score, it is what they now have and what to
+    // do with it: the version that went on, where it went, where their own settings were put, and
+    // the two commands that keep it up to date or take it away again.
+    let mut lines: Vec<Line<'static>> = vec![Line::from(vec![
+        Span::styled(format!(" {} ", glyphs.status(status)), style),
+        Span::styled("The install ".to_string(), theme.body()),
+        Span::styled(ending, theme.title()),
+        Span::styled(".".to_string(), theme.body()),
+    ])];
+    lines.extend(notice(app));
 
-    let unresolved: Vec<usize> = STEPS
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| matches!(app.statuses[*index], Status::Failed | Status::Ignored))
-        .map(|(index, _)| index)
-        .collect();
-    if !unresolved.is_empty() {
-        lines.push(blank());
-        for index in unresolved {
-            lines.push(ui::labeled(
-                if app.statuses[index] == Status::Ignored {
-                    "ignored"
-                } else {
-                    "failed"
-                },
+    // What did not go cleanly comes first, because it is the only part of this screen that asks for
+    // anything. The step is named: a count on its own sends the reader to the log to find out
+    // whether the warning was even theirs to care about.
+    let failed = steps_with(app, Status::Failed);
+    let ignored = steps_with(app, Status::Ignored);
+    let mut trouble: Vec<Line<'static>> = Vec::new();
+    for index in steps_with(app, Status::Warn) {
+        trouble.push(ui::labeled(
+            "warned",
+            STEPS[index].name.to_string(),
+            theme,
+            LABEL_COLUMN,
+        ));
+    }
+    for (label, indexes) in [("failed", &failed), ("ignored", &ignored)] {
+        for index in indexes {
+            trouble.push(ui::labeled(
+                label,
                 format!(
                     "{}  ·  caelestia-install step {}",
-                    STEPS[index].name, STEPS[index].id
+                    STEPS[*index].name, STEPS[*index].id
                 ),
                 theme,
                 LABEL_COLUMN,
             ));
         }
-        lines.push(ui::labeled(
+    }
+    if !failed.is_empty() || !ignored.is_empty() {
+        trouble.push(ui::labeled(
             "retry",
             "r here, or that command in a terminal".to_string(),
             theme,
             LABEL_COLUMN,
         ));
     }
+    if !trouble.is_empty() {
+        lines.push(blank());
+        lines.extend(trouble);
+    }
+
+    lines.push(blank());
+    if let Some(landed) = &app.landed {
+        if let Some(version) = &landed.version {
+            lines.push(ui::labeled(
+                "version",
+                version_line(version, landed),
+                theme,
+                LABEL_COLUMN,
+            ));
+        }
+        lines.push(ui::labeled(
+            "shell",
+            crate::paths::shorten(&landed.shell),
+            theme,
+            LABEL_COLUMN,
+        ));
+        lines.push(ui::labeled(
+            "settings",
+            crate::paths::shorten(&landed.configs),
+            theme,
+            LABEL_COLUMN,
+        ));
+        if let Some(backup) = &landed.backup {
+            lines.push(ui::labeled(
+                "backup",
+                crate::paths::shorten(backup),
+                theme,
+                LABEL_COLUMN,
+            ));
+        }
+    }
     lines.push(ui::labeled(
         "log",
-        app.log_path.display().to_string(),
+        crate::paths::shorten(&app.log_path),
         theme,
         LABEL_COLUMN,
     ));
-    lines.extend(notice(app));
 
-    let closing: Vec<Line<'static>> = if tally.unresolved() > 0 {
-        vec![Line::from(Span::styled(
-            "Nothing was rolled back: the steps that finished are still installed.".to_string(),
-            theme.muted(),
-        ))]
+    lines.push(blank());
+    if tally.unresolved() > 0 {
+        lines.push(ui::labeled(
+            "kept",
+            "nothing was rolled back, so the steps that finished are still installed".to_string(),
+            theme,
+            LABEL_COLUMN,
+        ));
     } else {
-        vec![Line::from(Span::styled(
-            "Log out and back in so the new session settings apply.".to_string(),
-            theme.muted(),
-        ))]
-    };
-    ui::prose(frame, rows[0], lines, theme.body());
-    ui::prose(frame, rows[1], closing, theme.body());
+        lines.push(ui::labeled(
+            "next",
+            "log out and back in so the new session settings apply".to_string(),
+            theme,
+            LABEL_COLUMN,
+        ));
+    }
+    lines.push(ui::labeled(
+        "update",
+        "caelestia-install --update".to_string(),
+        theme,
+        LABEL_COLUMN,
+    ));
+    lines.push(ui::labeled(
+        "remove",
+        "caelestia-install --uninstall".to_string(),
+        theme,
+        LABEL_COLUMN,
+    ));
+
+    ui::prose_middle(frame, body, lines, theme.body());
+}
+
+/// The version, and whichever of the revision and the channel this install can actually name: a
+/// tarball has no revision to show, and a blank after a separator is worse than not saying it.
+fn version_line(version: &str, landed: &crate::app::Landed) -> String {
+    let mut value = version.to_string();
+    if let Some(commit) = &landed.commit {
+        let short: String = commit.chars().take(7).collect();
+        value.push_str(&format!(" \u{00b7} {short}"));
+    }
+    if let Some(branch) = &landed.branch {
+        value.push_str(&format!(" \u{00b7} {branch}"));
+    }
+    value
 }
 
 // Overlays --------------------------------------------------------------------------
@@ -1665,25 +1712,34 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::path::PathBuf;
 
-    fn app() -> App {
-        App::new(
+    /// An app on a machine that says nothing about itself.
+    ///
+    /// Which distribution this host runs, and whether it already has Caelestia on it, are the
+    /// host's facts and not the test's: a machine that has both draws a longer home screen, and a
+    /// test about where the rows land would then be a test about the host.
+    fn on(env: Env) -> App {
+        let mut app = App::new(
             PathBuf::from("/tmp/caelestia"),
             PathBuf::from("/tmp/install.log"),
-            Env::default(),
-        )
+            env,
+        );
+        app.pretend = true;
+        app.detection.installed = false;
+        app.unfinished.clear();
+        app
+    }
+
+    fn app() -> App {
+        on(Env::default())
     }
 
     /// The same, on a terminal that can draw a fill and a border.
     fn color_app() -> App {
-        App::new(
-            PathBuf::from("/tmp/caelestia"),
-            PathBuf::from("/tmp/install.log"),
-            Env {
-                term: Some("xterm-256color".to_string()),
-                colorterm: Some("truecolor".to_string()),
-                ..Env::default()
-            },
-        )
+        on(Env {
+            term: Some("xterm-256color".to_string()),
+            colorterm: Some("truecolor".to_string()),
+            ..Env::default()
+        })
     }
 
     /// An app on a machine with a fingerprint reader enrolled.
@@ -2805,18 +2861,72 @@ mod tests {
         assert!(text.contains("leaves the run paused"), "{text}");
     }
 
+    /// What a finished install left behind, as a fixture: the screen that shows it must not read
+    /// this machine's home to say what the wizard did.
+    fn landed() -> crate::app::Landed {
+        crate::app::Landed {
+            version: Some("v2.6.3".to_string()),
+            commit: Some("9f2a1cb1234567890".to_string()),
+            branch: Some("main".to_string()),
+            shell: PathBuf::from("/home/tester/.config/quickshell/caelestia"),
+            configs: PathBuf::from("/home/tester/.config/caelestia"),
+            backup: Some(PathBuf::from(
+                "/home/tester/caelestia/backups/20240101_120000",
+            )),
+        }
+    }
+
     #[test]
-    fn the_summary_reads_as_a_success_when_it_was_one() {
+    fn the_summary_says_what_is_installed_and_what_to_do_with_it() {
         let mut app = app();
         app.stage = Stage::Done;
         app.statuses = vec![Status::Ok; STEPS.len()];
-        let text = render(&mut app, 100, 30);
+        app.landed = Some(landed());
+        let text = render(&mut app, 110, 32);
+
+        assert!(text.contains("The install finished."), "{text}");
         assert!(
-            text.contains("Install complete") || text.contains("complete"),
-            "{text}"
+            text.contains("v2.6.3 \u{00b7} 9f2a1cb \u{00b7} main"),
+            "the version, the revision and the channel: {text}"
         );
-        assert!(text.contains("17 of 17 finished"), "{text}");
-        assert!(text.contains("Log out and back in"), "{text}");
+        assert!(text.contains("quickshell/caelestia"), "{text}");
+        assert!(text.contains("caelestia/backups/20240101_120000"), "{text}");
+        assert!(text.contains("/tmp/install.log"), "{text}");
+        assert!(text.contains("log out and back in"), "{text}");
+        assert!(text.contains("caelestia-install --update"), "{text}");
+        assert!(text.contains("caelestia-install --uninstall"), "{text}");
+        assert!(!text.contains("warning"), "nothing to warn about: {text}");
+    }
+
+    #[test]
+    fn the_summary_is_not_a_score_of_the_run() {
+        // How many steps ran is the screen that is still running's business: the reader who is
+        // done needs to know what they have now, not what it cost.
+        let mut app = app();
+        app.stage = Stage::Done;
+        app.statuses = vec![Status::Ok; STEPS.len()];
+        app.landed = Some(landed());
+        let text = render(&mut app, 110, 32);
+
+        assert!(!text.contains("steps finished"), "{text}");
+        assert!(!text.contains(&format!("of {}", STEPS.len())), "{text}");
+    }
+
+    #[test]
+    fn the_summary_does_not_offer_a_retry_it_cannot_do() {
+        let mut app = app();
+        app.stage = Stage::Done;
+        app.statuses = vec![Status::Ok; STEPS.len()];
+        app.landed = Some(landed());
+        let text = render(&mut app, 110, 32);
+        assert!(!text.contains("retry"), "nothing to retry: {text}");
+
+        app.statuses[3] = Status::Ignored;
+        let text = render(&mut app, 110, 32);
+        assert!(
+            text.contains("r retry failed"),
+            "the way out of an unfinished run: {text}"
+        );
     }
 
     #[test]
@@ -2826,14 +2936,22 @@ mod tests {
         app.statuses = vec![Status::Ok; STEPS.len()];
         app.statuses[2] = Status::Failed;
         app.statuses[5] = Status::Ignored;
+        app.landed = Some(landed());
         let text = render(&mut app, 110, 32);
         assert!(text.contains("1 failed step"), "{text}");
-        assert!(text.contains("2 steps need your attention"), "{text}");
         assert!(
             text.contains("caelestia-install step"),
             "the way to retry: {text}"
         );
-        assert!(text.contains("Nothing was rolled back"), "{text}");
+        // The steps that did not go through are named, so the reader does not have to open the
+        // log to find out which ones they were.
+        assert!(text.contains(STEPS[2].name), "{text}");
+        assert!(text.contains(STEPS[5].name), "{text}");
+        assert!(text.contains("nothing was rolled back"), "{text}");
+        assert!(
+            !text.contains("log out and back in"),
+            "a run that did not finish is not one to log out of: {text}"
+        );
     }
 
     #[test]
@@ -2843,10 +2961,29 @@ mod tests {
         app.statuses = vec![Status::Ok; STEPS.len()];
         app.statuses[1] = Status::Warn;
         let text = render(&mut app, 110, 32);
-        assert!(text.contains("1 step"), "{text}");
-        assert!(text.contains("1 warning"), "{text}");
+        assert!(text.contains("finished with 1 warning."), "{text}");
         assert!(!text.contains("1 steps"), "no plurals of one: {text}");
         assert!(!text.contains("1 warnings"), "{text}");
+    }
+
+    #[test]
+    fn the_summary_says_a_warning_once_and_names_the_step_that_raised_it() {
+        let mut app = app();
+        app.stage = Stage::Done;
+        app.statuses = vec![Status::Ok; STEPS.len()];
+        app.statuses[1] = Status::Warn;
+        let text = render(&mut app, 110, 32);
+
+        assert_eq!(
+            text.matches("1 warning").count(),
+            1,
+            "one statement of the count, not three: {text}"
+        );
+        assert!(
+            text.lines()
+                .any(|line| line.contains("warned") && line.contains(STEPS[1].name)),
+            "the step that warned is the useful part: {text}"
+        );
     }
 
     #[test]

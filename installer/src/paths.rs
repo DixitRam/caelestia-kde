@@ -23,6 +23,20 @@ pub fn state_dir() -> PathBuf {
     option("XDG_STATE_HOME").unwrap_or_else(|| home().join(".local").join("state"))
 }
 
+/// The path with this reader's home written as `~`. A home directory is the part of a path that
+/// says the least and takes the most room, and every path a screen shows starts with it.
+pub fn shorten(path: &std::path::Path) -> String {
+    shorten_from(path, &home())
+}
+
+fn shorten_from(path: &std::path::Path, home: &std::path::Path) -> String {
+    match path.strip_prefix(home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => path.display().to_string(),
+    }
+}
+
 fn option(name: &str) -> Option<PathBuf> {
     std::env::var_os(name)
         .map(PathBuf::from)
@@ -42,3 +56,22 @@ pub fn make_executable(path: &std::path::Path) {
 
 #[cfg(not(unix))]
 pub fn make_executable(_path: &std::path::Path) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn a_path_under_the_home_is_written_from_the_home() {
+        let home = Path::new("/home/tester");
+        assert_eq!(shorten_from(Path::new("/home/tester/x/y"), home), "~/x/y");
+        assert_eq!(shorten_from(home, home), "~");
+        assert_eq!(shorten_from(Path::new("/etc/x"), home), "/etc/x");
+        // A directory whose name merely starts with the home's name is not that home.
+        assert_eq!(
+            shorten_from(Path::new("/home/tester2/x"), home),
+            "/home/tester2/x"
+        );
+    }
+}
