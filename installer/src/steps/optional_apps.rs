@@ -17,6 +17,22 @@ pub fn run(context: &Context) -> Result<(), Failure> {
     println!("  Optional Components");
     println!();
 
+    // What the run was asked to set up. A run with nothing picked is not an error - the answers
+    // say the machine wants none of them - but it is worth a line, so the log says what went
+    // into the machine rather than reading as if something had.
+    const PICKS: [&str; 6] = [
+        "INSTALL_VSCODE",
+        "INSTALL_ZED",
+        "INSTALL_SPICETIFY",
+        "INSTALL_DISCORD",
+        "INSTALL_TODOIST",
+        "INSTALL_FIREFOX_THEME",
+    ];
+    let picked = PICKS
+        .iter()
+        .filter(|name| context.flag(name, false))
+        .count();
+
     if context.flag("INSTALL_VSCODE", false) {
         println!("  Setting up VSCode/VSCodium integration...");
         let _ = pkg::install_first(&["code", "visual-studio-code-bin"]);
@@ -124,6 +140,9 @@ pub fn run(context: &Context) -> Result<(), Failure> {
         deploy_firefox(&dots);
     }
 
+    if picked == 0 {
+        output::info("Nothing to install: none of the optional apps were picked.");
+    }
     output::ok("Optional components done.");
     Ok(())
 }
