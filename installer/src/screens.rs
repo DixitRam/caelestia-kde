@@ -384,10 +384,10 @@ fn detect(frame: &mut Frame, app: &App, body: Rect) {
             narrative.iter().map(|line| line.width()).max().unwrap_or(0) as u16,
             body.width / 2,
         );
-        // Added once the panel's width is known, so it sits at the panel's own edge rather than
-        // out in the body. The way on is a button here too: the same affordance every screen has.
+        // The keys hold the way on here too: the verdict is the whole screen, so how to leave it
+        // belongs under it in the same muted text every question ends with.
         narrative.push(blank());
-        narrative.push(ui::button(theme, app.glyphs.enter(), "continue"));
+        narrative.push(Line::from(Span::styled(way_on(app), theme.muted())));
 
         // The pair is centred as one block. Pinned to the left edge, two small panels in a wide
         // frame read as a drawing that failed part way through.
@@ -475,7 +475,7 @@ fn detect(frame: &mut Frame, app: &App, body: Rect) {
 
     lines.extend(notice(app));
     lines.push(blank());
-    lines.push(ui::button(theme, app.glyphs.enter(), "continue"));
+    lines.push(Line::from(Span::styled(way_on(app), theme.muted())));
     ui::prose_middle(frame, body, lines, theme.body());
 }
 
@@ -836,14 +836,32 @@ fn question_pane(frame: &mut Frame, app: &App, area: Rect) {
     help_lines.extend(notice(app));
     ui::prose(frame, rows[3], help_lines, theme.body());
 
-    // The way on, where a first-time user looks for it: a button under the question, in the same
-    // place on every one of them. Enter answers it from anywhere on the screen.
+    // How the screen is worked, the way DMS puts it: under the rows, in muted text, where the eye
+    // lands once it has read them. A key hint needs no surface, so it cannot fail to be drawn.
     ui::prose(
         frame,
         rows[4],
-        vec![blank(), ui::button(theme, app.glyphs.enter(), "continue")],
+        vec![blank(), Line::from(Span::styled(hint(app), theme.muted()))],
         theme.body(),
     );
+}
+
+/// How this screen is worked, in the words the footer uses for the same keys.
+fn hint(app: &App) -> String {
+    format!(
+        "{} move   space change   {}",
+        app.glyphs.up_down(),
+        way_on(app)
+    )
+}
+
+/// Enter and escape: the two things every screen answers to, named the same way on each.
+fn way_on(app: &App) -> String {
+    format!(
+        "{} continue   {} back",
+        app.glyphs.enter(),
+        app.glyphs.escape()
+    )
 }
 
 /// One row per option: cursor, changed marker, name, then the value in its own column.
@@ -2386,26 +2404,27 @@ mod tests {
     }
 
     #[test]
-    fn every_question_offers_the_way_on_as_a_button() {
-        // Enter goes on from anywhere on the screen, but a first-time user looks for something to
-        // press: every question carries the same filled button under its rows.
-        let mut app = color_app();
+    fn every_question_says_how_to_work_it_under_its_rows() {
+        // Enter goes on from anywhere on the screen, but a first-time user has to be told: the
+        // keys sit under the rows, where DMS puts them, in muted text that needs no surface.
+        let mut app = app();
         app.stage = Stage::Options;
-        let accent = app.theme.color(Role::Accent);
         for question in 0..menu::question_count() {
             app.question = question;
             app.cursor = 0;
-            let buffer = cells(&mut app, 100, 30);
-            let row = row_of(&buffer, "continue");
-            let filled = (0..buffer.area.width).any(|x| buffer[(x, row)].bg == accent);
-            assert!(filled, "question {question} has no button to press");
+            let text = render(&mut app, 100, 30);
+            assert!(
+                text.contains("space change"),
+                "question {question} does not say how to work it:\n{text}"
+            );
+            assert!(text.contains("continue"), "question {question}:\n{text}");
         }
     }
 
     #[test]
-    fn the_longest_question_shows_its_last_row_and_its_button_at_the_smallest_size() {
+    fn the_longest_question_shows_its_last_row_and_its_hint_at_the_smallest_size() {
         // A row the pane clips is a row nobody can answer, so the rows are given the lines they
-        // need before the help text above the button is given any.
+        // need before the help text above the hint is given any.
         let mut app = app();
         app.stage = Stage::Options;
         app.question = (0..menu::question_count())
@@ -2417,7 +2436,7 @@ mod tests {
             .expect("the app question is in the tree");
         let text = render(&mut app, 60, 20);
         assert!(text.contains("Firefox"), "the last row was clipped: {text}");
-        assert!(text.contains("continue"), "and the way on: {text}");
+        assert!(text.contains("space change"), "and the hint: {text}");
     }
 
     #[test]
