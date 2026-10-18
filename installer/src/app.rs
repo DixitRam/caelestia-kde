@@ -838,7 +838,7 @@ impl App {
                     ui::key(glyphs.escape(), "back"),
                 ],
                 Stage::Options => vec![
-                    ui::key(glyphs.enter(), "next"),
+                    ui::key(glyphs.enter(), "continue"),
                     ui::key(glyphs.up_down(), "move"),
                     ui::key(glyphs.left_right(), "change"),
                     ui::key(glyphs.escape(), "back"),
@@ -2075,7 +2075,7 @@ mod tests {
                 .position(|what| *what == needle)
                 .unwrap_or_else(|| panic!("{needle} is missing from {footer:?}"))
         };
-        assert!(at("next") < at("reset"), "{footer:?}");
+        assert!(at("continue") < at("reset"), "{footer:?}");
         assert!(at("back") < at("reset"), "{footer:?}");
         assert_eq!(
             footer.last(),

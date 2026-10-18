@@ -384,15 +384,10 @@ fn detect(frame: &mut Frame, app: &App, body: Rect) {
             narrative.iter().map(|line| line.width()).max().unwrap_or(0) as u16,
             body.width / 2,
         );
-        // Added once the panel's width is known, so the bar fills it exactly the way Home's
-        // selected action does rather than stopping at the end of its own text.
+        // Added once the panel's width is known, so it sits at the panel's own edge rather than
+        // out in the body. The way on is a button here too: the same affordance every screen has.
         narrative.push(blank());
-        narrative.push(ui::cursor_row(
-            theme,
-            app.glyphs,
-            &format!("{} continue", app.glyphs.cursor()),
-            right_width.saturating_sub(2),
-        ));
+        narrative.push(ui::button(theme, app.glyphs.enter(), "continue"));
 
         // The pair is centred as one block. Pinned to the left edge, two small panels in a wide
         // frame read as a drawing that failed part way through.
@@ -480,12 +475,7 @@ fn detect(frame: &mut Frame, app: &App, body: Rect) {
 
     lines.extend(notice(app));
     lines.push(blank());
-    lines.push(ui::cursor_row(
-        &app.theme,
-        app.glyphs,
-        &format!("{} continue", app.glyphs.cursor()),
-        body.width.min(ui::PROSE_WIDTH),
-    ));
+    lines.push(ui::button(theme, app.glyphs.enter(), "continue"));
     ui::prose_middle(frame, body, lines, theme.body());
 }
 
@@ -799,13 +789,17 @@ fn question_rail_width() -> u16 {
 /// One question and its answers.
 fn question_pane(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
+    // The rows get exactly the lines they need: a row that is not drawn is a row nobody can
+    // answer, so the help text above the button gives way first.
+    let entries = app.current_entries().len() as u16;
     let rows = Layout::vertical([
         Constraint::Length(2),
-        Constraint::Min(4),
+        Constraint::Length(entries.max(1)),
         Constraint::Length(1),
-        Constraint::Min(2),
+        Constraint::Min(0),
+        Constraint::Length(2),
     ])
-    .areas::<4>(area);
+    .areas::<5>(area);
 
     // What is being asked, on the one line, with the fact that it has been edited beside it: the
     // rail names the question too, but only on a terminal wide enough to hold it.
@@ -841,6 +835,15 @@ fn question_pane(frame: &mut Frame, app: &App, area: Rect) {
     }
     help_lines.extend(notice(app));
     ui::prose(frame, rows[3], help_lines, theme.body());
+
+    // The way on, where a first-time user looks for it: a button under the question, in the same
+    // place on every one of them. Enter answers it from anywhere on the screen.
+    ui::prose(
+        frame,
+        rows[4],
+        vec![blank(), ui::button(theme, app.glyphs.enter(), "continue")],
+        theme.body(),
+    );
 }
 
 /// One row per option: cursor, changed marker, name, then the value in its own column.
@@ -2380,6 +2383,41 @@ mod tests {
         let text = render(&mut app, 100, 30);
         assert!(text.contains("accepted"), "{text}");
         assert!(!text.contains("Checking your password"), "{text}");
+    }
+
+    #[test]
+    fn every_question_offers_the_way_on_as_a_button() {
+        // Enter goes on from anywhere on the screen, but a first-time user looks for something to
+        // press: every question carries the same filled button under its rows.
+        let mut app = color_app();
+        app.stage = Stage::Options;
+        let accent = app.theme.color(Role::Accent);
+        for question in 0..menu::question_count() {
+            app.question = question;
+            app.cursor = 0;
+            let buffer = cells(&mut app, 100, 30);
+            let row = row_of(&buffer, "continue");
+            let filled = (0..buffer.area.width).any(|x| buffer[(x, row)].bg == accent);
+            assert!(filled, "question {question} has no button to press");
+        }
+    }
+
+    #[test]
+    fn the_longest_question_shows_its_last_row_and_its_button_at_the_smallest_size() {
+        // A row the pane clips is a row nobody can answer, so the rows are given the lines they
+        // need before the help text above the button is given any.
+        let mut app = app();
+        app.stage = Stage::Options;
+        app.question = (0..menu::question_count())
+            .find(|index| {
+                menu::items_of(*index)
+                    .iter()
+                    .any(|entry| entry.id() == menu::PRESET_THEME_APPS)
+            })
+            .expect("the app question is in the tree");
+        let text = render(&mut app, 60, 20);
+        assert!(text.contains("Firefox"), "the last row was clipped: {text}");
+        assert!(text.contains("continue"), "and the way on: {text}");
     }
 
     #[test]

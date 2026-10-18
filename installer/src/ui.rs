@@ -254,6 +254,17 @@ pub fn cursor_row(theme: &Theme, glyphs: Glyphs, text: &str, width: u16) -> Line
     cursor_spans(theme, vec![Span::raw(text)], width)
 }
 
+/// A button: the way on, in the program's filled surface, padded the way DMS pads its own. `key`
+/// names what presses it and `label` says what pressing it does, so the button is not the only
+/// place the key is named.
+pub fn button(theme: &Theme, key: &str, label: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("  ".to_string(), theme.bar()),
+        Span::styled(key.to_string(), theme.bar_key()),
+        Span::styled(format!("  {label}  "), theme.on_bar()),
+    ])
+}
+
 /// A centered card of prose, sized to a measure. The caller wraps its lines to the same measure,
 /// since a line that does not fit is one the card clips.
 pub fn card(
