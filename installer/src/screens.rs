@@ -393,11 +393,6 @@ fn password_card(app: &App) -> Vec<Line<'static>> {
     let theme = &app.theme;
     let glyphs = app.glyphs;
     const MEASURE: u16 = 56;
-    // Short enough to survive the narrowest terminal the installer draws in.
-    let mut lines = vec![Line::from(Span::styled(
-        "Your password is sent to sudo and is not saved.".to_string(),
-        theme.muted(),
-    ))];
 
     let mut field = vec![
         Span::styled(format!("{:<10}", "password"), theme.muted()),
@@ -413,8 +408,7 @@ fn password_card(app: &App) -> Vec<Line<'static>> {
         field.push(Span::styled(glyphs.enter().to_string(), theme.accent()));
         field.push(Span::styled(")".to_string(), theme.muted()));
     }
-    lines.push(Line::from(field));
-    lines
+    vec![Line::from(field)]
 }
 
 // This machine -----------------------------------------------------------------------
@@ -2324,7 +2318,6 @@ mod tests {
             text.contains("•••••••"),
             "and shows that something was typed: {text}"
         );
-        assert!(text.contains("not saved"), "{text}");
     }
 
     #[test]
