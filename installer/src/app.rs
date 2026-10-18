@@ -323,6 +323,10 @@ pub struct App {
     /// Whether Caelestia was already there when the wizard started, which is what tells "you
     /// were told and said yes" apart from "this appeared while you were deciding".
     pub installed_when_started: bool,
+    /// Steps the last recorded run left unfinished, from its journal. A run that stopped part way
+    /// leaves the shell's files on disk, so the files alone would have the screen claim a machine
+    /// is set up when it is half set up.
+    pub unfinished: Vec<(String, String)>,
     pub stage: Stage,
     pub overlay: Option<Overlay>,
     pub confirm: Option<Confirm>,
@@ -406,6 +410,7 @@ impl App {
             detection: Detection::read(),
             reinstall_acknowledged: false,
             installed_when_started: crate::install_kind::shell_config().exists(),
+            unfinished: crate::journal::unfinished(),
             stage: Stage::Home,
             overlay: None,
             confirm: None,
@@ -590,6 +595,7 @@ impl App {
             return;
         }
         self.detection = Detection::read();
+        self.unfinished = crate::journal::unfinished();
         // A new reading is a new answer to whatever the last one was asked about, so a sentence
         // written about the old one is no longer true of the machine.
         self.problem = None;
@@ -1785,6 +1791,9 @@ mod tests {
         // And same for the password gate: a machine whose sudo needs no password would otherwise
         // walk straight past the screen these tests are about.
         .with_password_gate(true);
+        // The last run's journal lives in the user's state directory, and a host that has one
+        // would decide what a test about the home screen reads. A test that wants one sets it.
+        app.unfinished.clear();
         // The screens and the page keys agree on a size; the tests have to give them one.
         app.area = Rect::new(0, 0, 100, 30);
         app.pretend = true;

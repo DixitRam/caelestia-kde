@@ -135,6 +135,40 @@ impl Journal {
     }
 }
 
+/// What the last run left unfinished. The shell's files can be on disk while the run that was
+/// putting them there stopped part way, and "installed" on its own would claim a machine is set up
+/// when it is not.
+///
+/// Only the newest journal is read: the others are earlier attempts, and a step that failed
+/// yesterday and succeeded since is not a fact about now.
+pub fn unfinished() -> Vec<(String, String)> {
+    let Ok(entries) = std::fs::read_dir(directory()) else {
+        return Vec::new();
+    };
+    let journals: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "journal"))
+        .filter_map(|entry| {
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some((modified, entry.path()))
+        })
+        .collect();
+    let Some(path) = newest(journals) else {
+        return Vec::new();
+    };
+    Journal::at(path)
+        .problems()
+        .into_iter()
+        .map(|(id, status)| (id.to_string(), status.to_string()))
+        .collect()
+}
+
+/// The most recently written journal, which is the last run.
+fn newest(mut journals: Vec<(std::time::SystemTime, PathBuf)>) -> Option<PathBuf> {
+    journals.sort_by(|left, right| left.0.cmp(&right.0));
+    journals.pop().map(|(_, path)| path)
+}
+
 /// Record the step this process just ran, if it was started as part of a plan. Called by the
 /// `step` subcommand, which is why the journal works the same whether the run came from the
 /// wizard or from `--non-interactive`.

@@ -242,25 +242,36 @@ fn identity(app: &App, named: bool) -> Vec<Line<'static>> {
     )));
     lines.push(blank());
     lines.push(state_line(app));
+    lines.extend(finish_line(app));
     lines
 }
 
 /// What was found, in the line the actions beside it depend on.
 fn state_line(app: &App) -> Line<'static> {
     let theme = &app.theme;
-    let installed = app.installed();
-    Line::from(Span::styled(
-        if installed {
-            "Caelestia is installed"
-        } else {
-            "nothing installed yet"
-        },
-        if installed {
-            theme.body()
-        } else {
-            theme.muted()
-        },
-    ))
+    if !app.installed() {
+        return Line::from(Span::styled("nothing installed yet", theme.muted()));
+    }
+    // Files on disk are not a finished install: a run that stopped part way leaves the shell
+    // where the next step expected it, and saying "installed" then would be a claim the machine
+    // cannot back up.
+    if !app.unfinished.is_empty() {
+        return Line::from(Span::styled(
+            "Caelestia is installed, but the last run did not finish",
+            theme.warn_text(),
+        ));
+    }
+    Line::from(Span::styled("Caelestia is installed", theme.body()))
+}
+
+/// Where the last run stopped, and what to do about it: the steps that finished are kept, so
+/// running the install again is the whole of the repair.
+fn finish_line(app: &App) -> Option<Line<'static>> {
+    let (step, _) = app.unfinished.last()?;
+    Some(Line::from(Span::styled(
+        format!("stopped at {step} ? install again to finish it"),
+        app.theme.muted(),
+    )))
 }
 
 /// The three actions. The label is the whole row: what each one does is the verb, and anything
@@ -670,11 +681,26 @@ fn installed_explanation(app: &App, width: u16) -> Vec<String> {
     if !app.detection.installed {
         return Vec::new();
     }
-    wrap(
+    let measure = (width as usize).saturating_sub(4);
+    let mut lines = Vec::new();
+    // A run that stopped part way is not a second install, it is the rest of this one: what
+    // finished is recorded, and the step that failed is where the next run starts.
+    if let Some((step, _)) = app.unfinished.last() {
+        lines.extend(wrap(
+            &format!(
+                "The last install stopped at {step}. What finished is kept, so continuing carries \
+                 on from there."
+            ),
+            measure,
+        ));
+        lines.push(String::new());
+    }
+    lines.extend(wrap(
         "Continuing installs over it: the shell configuration and the deployed files are \
          replaced. Your own configs are backed up first.",
-        (width as usize).saturating_sub(4),
-    )
+        measure,
+    ));
+    lines
 }
 
 /// Everything the verdict panel says: the fact, what it means, and why the screen will not go on.
@@ -1654,6 +1680,14 @@ mod tests {
         )
     }
 
+    /// An app whose last run left a step unfinished, without reading the host's own journal.
+    fn app_that_stopped_at(step: &str) -> App {
+        let mut app = app();
+        app.detection.installed = true;
+        app.unfinished = vec![(step.to_string(), "failed".to_string())];
+        app
+    }
+
     /// The frame as cells rather than as text.
     fn cells(app: &mut App, width: u16, height: u16) -> ratatui::buffer::Buffer {
         let backend = ratatui::backend::TestBackend::new(width, height);
@@ -1787,6 +1821,44 @@ mod tests {
         assert!(
             lines[rail_top].contains('\u{250c}'),
             "the map's corner is on the heading row:\n{text}"
+        );
+    }
+
+    #[test]
+    fn a_half_finished_install_is_not_called_installed() {
+        // The shell's files are on disk after a run that stopped part way, so the files alone
+        // would have the screen claim a machine is set up when it is half set up.
+        let mut half = app_that_stopped_at("08-build-shell");
+        let text = render(&mut half, 120, 40);
+        assert!(
+            text.contains("the last run did not finish"),
+            "the state says what happened: {text}"
+        );
+        assert!(
+            text.contains("08-build-shell"),
+            "and names the step it stopped at: {text}"
+        );
+
+        // With every step finished the same machine reads as installed, and nothing more.
+        let mut done = app();
+        done.detection.installed = true;
+        let text = render(&mut done, 120, 40);
+        assert!(text.contains("Caelestia is installed"), "{text}");
+        assert!(!text.contains("did not finish"), "{text}");
+    }
+
+    #[test]
+    fn the_detection_screen_says_where_the_last_install_stopped() {
+        let mut app = app_that_stopped_at("08-build-shell");
+        app.stage = Stage::Detect;
+        let text = render(&mut app, 120, 40);
+        assert!(
+            text.contains("stopped at 08-build-shell"),
+            "the screen explains the half install: {text}"
+        );
+        assert!(
+            text.contains("carries on"),
+            "and what continuing does about it: {text}"
         );
     }
 
