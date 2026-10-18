@@ -2,6 +2,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Paragraph};
 
@@ -369,21 +370,55 @@ fn password_card(app: &App) -> Vec<Line<'static>> {
 // This machine -----------------------------------------------------------------------
 
 /// What was found before anything is decided.
+/// The line that says how to leave this screen. The screen has nothing to select, so without
+/// something that reads as pressable the way Home's action rows do, the only way on is a footer
+/// hint most people never look at.
+fn continue_line(app: &App) -> Line<'static> {
+    let theme = &app.theme;
+    Line::from(vec![
+        Span::styled(
+            format!(" {} ", app.glyphs.enter()),
+            theme.accent().add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("continue".to_string(), theme.heading()),
+    ])
+}
+
 fn detect(frame: &mut Frame, app: &App, body: Rect) {
     let theme = &app.theme;
 
     // Two columns where there is room: the findings on the left, what they mean on the right.
-    if let Some((left, right)) = ui::rail(body, 44) {
-        let pad = ui::slack(body, 9);
-        let left = ui::dropped(left, pad);
-        let right = ui::dropped(right, pad);
-
+    if ui::rail(body, 44).is_some() {
         let rows = findings(app);
         let label_width = label_column(&rows);
-        let width = ui::panel_width(finding_width(&rows, label_width), left.width);
+        let left_width = ui::panel_width(finding_width(&rows, label_width), body.width / 2);
+
+        let mut narrative = verdict_body(app, ui::PROSE_WIDTH);
+        narrative.push(blank());
+        narrative.push(continue_line(app));
+        let right_width = ui::panel_width(
+            narrative.iter().map(|line| line.width()).max().unwrap_or(0) as u16,
+            body.width / 2,
+        );
+
+        // The pair is centred as one block. Pinned to the left edge, two small panels in a wide
+        // frame read as a drawing that failed part way through.
+        const GAP: u16 = 4;
+        let total = left_width + GAP + right_width;
+        let x = body.x + body.width.saturating_sub(total) / 2;
+        let left_height = rows.len() as u16 + 2;
+        let right_height = narrative.len() as u16 + 2;
+        let height = left_height.max(right_height);
+        let y = body.y + body.height.saturating_sub(height) / 2;
+
         let inner = ui::section(
             frame,
-            ui::panel_rect(left, width, rows.len() as u16),
+            Rect {
+                x,
+                y,
+                width: left_width,
+                height: left_height,
+            },
             theme,
             app.glyphs,
             Some("this machine"),
@@ -399,14 +434,14 @@ fn detect(frame: &mut Frame, app: &App, body: Rect) {
         // The verdict is prose, so it reads in a measure. Its border carries the answer, so the
         // panel needs no title: the headline inside says it.
         let border = verdict(app);
-        let narrative = verdict_body(app, right.width.min(ui::PROSE_WIDTH));
-        let width = ui::panel_width(
-            narrative.iter().map(|line| line.width()).max().unwrap_or(0) as u16,
-            right.width,
-        );
         let inner = ui::section(
             frame,
-            ui::panel_rect(right, width, narrative.len() as u16),
+            Rect {
+                x: x + left_width + GAP,
+                y,
+                width: right_width,
+                height: right_height,
+            },
             theme,
             app.glyphs,
             None,
@@ -451,6 +486,8 @@ fn detect(frame: &mut Frame, app: &App, body: Rect) {
     lines.extend(tail);
 
     lines.extend(notice(app));
+    lines.push(blank());
+    lines.push(continue_line(app));
     ui::prose_middle(frame, body, lines, theme.body());
 }
 
@@ -1884,6 +1921,36 @@ mod tests {
             text.contains("Nothing is installed in the way"),
             "an install with a clear field says so: {text}"
         );
+        // The screen has nothing to select, so the way on has to be visible on the screen itself
+        // and not only in the footer bar.
+        assert!(
+            text.contains("continue"),
+            "the way off this screen is on it: {text}"
+        );
+    }
+
+    #[test]
+    fn the_detection_screen_is_centred_rather_than_pinned_to_the_left_edge() {
+        let mut app = app();
+        app.stage = Stage::Detect;
+        app.detection = crate::app::Detection {
+            distro: crate::distro::Distro::Arch,
+            kind: crate::install_kind::Kind::Source,
+            installed: false,
+            package_manager: Some("pacman"),
+            quickshell: true,
+            git: true,
+        };
+
+        // The findings panel's border, on a wide terminal: it must not start in the first column,
+        // or two small panels in a wide frame read as a drawing that stopped part way through.
+        let wide = render(&mut app, 164, 46);
+        let first = wide
+            .lines()
+            .find(|line| line.contains("this machine"))
+            .unwrap_or_else(|| panic!("no findings panel in:\n{wide}"));
+        let indent = first.chars().take_while(|c| *c == ' ' || *c == '│').count();
+        assert!(indent > 20, "the panel starts at column {indent}:\n{wide}");
     }
 
     #[test]
