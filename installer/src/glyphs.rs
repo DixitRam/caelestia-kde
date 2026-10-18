@@ -77,10 +77,35 @@ impl Glyphs {
         frames[frame % frames.len()]
     }
 
+    /// The pointer on the row the keys act on. DMS's, character for character: a filled triangle
+    /// in the accent, bold, with no background behind it.
     pub fn cursor(self) -> &'static str {
         match self.set {
-            Set::Unicode => "❯",
+            Set::Unicode => "▶",
             Set::Ascii => ">",
+        }
+    }
+
+    /// What a row will do, in DMS's vocabulary: a tick for done, a circle for pending, a cross for
+    /// skipped.
+    pub fn tick(self) -> &'static str {
+        match self.set {
+            Set::Unicode => "✓",
+            Set::Ascii => "+",
+        }
+    }
+
+    pub fn circle(self) -> &'static str {
+        match self.set {
+            Set::Unicode => "○",
+            Set::Ascii => "o",
+        }
+    }
+
+    pub fn cross(self) -> &'static str {
+        match self.set {
+            Set::Unicode => "✗",
+            Set::Ascii => "x",
         }
     }
 
@@ -315,7 +340,7 @@ mod tests {
             locale: Some("en_GB.UTF-8".to_string()),
             ..Env::default()
         };
-        assert_eq!(cursor_of(&utf8), "❯");
+        assert_eq!(cursor_of(&utf8), "▶");
     }
 
     #[test]
@@ -325,7 +350,7 @@ mod tests {
             glyphs: Some("unicode".to_string()),
             ..Env::default()
         };
-        assert_eq!(cursor_of(&forced_unicode), "❯");
+        assert_eq!(cursor_of(&forced_unicode), "▶");
 
         let forced_ascii = Env {
             term: Some("xterm-kitty".to_string()),

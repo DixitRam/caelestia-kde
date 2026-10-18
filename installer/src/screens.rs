@@ -2,6 +2,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Paragraph};
 
@@ -872,58 +873,78 @@ pub(crate) fn option_rows(app: &App, width: u16) -> Vec<Line<'static>> {
                 ui::fit(entry.title(), name_width, glyphs.ellipsis()),
                 width = name_width
             );
-            let value = format!("{:>width$}", value_of(entry, app), width = VALUE_COLUMN);
+            let (value, value_style) = value_cell(entry, app);
+            let value = format!("{:>width$}", value, width = VALUE_COLUMN);
+            // The pointer and the weight, which is how DMS marks the row the keys act on. No
+            // background: the only filled surface in the program is the footer.
             let pointer = format!(" {} ", if chosen { glyphs.cursor() } else { " " });
-
-            // A selected row is the filled bar on every screen. A row that is not selected is
-            // ordinary text, so there is exactly one thing on the screen that Enter can act on.
-            if chosen {
-                ui::cursor_spans(
-                    theme,
-                    vec![
-                        Span::raw(pointer),
-                        Span::raw(changed),
-                        Span::raw(name),
-                        Span::raw(value),
-                    ],
-                    width,
-                )
+            let label = if chosen {
+                theme.selected()
             } else {
-                Line::from(vec![
-                    Span::styled(pointer, theme.body()),
-                    Span::styled(changed, theme.accent()),
-                    Span::styled(name, theme.body()),
-                    Span::styled(value, theme.muted()),
-                ])
-            }
+                theme.body()
+            };
+
+            Line::from(vec![
+                Span::styled(
+                    pointer,
+                    if chosen {
+                        theme.selected()
+                    } else {
+                        theme.body()
+                    },
+                ),
+                Span::styled(changed, theme.accent()),
+                Span::styled(name, label),
+                Span::styled(value, value_style),
+            ])
         })
         .collect()
 }
 
 /// The right-hand value column: one shape per kind of answer.
 fn value_of(entry: &'static Entry, app: &App) -> String {
-    let glyphs = app.glyphs;
-    match entry {
-        Entry::Toggle { .. } => on_off(menu::value(entry, &app.answers) == Some("true"), glyphs),
-        Entry::Preset { .. } => on_off(app.preset_on(entry), glyphs),
-        Entry::Choice { .. } => format!(
-            "{} {} {}",
-            glyphs.open(),
-            menu::value(entry, &app.answers).unwrap_or_default(),
-            glyphs.close()
-        ),
-        Entry::Submenu { .. } => glyphs.submenu().to_string(),
-    }
+    value_cell(entry, app).0
 }
 
-/// A switch reads as a checkbox, which is what it is: one row, one yes or no, and the same shape
-/// on every screen that offers one.
-fn on_off(on: bool, glyphs: Glyphs) -> String {
-    match (on, glyphs.plain()) {
-        (true, false) => "▣ on".to_string(),
-        (false, false) => "▢ off".to_string(),
-        (true, true) => "[x] on".to_string(),
-        (false, true) => "[ ] off".to_string(),
+/// What the row will do, with the colour of its consequence. An app row has three states rather
+/// than two, because "on" means "install it" and the answer depends on whether it is already
+/// there; DMS draws the same three with the same markers.
+fn value_cell(entry: &'static Entry, app: &App) -> (String, Style) {
+    let glyphs = app.glyphs;
+    let theme = &app.theme;
+    match entry {
+        // A bulk row is a command, not a state: it acts on the rows below it, and giving it a
+        // "skip" of its own reads as if it were one of them.
+        Entry::Preset { .. } => (String::new(), theme.muted()),
+        Entry::Toggle { id, .. } => {
+            let on = menu::value(entry, &app.answers) == Some("true");
+            if !on {
+                return (format!("{} skip", glyphs.cross()), theme.muted());
+            }
+            if app.apps.has(id) {
+                (
+                    format!("{} installed", glyphs.tick()),
+                    theme.status(Status::Ok),
+                )
+            } else if app.apps.is_app_row(id) {
+                (
+                    format!("{} will install", glyphs.circle()),
+                    theme.status(Status::Warn),
+                )
+            } else {
+                (format!("{} on", glyphs.tick()), theme.status(Status::Ok))
+            }
+        }
+        Entry::Choice { .. } => (
+            format!(
+                "{} {} {}",
+                glyphs.open(),
+                menu::value(entry, &app.answers).unwrap_or_default(),
+                glyphs.close()
+            ),
+            theme.muted(),
+        ),
+        Entry::Submenu { .. } => (glyphs.submenu().to_string(), theme.muted()),
     }
 }
 
@@ -2397,22 +2418,10 @@ mod tests {
         let rows = option_rows(&app, 96);
         assert_eq!(rows.len(), app.current_entries().len());
 
-        // The grid is the columns, not the total width: the row the cursor is on is filled to the
-        // edge of the pane, so it is deliberately the widest line on the screen.
-        let unselected: Vec<usize> = rows
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| *index != app.cursor)
-            .map(|(_, row)| row.width())
-            .collect();
+        let widths: Vec<usize> = rows.iter().map(Line::width).collect();
         assert!(
-            unselected.windows(2).all(|pair| pair[0] == pair[1]),
-            "the rows are not a grid: {unselected:?}"
-        );
-        assert_eq!(
-            rows[app.cursor].width(),
-            96,
-            "the selected row is filled to the width it was given"
+            widths.windows(2).all(|pair| pair[0] == pair[1]),
+            "the rows are not a grid: {widths:?}"
         );
 
         // And what is drawn agrees with what was built.

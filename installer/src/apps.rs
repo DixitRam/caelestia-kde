@@ -61,6 +61,12 @@ impl Apps {
     }
 
     /// Whether any app at all is here: what the bulk row and the question itself are measured by.
+    /// Whether this id is one of the apps the Applications question offers, as opposed to one of
+    /// the other switches. The three states of an app row depend on it.
+    pub fn is_app_row(&self, id: &str) -> bool {
+        Self::IDS.contains(&id)
+    }
+
     pub fn any(&self) -> bool {
         Self::IDS.iter().any(|id| self.has(id))
     }
