@@ -107,7 +107,9 @@ void ImageCacher::runJob(const QString& sourcePath, const QString& cachePath, co
         return;
     }
 
-    Qt::AspectRatioMode scaleMode;
+    // An unrecognised fill mode arrives from QML as a plain integer, and this switch has no
+    // default: without the initialiser the scaling below reads whatever the stack held.
+    Qt::AspectRatioMode scaleMode = Qt::KeepAspectRatioByExpanding;
     switch (fillMode) {
     case FillMode::Crop:
         scaleMode = Qt::KeepAspectRatioByExpanding;
