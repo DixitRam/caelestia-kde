@@ -627,26 +627,35 @@ fn finding_width(rows: &[(&'static str, String, bool)], label_width: usize) -> u
 }
 
 /// The fact this screen turns on, in one line.
+///
+/// A run that stopped part way is not "already installed": the home screen sent the user here to
+/// finish it, and a cross in the error colour would answer that invitation with a refusal.
 fn headline(app: &App) -> Line<'static> {
     let theme = &app.theme;
     let glyphs = app.glyphs;
-    if app.detection.installed {
-        Line::from(vec![
-            Span::styled(
-                format!("{} ", glyphs.status(Status::Failed)),
-                theme.error_text(),
-            ),
-            Span::styled("Caelestia is already installed.", theme.error_text()),
-        ])
+    let (mark, role, text) = if app.detection.installed && !app.unfinished.is_empty() {
+        (
+            Status::Warn,
+            theme.warn_text(),
+            "The last install did not finish.",
+        )
+    } else if app.detection.installed {
+        (
+            Status::Failed,
+            theme.error_text(),
+            "Caelestia is already installed.",
+        )
     } else {
-        Line::from(vec![
-            Span::styled(
-                format!("{} ", glyphs.status(Status::Ok)),
-                theme.status(Status::Ok),
-            ),
-            Span::styled("Nothing is installed in the way.", theme.body()),
-        ])
-    }
+        (
+            Status::Ok,
+            theme.status(Status::Ok),
+            "Nothing is in the way.",
+        )
+    };
+    Line::from(vec![
+        Span::styled(format!("{} ", glyphs.status(mark)), role),
+        Span::styled(text.to_string(), role),
+    ])
 }
 
 /// Why the screen will not go on: a missing precondition, or the reason a guard sent the user back.
@@ -682,25 +691,22 @@ fn installed_explanation(app: &App, width: u16) -> Vec<String> {
         return Vec::new();
     }
     let measure = (width as usize).saturating_sub(4);
-    let mut lines = Vec::new();
     // A run that stopped part way is not a second install, it is the rest of this one: what
     // finished is recorded, and the step that failed is where the next run starts.
     if let Some((step, _)) = app.unfinished.last() {
-        lines.extend(wrap(
+        return wrap(
             &format!(
-                "The last install stopped at {step}. What finished is kept, so continuing carries \
-                 on from there."
+                "It stopped at {step}. What finished is kept, so continuing carries on from \
+                 there, and your own configs are backed up first."
             ),
             measure,
-        ));
-        lines.push(String::new());
+        );
     }
-    lines.extend(wrap(
+    wrap(
         "Continuing installs over it: the shell configuration and the deployed files are \
          replaced. Your own configs are backed up first.",
         measure,
-    ));
-    lines
+    )
 }
 
 /// Everything the verdict panel says: the fact, what it means, and why the screen will not go on.
@@ -1853,6 +1859,14 @@ mod tests {
         app.stage = Stage::Detect;
         let text = render(&mut app, 120, 40);
         assert!(
+            text.contains("The last install did not finish"),
+            "the headline is the half install, not a refusal: {text}"
+        );
+        assert!(
+            !text.contains("already installed"),
+            "and not the cross that greets a finished one: {text}"
+        );
+        assert!(
             text.contains("stopped at 08-build-shell"),
             "the screen explains the half install: {text}"
         );
@@ -1956,7 +1970,7 @@ mod tests {
             assert!(text.contains(row), "{row} is missing from:\n{text}");
         }
         assert!(
-            text.contains("Nothing is installed in the way"),
+            text.contains("Nothing is in the way"),
             "an install with a clear field says so: {text}"
         );
         // The screen has nothing to select, so the way on has to be visible on the screen itself
