@@ -1460,12 +1460,15 @@ fn confirm_overlay(frame: &mut Frame, app: &App) {
         ),
     };
 
-    let inner = ui::panel(frame, frame.area(), theme, glyphs, None, (70, 15), border);
+    // The card is as tall as what is in it: a panel with rows of nothing under the buttons
+    // reads as a screen that failed to draw the rest.
+    let width = 70u16.min(frame.area().width.saturating_sub(2)).max(8);
+    let measure = width.saturating_sub(4) as usize;
     let mut lines = vec![
         Line::from(Span::styled(subject.to_string(), theme.heading())),
         blank(),
     ];
-    for line in wrap(&question, (inner.width as usize).saturating_sub(2)) {
+    for line in wrap(&question, measure) {
         lines.push(Line::from(Span::styled(line, theme.muted())));
     }
     // What the yes actually starts, in the terms of the person saying it.
@@ -1492,20 +1495,28 @@ fn confirm_overlay(frame: &mut Frame, app: &App) {
     for (index, label) in asked.buttons().iter().enumerate() {
         let chosen = index == app.confirm_focus;
         let pointer = format!(" {} ", if chosen { glyphs.cursor() } else { " " });
+        let letter = if index == 0 { "y" } else { "n" };
         if chosen {
-            let spans = vec![
-                Span::raw(pointer),
-                Span::raw(format!("{label} ")),
-                Span::raw(format!("({})", if index == 0 { "y" } else { "n" })),
-            ];
-            lines.push(ui::cursor_spans(theme, spans, inner.width));
+            let spans = vec![Span::raw(pointer), Span::raw(format!("{label} ({letter})"))];
+            lines.push(ui::cursor_spans(theme, spans, width - 2));
         } else {
             lines.push(Line::from(vec![
                 Span::styled(pointer, theme.muted()),
-                Span::styled(label.to_string(), theme.body()),
+                Span::styled(format!("{label} "), theme.body()),
+                Span::styled(format!("({letter})"), theme.muted()),
             ]));
         }
     }
+    let height = lines.len() as u16 + 2;
+    let inner = ui::panel(
+        frame,
+        frame.area(),
+        theme,
+        glyphs,
+        None,
+        (width, height),
+        border,
+    );
     ui::prose(frame, inner, lines, theme.body());
 }
 
@@ -1998,6 +2009,8 @@ mod tests {
         app.overlay = Some(Overlay::Confirm);
         let text = render(&mut app, 100, 30);
         assert!(text.contains("Install Caelestia now?"), "{text}");
+        assert!(text.contains("Install (y)"), "the answer is a button: {text}");
+        assert!(text.contains("Cancel (n)"), "and so is the other: {text}");
         // What a person is told is what happens to their machine, not how many steps it takes.
         assert!(text.contains("backed up"), "{text}");
         assert!(
@@ -2518,10 +2531,10 @@ mod tests {
         );
         // The question has buttons, and the one that stops the run is not under the highlight:
         // the key that opened this must not be able to end the run.
-        assert!(text.contains("Stop"), "the answer is a button: {text}");
+        assert!(text.contains("Stop (y)"), "the answer is a button: {text}");
         assert!(
-            text.contains("Keep going"),
-            "and so is the one that keeps it: {text}"
+            text.contains("Keep going (n)"),
+            "and so is the one that keeps it, with the letter that picks it: {text}"
         );
         assert_eq!(app.confirm_focus, 1);
     }
