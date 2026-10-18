@@ -137,20 +137,14 @@ fn revision_rows(
         Some(installed) => {
             // The branch is what the install tracks: a machine on dev and a machine on main are
             // two different answers to "what am I updating to".
-            let tracked = if installed.branch.is_empty() {
-                String::new()
-            } else {
-                format!(" \u{00b7} {}", installed.branch)
-            };
-            Row::new(
-                "installed",
-                format!(
-                    "{} \u{00b7} {}{tracked}",
-                    installed.version,
-                    short(&installed.commit)
-                ),
-                Role::Foreground,
-            )
+            let mut value = installed.version.clone();
+            if !installed.commit.is_empty() {
+                value.push_str(&format!(" \u{00b7} {}", short(&installed.commit)));
+            }
+            if !installed.branch.is_empty() {
+                value.push_str(&format!(" \u{00b7} {}", installed.branch));
+            }
+            Row::new("installed", value, Role::Foreground)
         }
         None => Row::new("installed", "version not recorded", Role::Muted),
     };
