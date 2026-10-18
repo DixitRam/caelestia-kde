@@ -1686,6 +1686,11 @@ mod tests {
         )
     }
 
+    /// An app on a machine with a fingerprint reader enrolled.
+    fn app_that_has_a_reader() -> App {
+        app().with_fingerprint(true)
+    }
+
     /// An app whose last run left a step unfinished, without reading the host's own journal.
     fn app_that_stopped_at(step: &str) -> App {
         let mut app = app();
@@ -1828,6 +1833,67 @@ mod tests {
             lines[rail_top].contains('\u{250c}'),
             "the map's corner is on the heading row:\n{text}"
         );
+    }
+
+    #[test]
+    fn the_password_is_asked_for_rather_than_chosen_from_a_list() {
+        // A machine with no reader has one way to become root, so answering the confirmation puts
+        // the password field up: there is no route to pick, and a list of one would only be a
+        // keypress between the user and the question they came here to answer.
+        let mut app = app();
+        // The run is walked rather than performed, so the confirmation does not re-read the host -
+        // which is not a machine this can be installed on in the first place.
+        app.pretend = true;
+        app.detection = crate::app::Detection {
+            distro: crate::distro::Distro::Arch,
+            kind: crate::install_kind::Kind::Source,
+            installed: false,
+            package_manager: Some("pacman"),
+            quickshell: true,
+            git: true,
+        };
+        app.stage = Stage::Options;
+        app.question = crate::menu::question_count() - 1;
+        app.cursor = app.current_entries().len();
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(
+            app.overlay,
+            Some(Overlay::Confirm),
+            "the last answer asks before it acts"
+        );
+        app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+
+        assert_eq!(
+            app.stage,
+            Stage::Privilege,
+            "blockers: {:?}, problem: {:?}",
+            app.detection.blockers(),
+            app.problem
+        );
+        let text = render(&mut app, 120, 40);
+        assert!(
+            text.contains("root privileges"),
+            "the question is up: {text}"
+        );
+        assert!(text.contains("password"), "and the field is on it: {text}");
+        assert!(
+            !text.contains("Type your password here"),
+            "the list of routes is not between them: {text}"
+        );
+
+        // And with a reader on the machine there is a choice, so the choice is shown.
+        let mut with_reader = app_that_has_a_reader();
+        with_reader.pretend = true;
+        with_reader.detection = app.detection.clone();
+        with_reader.stage = Stage::Options;
+        with_reader.question = crate::menu::question_count() - 1;
+        with_reader.cursor = with_reader.current_entries().len();
+        with_reader.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        with_reader.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        assert_eq!(with_reader.stage, Stage::Auth);
+        let text = render(&mut with_reader, 120, 40);
+        assert!(text.contains("Type your password here"), "{text}");
+        assert!(text.contains("Touch the fingerprint reader"), "{text}");
     }
 
     #[test]
