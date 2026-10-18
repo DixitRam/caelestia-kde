@@ -901,11 +901,6 @@ pub(crate) fn option_rows(app: &App, width: u16) -> Vec<Line<'static>> {
         .collect()
 }
 
-/// The right-hand value column: one shape per kind of answer.
-fn value_of(entry: &'static Entry, app: &App) -> String {
-    value_cell(entry, app).0
-}
-
 /// What the row will do, with the colour of its consequence. An app row has three states rather
 /// than two, because "on" means "install it" and the answer depends on whether it is already
 /// there; DMS draws the same three with the same markers.
@@ -1049,6 +1044,12 @@ fn review_columns(app: &App) -> (Vec<Line<'static>>, Option<Vec<Line<'static>>>)
 
     let heights: Vec<usize> = sections.iter().map(Vec::len).collect();
     let total: usize = heights.iter().sum();
+    // One column whenever the plan needs scrolling. Two columns share one scroll offset, so a
+    // taller right column leaves the left one blank and scrolls the phase headings off the top -
+    // a half-empty screen that looks like it stopped drawing. Side by side only when it all fits.
+    if total > list.height as usize {
+        return (sections.concat(), None);
+    }
     let mut running = 0;
     let mut split = 0;
     for (index, height) in heights.iter().enumerate() {
@@ -2503,6 +2504,26 @@ mod tests {
             text.contains("– "),
             "and a switched-off step is marked: {text}"
         );
+    }
+
+    #[test]
+    fn scrolling_the_plan_never_leaves_half_the_screen_blank() {
+        // Two columns share one scroll offset, so a plan that needs scrolling scrolls in one
+        // column: otherwise the shorter left column runs out and the screen looks half-drawn.
+        let mut app = app();
+        app.stage = Stage::Review;
+        app.area = Rect::new(0, 0, 120, 24);
+        let (left, right) = review_columns(&app);
+        assert!(
+            right.is_none(),
+            "a plan taller than the screen is one column, not two"
+        );
+        assert!(!left.is_empty(), "and it still has the plan in it");
+
+        // Where everything fits, the two columns are still used.
+        app.area = Rect::new(0, 0, 160, 60);
+        let (_, wide) = review_columns(&app);
+        assert!(wide.is_some(), "a plan that fits reads side by side");
     }
 
     #[test]

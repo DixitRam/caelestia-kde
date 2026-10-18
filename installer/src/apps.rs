@@ -60,15 +60,10 @@ impl Apps {
         }
     }
 
-    /// Whether any app at all is here: what the bulk row and the question itself are measured by.
     /// Whether this id is one of the apps the Applications question offers, as opposed to one of
     /// the other switches. The three states of an app row depend on it.
     pub fn is_app_row(&self, id: &str) -> bool {
         Self::IDS.contains(&id)
-    }
-
-    pub fn any(&self) -> bool {
-        Self::IDS.iter().any(|id| self.has(id))
     }
 
     /// The answer for each app row. An app that is not here answers no, so a row nobody saw can
@@ -114,7 +109,7 @@ mod tests {
             );
         }
         assert_eq!(Apps::all().answers().count(), Apps::IDS.len());
-        assert!(Apps::all().any());
+        assert!(Apps::IDS.iter().any(|id| Apps::all().has(id)));
     }
 
     #[test]
@@ -123,7 +118,7 @@ mod tests {
         for (id, answer) in none.answers() {
             assert_eq!(answer, "false", "{id} was left on");
         }
-        assert!(!none.any());
+        assert!(!none.answers().any(|(_, answer)| answer == "true"));
         assert!(!none.has("INSTALL_VSCODE"));
     }
 

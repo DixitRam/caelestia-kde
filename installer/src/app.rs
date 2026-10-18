@@ -594,11 +594,6 @@ impl App {
         menu::is_changed(entry, &self.apps, &self.answers, &self.baseline)
     }
 
-    /// Whether a bulk row's apps are all on.
-    pub fn preset_on(&self, entry: &Entry) -> bool {
-        menu::preset_on(entry, &self.apps, &self.answers)
-    }
-
     pub fn action_enabled(&self, action: Action) -> bool {
         match action {
             // Both of these work on an install that is already here. Offering one on a machine
