@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::download::{self, Verification};
 use crate::output;
@@ -168,35 +168,47 @@ fn install_todoist() {
     }
 }
 
+/// Where Firefox keeps its profiles. The traditional root is `~/.mozilla/firefox`, but a build that
+/// reads `XDG_CONFIG_HOME` keeps them under the config directory instead - the same browser, two
+/// places - so both are asked, and the step works wherever this distribution put them.
+fn firefox_roots() -> Vec<PathBuf> {
+    let mut roots = vec![paths::home().join(".mozilla").join("firefox")];
+    let config = paths::config_dir().join("mozilla").join("firefox");
+    if config != roots[0] {
+        roots.push(config);
+    }
+    roots
+}
+
 fn deploy_firefox(dots: &Path) {
-    let profiles = paths::home().join(".mozilla").join("firefox");
-    if !profiles.is_dir() {
+    let roots = firefox_roots();
+    if !roots.iter().any(|root| root.is_dir()) {
         output::warn("No Firefox profile directory yet. Launch Firefox once, then re-run.");
         return;
     }
 
     let mut deployed = 0;
-    let Ok(entries) = fs::read_dir(&profiles) else {
-        output::warn("No Firefox profile found. Launch Firefox once, then re-run.");
-        return;
-    };
-
-    for entry in entries.filter_map(Result::ok) {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-        let is_profile = path.is_dir()
-            && (name.ends_with(".default")
-                || name.ends_with(".default-release")
-                || name.ends_with(".default-esr"));
-        if !is_profile {
+    for root in roots.iter().filter(|root| root.is_dir()) {
+        let Ok(entries) = fs::read_dir(root) else {
             continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            let is_profile = path.is_dir()
+                && (name.ends_with(".default")
+                    || name.ends_with(".default-release")
+                    || name.ends_with(".default-esr"));
+            if !is_profile {
+                continue;
+            }
+            deployed += 1;
+            deploy(&dots.join("firefox").join("user.js"), &path.join("user.js"));
+            deploy(
+                &dots.join("firefox").join("userChrome.css"),
+                &path.join("chrome").join("userChrome.css"),
+            );
         }
-        deployed += 1;
-        deploy(&dots.join("firefox").join("user.js"), &path.join("user.js"));
-        deploy(
-            &dots.join("firefox").join("userChrome.css"),
-            &path.join("chrome").join("userChrome.css"),
-        );
     }
 
     if deployed == 0 {
