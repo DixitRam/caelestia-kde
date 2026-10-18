@@ -20,6 +20,9 @@ const VALUE_COLUMN: usize = 12;
 /// How wide the name column ever gets.
 const NAME_CELL: usize = 52;
 
+/// How far a row that belongs to the row above it is moved in.
+const CHILD_INDENT: u16 = 2;
+
 /// The label column of the failure card and the summary.
 const LABEL_COLUMN: usize = 8;
 
@@ -886,10 +889,20 @@ pub(crate) fn option_rows(app: &App, width: u16) -> Vec<Line<'static>> {
             } else {
                 "  ".to_string()
             };
+            // A row that only exists under another one is drawn under it: the indent is what says
+            // that "Login screen style" belongs to "Login screen" rather than beside it.
+            let indent = if menu::parent_of(entry).is_some() {
+                CHILD_INDENT as usize
+            } else {
+                0
+            };
+            let room = name_width.saturating_sub(indent);
             let name = format!(
-                "{:<width$}",
-                ui::fit(entry.title(), name_width, glyphs.ellipsis()),
-                width = name_width
+                "{:indent$}{:<room$}",
+                "",
+                ui::fit(entry.title(), room, glyphs.ellipsis()),
+                indent = indent,
+                room = room
             );
             let (value, value_style) = value_cell(entry, app);
             let value = format!("{:>width$}", value, width = VALUE_COLUMN);
@@ -2463,6 +2476,40 @@ mod tests {
         }
         assert!(text.contains("All of them"), "{text}");
         assert!(text.contains("None of them"), "{text}");
+    }
+
+    #[test]
+    fn a_row_that_belongs_to_the_row_above_it_is_drawn_under_it() {
+        // "Login screen style" is only a decision once the login screen is being replaced, so it
+        // is drawn under that row rather than beside it.
+        let mut app = app();
+        app.stage = Stage::Options;
+        app.question = 0;
+        let entries = app.current_entries();
+        let parent = entries
+            .iter()
+            .position(|entry| entry.id() == "INSTALL_SDDM")
+            .expect("the login screen row");
+        let child = entries
+            .iter()
+            .position(|entry| entry.id() == "SDDM_THEME_VARIANT")
+            .expect("the login screen style row");
+        let rows = option_rows(&app, 96);
+        // Columns, not byte offsets: the cursor glyph is three bytes wide and one cell wide.
+        let column = |index: usize| -> usize {
+            let text: String = rows[index]
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect();
+            let bytes = text.find("Login").expect("the word Login starts the row");
+            text[..bytes].chars().count()
+        };
+        assert_eq!(
+            column(child),
+            column(parent) + CHILD_INDENT as usize,
+            "the style is not drawn under the login screen"
+        );
     }
 
     #[test]

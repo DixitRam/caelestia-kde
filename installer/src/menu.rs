@@ -251,16 +251,23 @@ pub fn question(question: usize) -> &'static str {
     }
 }
 
-/// Whether a row belongs on screen. Two things make a row conditional: an app that is not here has
-/// nothing to theme, and a login screen style only means something if the login screen is being
-/// replaced. The bulk row goes with its members, so it can never switch on what nobody can see.
+/// The row a row only makes sense under, if it has one: turning that off takes this one with it,
+/// and the screen draws this one under it so the pair reads as one decision.
+pub fn parent_of(entry: &Entry) -> Option<&'static str> {
+    match entry.id() {
+        "SDDM_THEME_VARIANT" => Some("INSTALL_SDDM"),
+        _ => None,
+    }
+}
+
+/// Whether a row belongs on screen. A row with a parent goes when the parent is switched off: a
+/// login screen style only means something if the login screen is being replaced. The bulk row
+/// goes with its members, so it can never switch on what nobody can see.
 pub fn shows(entry: &Entry, answers: &Answers, apps: &crate::apps::Apps) -> bool {
     let _ = apps;
-    match entry.id() {
-        // Both bulk rows go together: they are the answer for the list under them.
-        PRESET_THEME_APPS | PRESET_NONE_APPS => true,
-        "SDDM_THEME_VARIANT" => answers.get("INSTALL_SDDM").map(String::as_str) != Some("false"),
-        _ => true,
+    match parent_of(entry) {
+        Some(parent) => answers.get(parent).map(String::as_str) != Some("false"),
+        None => true,
     }
 }
 
