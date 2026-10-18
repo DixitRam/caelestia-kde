@@ -61,7 +61,7 @@ Arguments:
 Options:
   --update        skip the wizard and run the update path
   --uninstall     skip the wizard and run the uninstall path
-  --bundle DIR    the tree a step operates on
+  --bundle DIR    the tree to operate on, where a bare BUNDLE_DIR would also go
   --ascii         draw with plain ASCII instead of block and arrow glyphs
   --unicode       draw with Unicode even where the locale suggests otherwise
   --light, --dark force the light or the dark theme instead of reading the terminal

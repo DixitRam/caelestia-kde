@@ -94,6 +94,13 @@ where
                 let setting = setting.to_str().ok_or("--set reads text, not bytes")?;
                 parsed.set.push(crate::menu::parse_set(setting)?);
             }
+            // The same flag the `step` subcommand takes. The entry points build their command
+            // with it, and a published `bash update.sh` that fails with "unknown option" is a
+            // worse answer than one that reads the flag in both places.
+            Some("--bundle") => {
+                let directory = args.next().ok_or("--bundle needs a directory")?;
+                parsed.bundle = Some(PathBuf::from(directory));
+            }
             Some("--askpass") => {
                 let pipe = args.next().ok_or("--askpass needs the pipe to read")?;
                 return Ok(Invocation::Askpass(PathBuf::from(pipe)));

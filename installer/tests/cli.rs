@@ -49,6 +49,23 @@ fn run(args: &[&str]) -> Output {
         .expect("the installer runs")
 }
 
+fn run_with(args: &[&str], env: &[(&str, &str)]) -> Output {
+    let mut command = Command::new(BINARY);
+    command.args(args);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    command.output().expect("the installer runs")
+}
+
+fn is_root() -> bool {
+    Command::new("id")
+        .arg("-u")
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim() == "0")
+        .unwrap_or(false)
+}
+
 fn code(output: &Output) -> i32 {
     output.status.code().expect("an exit status, not a signal")
 }
@@ -365,16 +382,21 @@ fn flags_that_cannot_mean_anything_are_refused_rather_than_ignored() {
 
 #[test]
 fn an_unattended_run_without_root_says_so_and_stops() {
-    // Whatever the host: the precondition is checked before anything else, and the message has to
-    // name the way out rather than just failing.
-    let bundle = Bundle::new("yes").with_scripts_dir();
-    let path = bundle.path().to_str().expect("a utf-8 path");
-    let output = run(&["--non-interactive", path]);
-
-    if code(&output) == 0 {
-        // A machine that really is root can run the whole plan; the test host normally is not.
+    // This test used to run the plan for real on a host with passwordless sudo, which is an
+    // installer running against the test machine's own home directory. Two things prevent that
+    // now: the sudo it is pointed at refuses, so `sudo_cached()` is false however the host is
+    // configured, and a genuinely root process is not asked at all.
+    if is_root() {
         return;
     }
+
+    let bundle = Bundle::new("yes").with_scripts_dir();
+    let path = bundle.path().to_str().expect("a utf-8 path");
+    let output = run_with(
+        &["--non-interactive", path],
+        &[("CAELESTIA_SUDO_BIN", "/nonexistent/sudo")],
+    );
+
     assert_eq!(code(&output), 4, "{}", stderr(&output));
     assert!(stderr(&output).contains("sudo -v"), "{}", stderr(&output));
 }
@@ -395,4 +417,31 @@ fn an_unattended_run_refuses_the_flags_that_only_mean_something_to_the_wizard() 
             stderr(&output)
         );
     }
+}
+
+#[test]
+fn the_entry_points_bundle_flag_is_understood_by_the_main_run() {
+    // update.sh and uninstall.sh build their command with `--bundle`, and this flag used to be
+    // parsed only by the `step` subcommand, so both published commands died with "unknown option"
+    // before doing anything. A stub installer in the shell tests accepts any argv, which is why
+    // they could not see it.
+    // Checked through --plan, which shares the parser but cannot change the machine; running
+    // --update here would have the test suite update the host.
+    let bundle = Bundle::new("bundle-flag").with_scripts_dir();
+    let path = bundle.path().to_str().expect("a utf-8 path");
+
+    let plan = run(&["--plan", "--bundle", path]);
+    assert_eq!(code(&plan), 0, "{}", stderr(&plan));
+    assert!(
+        stdout(&plan).contains("steps would run"),
+        "{}",
+        stdout(&plan)
+    );
+}
+
+#[test]
+fn a_bundle_flag_with_no_directory_is_refused() {
+    let output = run(&["--bundle"]);
+    assert_eq!(code(&output), 2);
+    assert!(stderr(&output).contains("--bundle"), "{}", stderr(&output));
 }
