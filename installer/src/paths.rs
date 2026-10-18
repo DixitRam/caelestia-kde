@@ -30,6 +30,11 @@ pub fn shorten(path: &std::path::Path) -> String {
 }
 
 fn shorten_from(path: &std::path::Path, home: &std::path::Path) -> String {
+    // A home of `/` is what stands in when there is none, and `~/usr/bin` is not a path: with no
+    // home to write as `~`, the path is written as itself.
+    if home == std::path::Path::new("/") {
+        return path.display().to_string();
+    }
     match path.strip_prefix(home) {
         Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
         Ok(rest) => format!("~/{}", rest.display()),
@@ -72,6 +77,11 @@ mod tests {
         assert_eq!(
             shorten_from(Path::new("/home/tester2/x"), home),
             "/home/tester2/x"
+        );
+        // No home means no `~`: the root is not a home, and `~/usr/bin` is not a path.
+        assert_eq!(
+            shorten_from(Path::new("/usr/bin"), Path::new("/")),
+            "/usr/bin"
         );
     }
 }

@@ -170,6 +170,15 @@ pub fn run(context: &Context) -> Result<(), Failure> {
 
     match display_manager() {
         Greeter::Plasmalogin => {
+            // Plasma Login draws its own login screen and loads no theme of ours, so the style
+            // this run was given is one it cannot wear. Saying so is the whole of what can be
+            // done about it here; the colours and the wallpaper are synced either way.
+            if context.flag("INSTALL_SDDM", true) {
+                output::skip(&format!(
+                    "Plasma Login draws its own login screen, so the Caelestia theme and its '{}' style are not installed. Its colours and wallpaper are still synced.",
+                    variant.name()
+                ));
+            }
             step.configure_plasmalogin()?;
             step.register_sync("Login screen configured for Plasma Login.")?;
             return Ok(());

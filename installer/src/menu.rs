@@ -111,6 +111,9 @@ const APPEARANCE: [Entry; 5] = [
     Entry::Choice {
         id: "SDDM_THEME_VARIANT",
         title: "Login screen style",
+        // A machine on Plasma Login draws its own login screen and loads no theme of ours, so the
+        // style this row picks is one nobody there will see. That is said in the log where the
+        // choice would have been used, rather than left to be discovered after a reboot.
         help: "Full adds a clock, system info, quotes and the avatar; mini is the login card alone.",
         default: "full",
         options: &["full", "mini"],

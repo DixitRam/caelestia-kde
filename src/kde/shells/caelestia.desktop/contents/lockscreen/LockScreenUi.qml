@@ -11,7 +11,7 @@ import org.kde.kirigami as Kirigami
 import org.kde.kscreenlocker as ScreenLocker
 
 import org.kde.plasma.private.sessions
-import Caelestia.Services
+import "Caelestia/Services"
 
 import "components"
 

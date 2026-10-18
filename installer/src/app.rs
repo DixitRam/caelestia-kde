@@ -880,9 +880,8 @@ impl App {
                         keys.push(ui::key("r", "retry failed"));
                     }
                     keys.push(ui::key("l", "log"));
-                    if self.can_log_out() {
-                        keys.push(ui::key("o", "log out"));
-                    }
+                    // Logging out is on the screen as a button with its letter in it, so the
+                    // footer does not say it twice.
                     keys.push(ui::key(glyphs.enter(), "finish"));
                     keys.push(ui::key("q", "quit"));
                     keys

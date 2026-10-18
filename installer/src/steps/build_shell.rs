@@ -1371,8 +1371,69 @@ fn install_lockscreen_greeter(bundle: &Path, home: &Path) -> bool {
         return false;
     }
 
+    if !carry_lockscreen_modules(&destination) {
+        output::warn(
+            "The QML modules the lock screen draws with were not found, so the lock screen will \
+             fall back to the built-in one. Log out and back in to give the greeter this \
+             session's import path.",
+        );
+        return false;
+    }
+
     output::ok("Caelestia lock screen greeter installed.");
     true
+}
+
+/// The QML modules the lock screen is built from. `Caelestia` has one module per directory, so the
+/// probe is the one that has to be there rather than a `qmldir` at the top.
+const LOCKSCREEN_MODULES: [(&str, &str); 2] =
+    [("Caelestia", "Services/qmldir"), ("M3Shapes", "qmldir")];
+
+/// Put the modules the lock screen imports beside it, inside its own package.
+///
+/// `import M3Shapes` is looked up in the engine's import path, not next to the file that asks for
+/// it, and the greeter is a process of the session that started before any of this was installed:
+/// the one import path it has is the one this session was born with. So the package carries the
+/// modules and the lock screen imports them by directory, which resolves against itself.
+fn carry_lockscreen_modules(package: &Path) -> bool {
+    // The same colon-separated list the session hands the shell, split here because the caller
+    // that built it is the one that knows what it separated the paths with.
+    let imports: Vec<PathBuf> = install_kind::qml_import_path()
+        .split(':')
+        .filter(|base| !base.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    let beside = package.join("contents").join("lockscreen");
+    LOCKSCREEN_MODULES
+        .iter()
+        .all(|(name, probe)| match module_source(&imports, name, probe) {
+            Some(source) => module_link(&source, &beside.join(name)),
+            None => false,
+        })
+}
+
+/// Where a module was installed, from the list of paths the engine searches for one.
+fn module_source(imports: &[PathBuf], name: &str, probe: &str) -> Option<PathBuf> {
+    imports
+        .iter()
+        .map(|base| base.join(name))
+        .find(|candidate| candidate.join(probe).is_file())
+}
+
+/// Point the package at the module rather than copying it: a rebuild replaces the module, and the
+/// lock screen should draw with the one that was built rather than a copy of an older one.
+#[cfg(unix)]
+fn module_link(source: &Path, link: &Path) -> bool {
+    if link.is_dir() && !link.is_symlink() {
+        let _ = fs::remove_dir_all(link);
+    }
+    let _ = fs::remove_file(link);
+    std::os::unix::fs::symlink(source, link).is_ok()
+}
+
+#[cfg(not(unix))]
+fn module_link(source: &Path, link: &Path) -> bool {
+    install_fs::atomic_replace_tree(source, link, None).is_ok()
 }
 
 fn configure_lockscreen_greeter(home: &Path) -> bool {
@@ -1807,5 +1868,47 @@ mod tests {
                 "{rule} is not named in the rules: {rules}"
             );
         }
+    }
+
+    #[test]
+    fn a_module_is_found_under_the_first_import_path_that_has_it() {
+        let work = TempDir::new("caelestia-lockscreen-modules").expect("a temporary directory");
+        let empty = work.path().join("empty");
+        let second = work.path().join("second");
+        fs::create_dir_all(second.join("M3Shapes")).expect("the module");
+        fs::write(second.join("M3Shapes/qmldir"), "module M3Shapes\n").expect("the qmldir");
+        let imports = [empty, second.clone()];
+
+        let found =
+            module_source(&imports, "M3Shapes", "qmldir").expect("it is in the second path");
+        assert_eq!(found, second.join("M3Shapes"));
+
+        // A module that is nowhere is not a directory that happens to share its name: the probe
+        // file is what says the path holds a module rather than a folder.
+        fs::remove_file(second.join("M3Shapes/qmldir")).expect("the qmldir goes");
+        assert!(module_source(&imports, "M3Shapes", "qmldir").is_none());
+    }
+
+    #[test]
+    fn the_lock_screen_package_points_at_the_modules_instead_of_copying_them() {
+        let work = TempDir::new("caelestia-lockscreen-link").expect("a temporary directory");
+        let source = work.path().join("M3Shapes");
+        fs::create_dir_all(&source).expect("the module");
+        fs::write(source.join("qmldir"), "module M3Shapes\n").expect("the qmldir");
+        let beside = work.path().join("package/contents/lockscreen");
+        fs::create_dir_all(&beside).expect("the package");
+        // What an older install left behind: a real directory where the link now goes.
+        fs::create_dir_all(beside.join("M3Shapes")).expect("the stale copy");
+
+        assert!(module_link(&source, &beside.join("M3Shapes")));
+        assert!(
+            beside.join("M3Shapes/qmldir").is_file(),
+            "the module is reachable"
+        );
+        #[cfg(unix)]
+        assert!(
+            beside.join("M3Shapes").is_symlink(),
+            "a rebuild replaces the module, and the package must follow it"
+        );
     }
 }

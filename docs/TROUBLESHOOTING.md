@@ -565,6 +565,14 @@ sudo /usr/share/sddm/themes/caelestia/scripts/sync.sh   # SDDM
 Both greeters read their configuration when they start, so a change is visible at
 the next logout rather than immediately.
 
+**The login screen style (full or mini) is not what was chosen:**
+
+Only SDDM wears the Caelestia theme. Plasma Login draws its own login screen and
+loads no theme of ours, so a machine running it keeps its own screen and takes only
+the colours and the wallpaper; the step says as much in its output. On SDDM the
+theme is installed in the variant that was chosen, and `caelestia login-screen`
+re-installs it in the variant already there.
+
 **After switching display managers:**
 
 The step above picks its branch when it runs, so switching the machine over leaves
@@ -745,6 +753,31 @@ Port 65000 rather than anything lower because it sits above Linux's default ephe
 range (32768–60999), so the listener never collides with the local port of an outgoing
 connection. If it is taken by something else, Quick Share reports that it could not
 listen and stays off.
+
+### 7.9 The Lock Screen Falls Back to "Session Locked"
+
+The lock screen is a Plasma shell package the installer puts at
+`~/.local/share/plasma/shells/caelestia.desktop`, and `plasmashellrc` names it under
+`[Shell] ShellPackage`. When `kscreenlocker_greet` cannot load its QML it draws the
+built-in blue "session has been locked" page instead, and says why in the journal:
+
+```bash
+journalctl --user -b | grep -i kscreenlocker_greet | grep -iE "not installed|falling back"
+```
+
+`module "M3Shapes" is not installed` means the greeter's QML engine could not find a
+module the screen is built from. A module import is looked up in the engine's import
+path and not beside the file that asks for it, and the greeter is a process of the
+session that started before Caelestia was installed, so its import path is the one
+that session was born with. The package therefore carries the modules itself
+(`contents/lockscreen/Caelestia` and `contents/lockscreen/M3Shapes` point at the
+installed ones) and the lock screen imports them by directory, which resolves against
+the package. A package installed by an older installer has neither; re-run the build
+step, and the next lock picks the new package up:
+
+```bash
+caelestia-install step 08-build-shell
+```
 
 ---
 

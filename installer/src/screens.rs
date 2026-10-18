@@ -26,6 +26,10 @@ const CHILD_INDENT: u16 = 2;
 /// The label column of the failure card and the summary.
 const LABEL_COLUMN: usize = 8;
 
+/// What the button on the finished screen says. It is the sentence the page is for: the shell is
+/// installed, and the session in front of the reader is still the old one.
+const LOGOUT_BUTTON: &str = "Log out and apply Caelestia";
+
 pub fn draw(frame: &mut Frame, app: &mut App) {
     app.area = frame.area();
     let header = app.header();
@@ -1417,12 +1421,15 @@ fn done(frame: &mut Frame, app: &App, body: Rect) {
             theme,
             LABEL_COLUMN,
         ));
-        lines.push(ui::labeled(
-            "logout",
-            "o here, or log out from the desktop's own menu".to_string(),
-            theme,
-            LABEL_COLUMN,
-        ));
+        // The one thing this screen can do for the reader, drawn as a button rather than as
+        // another line of advice: a filled bar is what a button looks like everywhere else, and
+        // the letter is in the label because nothing here is under a cursor.
+        lines.push(blank());
+        lines.push(Line::from(Span::styled(
+            format!("  {} (o) ", LOGOUT_BUTTON),
+            theme.bar(),
+        )));
+        lines.push(blank());
     }
     lines.push(ui::labeled(
         "update",
@@ -2951,13 +2958,37 @@ mod tests {
         let text = render(&mut app, 110, 32);
 
         assert!(
-            text.contains("o here, or log out from the desktop's own menu"),
-            "{text}"
+            text.contains("Log out and apply Caelestia (o)"),
+            "the way to apply it is a button with its key in it: {text}"
         );
-        assert!(
-            text.contains("o log out"),
-            "the key is in the footer: {text}"
-        );
+        // The button says the key, so the footer does not repeat it.
+        assert!(!text.contains("o log out"), "{text}");
+        // What the button does is on the same screen, above it.
+        assert!(text.contains("log out and back in"), "{text}");
+    }
+
+    #[test]
+    fn the_logout_button_is_filled_like_every_other_button() {
+        let mut app = color_app();
+        app.stage = Stage::Done;
+        app.statuses = vec![Status::Ok; STEPS.len()];
+        app.landed = Some(landed());
+        let accent = app.theme.color(Role::Accent);
+        let buffer = cells(&mut app, 110, 32);
+        let row = row_of(&buffer, LOGOUT_BUTTON);
+        let text: String = (0..buffer.area.width)
+            .map(|x| buffer[(x, row)].symbol())
+            .collect();
+        let start = text.find(LOGOUT_BUTTON).expect("the label is on its row") as u16;
+        // A filled bar is what a button looks like here, so the whole label is on the accent
+        // with nothing of the page showing through it.
+        for x in start..start + LOGOUT_BUTTON.chars().count() as u16 {
+            assert_eq!(
+                buffer[(x, row)].bg,
+                accent,
+                "column {x} of the button is not filled: {text}"
+            );
+        }
     }
 
     #[test]
@@ -2969,7 +3000,7 @@ mod tests {
         app.landed = Some(landed());
         let text = render(&mut app, 110, 32);
 
-        assert!(!text.contains("o here"), "{text}");
+        assert!(!text.contains("Log out and apply Caelestia"), "{text}");
         assert!(!text.contains("o log out"), "{text}");
     }
 
