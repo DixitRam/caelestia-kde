@@ -878,22 +878,29 @@ impl App {
 
     fn home_key(&mut self, key: KeyEvent) -> Flow {
         match key.code {
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.home = if self.home == 0 {
-                    Action::ALL.len() - 1
-                } else {
-                    self.home - 1
-                };
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.home = (self.home + 1) % Action::ALL.len();
-            }
+            KeyCode::Up | KeyCode::Char('k') => self.home = self.step_action(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.home = self.step_action(1),
             KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
             KeyCode::Enter | KeyCode::Char(' ') => return self.choose_action(),
             KeyCode::Esc | KeyCode::Char('q') => return Flow::Done(Outcome::Canceled),
             _ => {}
         }
         Flow::Continue
+    }
+
+    /// The next action the keys can actually reach. Stepping onto a row that cannot run moved the
+    /// highlight onto something that is not drawn as selected, which reads as the highlight
+    /// disappearing rather than as a choice that is not available yet.
+    fn step_action(&self, direction: isize) -> usize {
+        let count = Action::ALL.len() as isize;
+        let mut index = self.home as isize;
+        for _ in 0..count {
+            index = (index + direction).rem_euclid(count);
+            if self.action_enabled(Action::ALL[index as usize]) {
+                return index as usize;
+            }
+        }
+        self.home
     }
 
     fn choose_action(&mut self) -> Flow {
@@ -1884,19 +1891,45 @@ mod tests {
     }
 
     #[test]
-    fn home_offers_the_three_actions_the_installer_fronts() {
-        let mut app = app();
-        assert_eq!(app.stage, Stage::Home);
+    fn home_offers_the_three_actions_and_moves_only_between_the_ones_that_run() {
+        // Nothing installed: Install is the only action that can run, so the highlight stays on
+        // it. Stepping onto a disabled row used to move the highlight onto something that is not
+        // drawn as selected, which reads as the highlight vanishing.
+        let mut nothing_installed = app();
+        nothing_installed.detection = installable();
+        assert_eq!(nothing_installed.stage, Stage::Home);
+        assert_eq!(Action::ALL[nothing_installed.home], Action::Install);
+        press(&mut nothing_installed, KeyCode::Down);
+        assert_eq!(
+            Action::ALL[nothing_installed.home],
+            Action::Install,
+            "the only reachable action"
+        );
+        press(&mut nothing_installed, KeyCode::Up);
+        assert_eq!(Action::ALL[nothing_installed.home], Action::Install);
+
+        // Installed: every action can run - installing over an existing install is a reinstall -
+        // so the highlight visits all three and wraps.
+        let mut already_there = app();
+        already_there.detection = Detection {
+            installed: true,
+            ..installable()
+        };
+        already_there.home = 1;
         let mut seen = Vec::new();
-        for _ in 0..Action::ALL.len() {
-            seen.push(Action::ALL[app.home]);
-            press(&mut app, KeyCode::Down);
+        for _ in 0..3 {
+            seen.push(Action::ALL[already_there.home]);
+            press(&mut already_there, KeyCode::Down);
         }
         assert_eq!(
             seen,
-            vec![Action::Install, Action::Update, Action::Uninstall]
+            vec![Action::Update, Action::Uninstall, Action::Install]
         );
-        assert_eq!(Action::ALL[app.home], Action::Install, "and it wraps");
+        assert_eq!(
+            Action::ALL[already_there.home],
+            Action::Update,
+            "and it wraps"
+        );
     }
 
     #[test]
