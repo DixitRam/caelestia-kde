@@ -231,14 +231,27 @@ pub fn section(
     inner
 }
 
-/// The row the cursor is on, filled right across its column.
+/// The row the cursor is on, filled right across its column. `bar` is the program's one filled
+/// surface, so a filled row and a filled footer are the same statement: this is the thing Enter
+/// acts on. Text on it uses `OnAccent`, which swaps with the accent, so the fill carries its own
+/// text in either theme.
+pub fn cursor_spans(theme: &Theme, spans: Vec<Span<'static>>, width: u16) -> Line<'static> {
+    let used: usize = spans.iter().map(|span| span.content.chars().count()).sum();
+    let mut styled: Vec<Span<'static>> = spans
+        .into_iter()
+        .map(|span| Span::styled(span.content.into_owned(), theme.bar()))
+        .collect();
+    let padding = (width as usize).saturating_sub(used);
+    if padding > 0 {
+        styled.push(Span::styled(" ".repeat(padding), theme.bar()));
+    }
+    Line::from(styled)
+}
+
+/// The row the cursor is on, for a row that is one piece of text.
 pub fn cursor_row(theme: &Theme, glyphs: Glyphs, text: &str, width: u16) -> Line<'static> {
     let text = fit(text, width as usize, glyphs.ellipsis());
-    let padding = (width as usize).saturating_sub(text.chars().count());
-    Line::from(Span::styled(
-        format!("{text}{}", " ".repeat(padding)),
-        theme.bar().add_modifier(Modifier::BOLD),
-    ))
+    cursor_spans(theme, vec![Span::raw(text)], width)
 }
 
 /// A centered card of prose, sized to a measure. The caller wraps its lines to the same measure,

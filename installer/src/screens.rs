@@ -2,7 +2,6 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
-use ratatui::style::Modifier;
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Paragraph};
 
@@ -370,20 +369,6 @@ fn password_card(app: &App) -> Vec<Line<'static>> {
 // This machine -----------------------------------------------------------------------
 
 /// What was found before anything is decided.
-/// The line that says how to leave this screen. The screen has nothing to select, so without
-/// something that reads as pressable the way Home's action rows do, the only way on is a footer
-/// hint most people never look at.
-fn continue_line(app: &App) -> Line<'static> {
-    let theme = &app.theme;
-    Line::from(vec![
-        Span::styled(
-            format!(" {} ", app.glyphs.enter()),
-            theme.accent().add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("continue".to_string(), theme.heading()),
-    ])
-}
-
 fn detect(frame: &mut Frame, app: &App, body: Rect) {
     let theme = &app.theme;
 
@@ -394,12 +379,19 @@ fn detect(frame: &mut Frame, app: &App, body: Rect) {
         let left_width = ui::panel_width(finding_width(&rows, label_width), body.width / 2);
 
         let mut narrative = verdict_body(app, ui::PROSE_WIDTH);
-        narrative.push(blank());
-        narrative.push(continue_line(app));
         let right_width = ui::panel_width(
             narrative.iter().map(|line| line.width()).max().unwrap_or(0) as u16,
             body.width / 2,
         );
+        // Added once the panel's width is known, so the bar fills it exactly the way Home's
+        // selected action does rather than stopping at the end of its own text.
+        narrative.push(blank());
+        narrative.push(ui::cursor_row(
+            theme,
+            app.glyphs,
+            &format!("{} continue", app.glyphs.cursor()),
+            right_width.saturating_sub(2),
+        ));
 
         // The pair is centred as one block. Pinned to the left edge, two small panels in a wide
         // frame read as a drawing that failed part way through.
@@ -487,7 +479,12 @@ fn detect(frame: &mut Frame, app: &App, body: Rect) {
 
     lines.extend(notice(app));
     lines.push(blank());
-    lines.push(continue_line(app));
+    lines.push(ui::cursor_row(
+        &app.theme,
+        app.glyphs,
+        &format!("{} continue", app.glyphs.cursor()),
+        body.width.min(ui::PROSE_WIDTH),
+    ));
     ui::prose_middle(frame, body, lines, theme.body());
 }
 
@@ -691,18 +688,22 @@ fn auth(frame: &mut Frame, app: &App, body: Rect) {
     } else {
         for (index, method) in app.auth_methods().iter().enumerate() {
             let chosen = index == app.cursor;
-            let name_style = if chosen {
-                theme.selected()
+            // A selected row looks the same on every screen: the pointer on a filled bar, which
+            // is what Home's actions have always used. Anything else and the user has to learn
+            // the highlight again per screen.
+            if chosen {
+                lines.push(ui::cursor_row(
+                    theme,
+                    glyphs,
+                    &format!("{} {}", glyphs.cursor(), method.title()),
+                    MEASURE,
+                ));
             } else {
-                theme.body()
-            };
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!(" {} ", if chosen { glyphs.cursor() } else { " " }),
-                    name_style,
-                ),
-                Span::styled(method.title().to_string(), name_style),
-            ]));
+                lines.push(Line::from(vec![
+                    Span::styled("   ".to_string(), theme.body()),
+                    Span::styled(method.title().to_string(), theme.body()),
+                ]));
+            }
         }
     }
 
@@ -771,9 +772,11 @@ fn question_rail(app: &App) -> Vec<Line<'static>> {
             String::new()
         };
         lines.push(Line::from(vec![
+            // The rail says where you are, not what Enter will act on: the pointer belongs to the
+            // selected row alone, so this marks the position with weight and the accent instead.
             Span::styled(
-                format!(" {} ", if here { glyphs.cursor() } else { " " }),
-                name_style,
+                if here { "  · " } else { "    " },
+                if here { theme.accent() } else { theme.muted() },
             ),
             Span::styled(title.to_string(), name_style),
             Span::styled(changed, theme.accent()),
@@ -859,44 +862,40 @@ pub(crate) fn option_rows(app: &App, width: u16) -> Vec<Line<'static>> {
         .enumerate()
         .map(|(index, entry)| {
             let chosen = index == app.cursor;
-            Line::from(vec![
-                Span::styled(
-                    format!(" {} ", if chosen { glyphs.cursor() } else { " " }),
-                    if chosen {
-                        theme.selected()
-                    } else {
-                        theme.body()
-                    },
-                ),
-                Span::styled(
-                    if app.is_changed(entry) {
-                        format!("{} ", glyphs.changed())
-                    } else {
-                        "  ".to_string()
-                    },
-                    theme.accent(),
-                ),
-                Span::styled(
-                    format!(
-                        "{:<width$}",
-                        ui::fit(entry.title(), name_width, glyphs.ellipsis()),
-                        width = name_width
-                    ),
-                    if chosen {
-                        theme.selected()
-                    } else {
-                        theme.body()
-                    },
-                ),
-                Span::styled(
-                    format!("{:>width$}", value_of(entry, app), width = VALUE_COLUMN),
-                    if chosen {
-                        theme.selected()
-                    } else {
-                        theme.muted()
-                    },
-                ),
-            ])
+            let changed = if app.is_changed(entry) {
+                format!("{} ", glyphs.changed())
+            } else {
+                "  ".to_string()
+            };
+            let name = format!(
+                "{:<width$}",
+                ui::fit(entry.title(), name_width, glyphs.ellipsis()),
+                width = name_width
+            );
+            let value = format!("{:>width$}", value_of(entry, app), width = VALUE_COLUMN);
+            let pointer = format!(" {} ", if chosen { glyphs.cursor() } else { " " });
+
+            // A selected row is the filled bar on every screen. A row that is not selected is
+            // ordinary text, so there is exactly one thing on the screen that Enter can act on.
+            if chosen {
+                ui::cursor_spans(
+                    theme,
+                    vec![
+                        Span::raw(pointer),
+                        Span::raw(changed),
+                        Span::raw(name),
+                        Span::raw(value),
+                    ],
+                    width,
+                )
+            } else {
+                Line::from(vec![
+                    Span::styled(pointer, theme.body()),
+                    Span::styled(changed, theme.accent()),
+                    Span::styled(name, theme.body()),
+                    Span::styled(value, theme.muted()),
+                ])
+            }
         })
         .collect()
 }
@@ -1623,28 +1622,24 @@ fn failure_overlay(frame: &mut Frame, app: &App) {
     lines.push(blank());
     for (index, choice) in FailureCard::CHOICES.iter().enumerate() {
         let chosen = index == card.choice;
-        let mut spans = vec![
-            Span::styled(
-                format!(" {} ", if chosen { glyphs.cursor() } else { " " }),
-                if chosen {
-                    theme.selected()
-                } else {
-                    theme.muted()
-                },
-            ),
-            Span::styled(
-                format!("{} {:<8}", choice.key, choice.label),
-                if chosen {
-                    theme.selected()
-                } else {
-                    theme.body()
-                },
-            ),
-        ];
-        if !choice.help.is_empty() {
-            spans.push(Span::styled(choice.help.to_string(), theme.muted()));
+        let pointer = format!(" {} ", if chosen { glyphs.cursor() } else { " " });
+        let label = format!("{} {:<8}", choice.key, choice.label);
+        if chosen {
+            let mut spans = vec![Span::raw(pointer), Span::raw(label)];
+            if !choice.help.is_empty() {
+                spans.push(Span::raw(choice.help.to_string()));
+            }
+            lines.push(ui::cursor_spans(theme, spans, inner.width));
+        } else {
+            let mut spans = vec![
+                Span::styled(pointer, theme.muted()),
+                Span::styled(label, theme.body()),
+            ];
+            if !choice.help.is_empty() {
+                spans.push(Span::styled(choice.help.to_string(), theme.muted()));
+            }
+            lines.push(Line::from(spans));
         }
-        lines.push(Line::from(spans));
     }
     lines.push(blank());
     lines.push(Line::from(Span::styled(
@@ -2422,10 +2417,23 @@ mod tests {
         app.stage = Stage::Options;
         let rows = option_rows(&app, 96);
         assert_eq!(rows.len(), app.current_entries().len());
-        let widths: Vec<usize> = rows.iter().map(Line::width).collect();
+
+        // The grid is the columns, not the total width: the row the cursor is on is filled to the
+        // edge of the pane, so it is deliberately the widest line on the screen.
+        let unselected: Vec<usize> = rows
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != app.cursor)
+            .map(|(_, row)| row.width())
+            .collect();
         assert!(
-            widths.windows(2).all(|pair| pair[0] == pair[1]),
-            "the rows are not a grid: {widths:?}"
+            unselected.windows(2).all(|pair| pair[0] == pair[1]),
+            "the rows are not a grid: {unselected:?}"
+        );
+        assert_eq!(
+            rows[app.cursor].width(),
+            96,
+            "the selected row is filled to the width it was given"
         );
 
         // And what is drawn agrees with what was built.
