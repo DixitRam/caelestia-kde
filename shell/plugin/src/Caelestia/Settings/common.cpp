@@ -37,6 +37,9 @@ QString DiagnosticType::toString(Type t) {
     case InvalidValue:
         return QStringLiteral("InvalidValue");
     }
+    // A Type that came from QML, or from a file written by a newer version, is not one of the
+    // four: falling off the end of the function would hand back whatever was on the stack.
+    return QStringLiteral("Unknown");
 }
 
 namespace {
