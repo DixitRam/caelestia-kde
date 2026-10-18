@@ -44,6 +44,24 @@ pub fn fetch(url: &str, destination: &Path, extra: &[&str]) -> bool {
     false
 }
 
+/// A download whose failure is expected: no retry, and nothing of curl's own left in the output
+/// whether it answers or not.
+fn probe(url: &str, destination: &Path) -> bool {
+    let destination_text = destination.to_string_lossy().to_string();
+    process::status_quietly(
+        "curl",
+        &[
+            "-fsSL",
+            "--connect-timeout",
+            "10",
+            url,
+            "-o",
+            &destination_text,
+        ],
+        None,
+    ) == Some(0)
+}
+
 pub fn sha256(file: &Path) -> Option<String> {
     let file = file.to_string_lossy().to_string();
     let digest = process::capture("sha256sum", &[&file])?;
@@ -61,7 +79,9 @@ pub fn verify(url: &str, file: &Path) -> Verification {
     let sidecar = work.path().join("published.sha256");
     let sidecar_url = format!("{url}.sha256");
 
-    if !fetch(&sidecar_url, &sidecar, &[]) {
+    // Asked quietly and only once: a release with no published checksum is an answer, not a
+    // fault, and curl saying "404" about it writes an error into a log where nothing went wrong.
+    if !probe(&sidecar_url, &sidecar) {
         return Verification::Unpublished;
     }
     let Ok(published) = fs::read_to_string(&sidecar) else {
