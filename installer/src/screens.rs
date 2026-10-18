@@ -384,10 +384,15 @@ fn detect(frame: &mut Frame, app: &App, body: Rect) {
             narrative.iter().map(|line| line.width()).max().unwrap_or(0) as u16,
             body.width / 2,
         );
-        // The keys hold the way on here too: the verdict is the whole screen, so how to leave it
-        // belongs under it in the same muted text every question ends with.
+        // Added once the panel's width is known, so the bar fills it exactly the way Home's
+        // selected action does rather than stopping at the end of its own text.
         narrative.push(blank());
-        narrative.push(Line::from(Span::styled(way_on(app), theme.muted())));
+        narrative.push(ui::cursor_row(
+            theme,
+            app.glyphs,
+            &format!("{} continue", app.glyphs.cursor()),
+            right_width.saturating_sub(2),
+        ));
 
         // The pair is centred as one block. Pinned to the left edge, two small panels in a wide
         // frame read as a drawing that failed part way through.
@@ -475,7 +480,12 @@ fn detect(frame: &mut Frame, app: &App, body: Rect) {
 
     lines.extend(notice(app));
     lines.push(blank());
-    lines.push(Line::from(Span::styled(way_on(app), theme.muted())));
+    lines.push(ui::cursor_row(
+        &app.theme,
+        app.glyphs,
+        &format!("{} continue", app.glyphs.cursor()),
+        body.width.min(ui::PROSE_WIDTH),
+    ));
     ui::prose_middle(frame, body, lines, theme.body());
 }
 
@@ -789,17 +799,18 @@ fn question_rail_width() -> u16 {
 /// One question and its answers.
 fn question_pane(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
-    // The rows get exactly the lines they need: a row that is not drawn is a row nobody can
-    // answer, so the help text above the button gives way first.
-    let entries = app.current_entries().len() as u16;
+    // The answers, then the row that goes on, which is the last thing in the list so the arrows
+    // reach it the way they reach everything else. The rows get exactly the lines they need: a row
+    // that is not drawn is a row nobody can answer, so the help text gives way first.
+    let mut listed = option_rows(app, area.width);
+    listed.push(blank());
+    listed.push(continue_row(app));
     let rows = Layout::vertical([
         Constraint::Length(2),
-        Constraint::Length(entries.max(1)),
-        Constraint::Length(1),
+        Constraint::Length(listed.len() as u16),
         Constraint::Min(0),
-        Constraint::Length(2),
     ])
-    .areas::<5>(area);
+    .areas::<3>(area);
 
     // What is being asked, on the one line, with the fact that it has been edited beside it: the
     // rail names the question too, but only on a terminal wide enough to hold it.
@@ -820,48 +831,34 @@ fn question_pane(frame: &mut Frame, app: &App, area: Rect) {
         theme.body(),
     );
 
-    ui::prose(
-        frame,
-        rows[1],
-        option_rows(app, rows[1].width),
-        theme.body(),
-    );
+    ui::prose(frame, rows[1], listed, theme.body());
 
     let mut help_lines: Vec<Line<'static>> = Vec::new();
     if let Some(text) = app.selected().and_then(Entry::help) {
-        for line in wrap(text, (rows[3].width as usize).saturating_sub(2)) {
+        for line in wrap(text, (rows[2].width as usize).saturating_sub(2)) {
             help_lines.push(Line::from(Span::styled(line, theme.muted())));
         }
     }
     help_lines.extend(notice(app));
-    ui::prose(frame, rows[3], help_lines, theme.body());
-
-    // How the screen is worked, the way DMS puts it: under the rows, in muted text, where the eye
-    // lands once it has read them. A key hint needs no surface, so it cannot fail to be drawn.
-    ui::prose(
-        frame,
-        rows[4],
-        vec![blank(), Line::from(Span::styled(hint(app), theme.muted()))],
-        theme.body(),
-    );
+    ui::prose(frame, rows[2], help_lines, theme.body());
 }
 
-/// How this screen is worked, in the words the footer uses for the same keys.
-fn hint(app: &App) -> String {
-    format!(
-        "{} move   space change   {}",
-        app.glyphs.up_down(),
-        way_on(app)
-    )
-}
-
-/// Enter and escape: the two things every screen answers to, named the same way on each.
-fn way_on(app: &App) -> String {
-    format!(
-        "{} continue   {} back",
-        app.glyphs.enter(),
-        app.glyphs.escape()
-    )
+/// The last row of a question: the way on, drawn like every other row so the keys can reach it.
+fn continue_row(app: &App) -> Line<'static> {
+    let theme = &app.theme;
+    let chosen = app.on_continue();
+    let style = if chosen {
+        theme.selected()
+    } else {
+        theme.body()
+    };
+    Line::from(vec![
+        Span::styled(
+            format!(" {} ", if chosen { app.glyphs.cursor() } else { " " }),
+            style,
+        ),
+        Span::styled("  continue".to_string(), style),
+    ])
 }
 
 /// One row per option: cursor, changed marker, name, then the value in its own column.
@@ -2404,9 +2401,9 @@ mod tests {
     }
 
     #[test]
-    fn every_question_says_how_to_work_it_under_its_rows() {
-        // Enter goes on from anywhere on the screen, but a first-time user has to be told: the
-        // keys sit under the rows, where DMS puts them, in muted text that needs no surface.
+    fn every_question_ends_with_a_row_that_goes_on() {
+        // The way out of a question is the last row of its list, so the arrows reach it: a key
+        // hint at the foot of the screen was something to read, not something to move onto.
         let mut app = app();
         app.stage = Stage::Options;
         for question in 0..menu::question_count() {
@@ -2414,17 +2411,16 @@ mod tests {
             app.cursor = 0;
             let text = render(&mut app, 100, 30);
             assert!(
-                text.contains("space change"),
-                "question {question} does not say how to work it:\n{text}"
+                text.contains("continue"),
+                "question {question} has no row to go on with:\n{text}"
             );
-            assert!(text.contains("continue"), "question {question}:\n{text}");
         }
     }
 
     #[test]
-    fn the_longest_question_shows_its_last_row_and_its_hint_at_the_smallest_size() {
+    fn the_longest_question_shows_its_last_row_and_the_way_on_at_the_smallest_size() {
         // A row the pane clips is a row nobody can answer, so the rows are given the lines they
-        // need before the help text above the hint is given any.
+        // need before the help text is given any.
         let mut app = app();
         app.stage = Stage::Options;
         app.question = (0..menu::question_count())
@@ -2436,7 +2432,7 @@ mod tests {
             .expect("the app question is in the tree");
         let text = render(&mut app, 60, 20);
         assert!(text.contains("Firefox"), "the last row was clipped: {text}");
-        assert!(text.contains("space change"), "and the hint: {text}");
+        assert!(text.contains("continue"), "and the way on: {text}");
     }
 
     #[test]

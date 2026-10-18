@@ -1247,32 +1247,36 @@ impl App {
 
     fn options_key(&mut self, key: KeyEvent) -> Flow {
         let entries = self.current_entries();
-        let rows = entries.len();
+        // The answers, then the row that goes on: the way out of a question is the last row of
+        // the list, so the arrows find it as they find everything else.
+        let rows = entries.len() + 1;
         // Rows come and go with the answers — a login screen style goes when the login screen is
         // left alone — so the cursor is pulled back onto the list before it is moved, and entering
         // and leaving keep working on a question whose rows have all gone.
-        self.cursor = self.cursor.min(rows.saturating_sub(1));
+        self.cursor = self.cursor.min(rows - 1);
         match key.code {
-            KeyCode::Up | KeyCode::Char('k') if rows > 0 => {
+            KeyCode::Up | KeyCode::Char('k') => {
                 self.cursor = if self.cursor == 0 {
                     rows - 1
                 } else {
                     self.cursor - 1
                 };
             }
-            KeyCode::Down | KeyCode::Char('j') if rows > 0 => {
+            KeyCode::Down | KeyCode::Char('j') => {
                 self.cursor = (self.cursor + 1) % rows;
             }
             KeyCode::Char('r') => self.reset_highlighted(),
             KeyCode::Char('R') => self.reset_all(),
             KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
             // Changing a value is its own gesture, so enter is free to mean "onward" and never
-            // does two things depending on which row is under the cursor.
-            KeyCode::Char(' ') | KeyCode::Right | KeyCode::Char('l') => {
-                if let Some(entry) = self.selected() {
+            // does two things depending on which row is under the cursor. On the row that goes
+            // on there is no value to change, so it answers the same keys enter does.
+            KeyCode::Char(' ') | KeyCode::Right | KeyCode::Char('l') => match self.selected() {
+                Some(entry) => {
                     menu::change(entry, &self.apps, &mut self.answers);
                 }
-            }
+                None => self.next_question(),
+            },
             KeyCode::Left | KeyCode::Char('h') => {
                 if let Some(entry) = self.selected() {
                     menu::change(entry, &self.apps, &mut self.answers);
@@ -1283,6 +1287,11 @@ impl App {
             _ => {}
         }
         Flow::Continue
+    }
+
+    /// Whether the cursor is on the row that goes on, rather than on an answer.
+    pub fn on_continue(&self) -> bool {
+        self.cursor >= self.current_entries().len()
     }
 
     /// Onward: the next question, or the review once there is nothing left to ask.
@@ -3038,7 +3047,7 @@ mod tests {
         app.question = question_of("SDDM_THEME_VARIANT");
         app.cursor = 99;
 
-        char_key(&mut app, ' ');
+        press(&mut app, KeyCode::Down);
         assert!(
             app.cursor < app.current_entries().len(),
             "the cursor is on the list"
@@ -3047,6 +3056,32 @@ mod tests {
 
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.stage, Stage::Options, "onward still works");
+    }
+
+    #[test]
+    fn the_last_row_of_a_question_is_the_way_on_and_the_keys_reach_it() {
+        let mut app = app();
+        app.stage = Stage::Options;
+        app.question = 0;
+        app.cursor = 0;
+        assert!(!app.on_continue(), "the first row is an answer");
+        let answers = app.current_entries().len();
+
+        for _ in 0..answers {
+            press(&mut app, KeyCode::Down);
+        }
+        assert!(app.on_continue(), "the arrows reach the way on");
+        assert!(app.selected().is_none(), "and it is not an answer");
+        assert_eq!(app.question, 0);
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.question, 1, "enter goes on from it");
+
+        // Space answers the row the same way enter does: there is no value on it to change.
+        app.question = 0;
+        app.cursor = app.current_entries().len();
+        char_key(&mut app, ' ');
+        assert_eq!(app.question, 1, "and so does space");
     }
 
     #[test]
