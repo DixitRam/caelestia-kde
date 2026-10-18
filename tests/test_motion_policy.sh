@@ -57,6 +57,75 @@ test_a_scaled_duration_still_honours_the_switch() {
     fi
 }
 
+# The overview's durations come from its own config rather than the tokens, so the switch
+# only reaches them if they are routed through Tokens.anim.duration() by hand. The
+# overview and the drawer blob it morphs are the shell's biggest motion, so a duration
+# that skips the switch is the one that is noticed.
+test_the_overview_motion_honours_the_switch() {
+    local file
+    for file in \
+        "$SHELL_DIR/modules/overview/Anim.qml" \
+        "$SHELL_DIR/modules/overview/WindowGrid.qml"; do
+        assert_file_contains "$file" 'Tokens.anim.duration(' \
+            "$(basename "$file") should take its duration through the animations switch"
+    done
+
+    # Every duration on the object has to be wrapped, so a bare one cannot creep back in.
+    assert_no_match 'readonly property int [a-zA-Z]*Duration: Math\.round' \
+        "an overview duration still reads the overview config directly" \
+        "$SHELL_DIR/modules/overview/Anim.qml"
+}
+
+# `type` names a duration and an easing together. Overriding only one of them beside a
+# `type` leaves the other coming from the type, so the pair ends up half from the token and
+# half from the caller - a spatial duration on an effects curve, or the reverse. Set the
+# pair yourself and drop the type, or name the type alone.
+test_an_anim_type_is_not_half_overridden() {
+    local file offenders
+    while IFS= read -r file; do
+        [[ -n "$file" ]] || continue
+        offenders="$(awk '
+            function indent_of(s,   m) {
+                if (match(s, /^[ \t]*/))
+                    return RLENGTH;
+                return 0;
+            }
+            function scan(fname,   k, e, j, t) {
+                for (k = 1; k <= n; k++) {
+                    if (line[k] !~ /^[ \t]*(Anim|AnchorAnim) \{/)
+                        continue;
+                    e = n;
+                    for (j = k + 1; j <= n; j++) {
+                        if (line[j] ~ /^[ \t]*$/)
+                            continue;
+                        if (indent_of(line[j]) <= indent_of(line[k])) {
+                            e = j - 1;
+                            break;
+                        }
+                    }
+                    t = "";
+                    for (j = k; j <= e; j++)
+                        t = t line[j] "\n";
+                    gsub(/[{;]/, "\n", t);
+                    if (t ~ /(^|\n)[ \t]*type:[ ]/ && (t ~ /(^|\n)[ \t]*duration:[ ]/ || t ~ /(^|\n)[ \t]*easing[.:][ ]/))
+                        printf "%s:%d: %s\n", fname, k, line[k];
+                }
+            }
+            FNR == 1 {
+                if (n > 0)
+                    scan(cur);
+                n = 0;
+                cur = FILENAME;
+            }
+            { n++; line[n] = $0 }
+            END { scan(cur) }
+        ' "$file" || true)"
+        if [[ -n "$offenders" ]]; then
+            fail "an Anim type is half overridden: $(printf '%s' "$offenders" | head -5 | paste -sd', ' -)"
+        fi
+    done < <(grep -rlE '^[ \t]*(Anim|AnchorAnim) \{' "$SHELL_DIR" --include='*.qml' || true)
+}
+
 test_every_unbounded_animation_can_be_stopped() {
     local file offenders
     while IFS= read -r file; do
@@ -325,6 +394,8 @@ test_popouts_contain_their_overscroll() {
         "the popout viewport should stop at its bounds"
     assert_file_contains "$SHELL_DIR/modules/bar/popouts/kblayout/KbLayout.qml" 'boundsBehavior: Flickable.StopAtBounds' \
         "so should the keyboard layout list"
+    assert_file_contains "$COMPONENTS/controls/Menu.qml" 'boundsBehavior: Flickable.StopAtBounds' \
+        "so should the menu's item list"
 }
 
 test_no_dead_icon_asset_needs_a_colour_baked_in() {

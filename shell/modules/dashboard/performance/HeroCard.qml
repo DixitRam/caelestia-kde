@@ -15,6 +15,7 @@ StyledRect {
     required property color accent
     required property real usage
     required property real temperature
+    property real cardWidth: Tokens.sizes.dashboard.perfHeroCardWidth
 
     property int usageBand: 0
 
@@ -39,7 +40,7 @@ StyledRect {
     color: Colours.tPalette.m3surfaceContainer
     radius: Tokens.rounding.extraLarge
 
-    implicitWidth: Tokens.sizes.dashboard.perfHeroCardWidth
+    implicitWidth: root.cardWidth
     implicitHeight: Math.max(tempProg.implicitHeight + detailsRow.implicitHeight + Tokens.spacing.large, usageShape.implicitHeight + usageLabel.implicitHeight) + Tokens.padding.large * 2
 
     Timer {
@@ -142,7 +143,13 @@ StyledRect {
 
         implicitSize: Tokens.sizes.dashboard.perfUsageShapeSize
         color: Colours.palette.m3secondaryContainer
-        shape: [MaterialShape.Cookie4Sided, MaterialShape.Sunny, MaterialShape.SoftBurst][root.usageBand]
+        shape: {
+            if (root.usage >= 0.8)
+                return MaterialShape.SoftBurst;
+            if (root.usage >= 0.4)
+                return MaterialShape.Sunny;
+            return MaterialShape.Cookie4Sided;
+        }
 
         Behavior on color {
             CAnim {}

@@ -168,14 +168,14 @@ StyledRect {
                                 running: root.isUpdateAvailable && !root.updateBusy && Tokens.anim.enabled
 
                                 Anim {
-                                    type: Anim.SlowEffects
                                     duration: Tokens.anim.durations.extraLarge
+                                    easing: Tokens.anim.expressiveSlowEffects
                                     from: 1
                                     to: 0.55
                                 }
                                 Anim {
-                                    type: Anim.SlowEffects
                                     duration: Tokens.anim.durations.extraLarge
+                                    easing: Tokens.anim.expressiveSlowEffects
                                     from: 0.55
                                     to: 1
                                 }

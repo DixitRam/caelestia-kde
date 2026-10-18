@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import Quickshell
 import qs.components
 import qs.services
+import qs.utils
 
 LazyLoader {
     id: loader
@@ -63,6 +64,26 @@ LazyLoader {
             loader.rejected();
         }
 
+        // Resolve the cursor and hand it up: the folder under it in folder mode, the
+        // folder being browsed when it is on a file, and the file otherwise. The view
+        // asks for this instead of resolving the selection itself.
+        function acceptSelection(): void {
+            const entry = folderContents.currentItem?.modelData;
+            if (!selectFolder) {
+                if (entry)
+                    accepted(entry.path);
+                return;
+            }
+
+            if (entry?.isDir) {
+                accepted(entry.path);
+                return;
+            }
+
+            const here = cwd[0] === "Home" ? Paths.home + (cwd.length > 1 ? `/${cwd.slice(1).join("/")}` : "") : cwd.join("/");
+            accepted(here);
+        }
+
         implicitWidth: 1000
         implicitHeight: 600
         minimumSize.width: 400
@@ -108,7 +129,6 @@ LazyLoader {
                 DialogButtons {
                     Layout.fillWidth: true
                     dialog: root
-                    folder: folderContents
                 }
             }
         }

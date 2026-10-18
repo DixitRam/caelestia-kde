@@ -72,6 +72,9 @@ Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=5s
 Slice=session.slice
+# The shell draws the desktop, so it is given a little more of the CPU than the rest of the
+# session: at equal weight a build pegging every core starves it and the bar stops answering.
+Nice=-5
 
 [Install]
 WantedBy=graphical-session.target

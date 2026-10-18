@@ -34,7 +34,8 @@ Item {
             fallbackIcon: root.client ? WinIcons.sourceFor(null, root.client.class, root.client.iconName, root.client.pid ?? 0) : ""
             sourceAspect: preview.windowAspect
             deform: true
-            glowOpacity: GlobalConfig.appearance.ambientOpacity
+            active: Config.overview.ambientColor && !Colours.light
+            glowOpacity: Config.overview.ambientOpacity
             radius: Tokens.rounding.medium
             visible: !!root.client && opacity > 0.01
             z: -1

@@ -5,7 +5,7 @@
 # whole point of going through it.
 #
 # One unit name for both install kinds: the package ships
-# /usr/lib/systemd/user/caelestia-shell.service, and 10-autostart.sh writes the
+# /usr/lib/systemd/user/caelestia-shell.service, and the installer's 10-autostart step writes the
 # same unit for a checkout with the checkout's paths in it. It replaced the
 # desktop entry that KDE's xdg-autostart generator turned into
 # app-caelestiashell@autostart.service, so one mechanism starts the shell instead

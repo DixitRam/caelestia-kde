@@ -118,7 +118,7 @@ Singleton {
                 if (QuickShareSetup.needsSetup) {
                     root.raised = true;
                     Toaster.toast(qsTr("Quick Share"),
-                        qsTr("Quick Share needs administrator rights to start Avahi and open the transfer port."), "info");
+                        qsTr("Quick Share needs administrator rights to start Avahi and open the transfer port."), "info", Toast.Info, 15000);
                     QuickShareSetup.run();
                     return; // the run reports again, and comes back through here
                 }
@@ -128,7 +128,7 @@ Singleton {
                     Toaster.toast(qsTr("Quick Share"),
                         QuickShareSetup.message !== "" ? QuickShareSetup.message
                             : qsTr("Quick Share could not confirm the transfer port is reachable. Allow port %1 in Settings -> Services -> Quick Share.").arg(QuickShareService.listenPort),
-                        "warning");
+                        "warning", Toast.Warning, 30000);
                 }
             }
 

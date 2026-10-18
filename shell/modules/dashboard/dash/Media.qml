@@ -15,8 +15,13 @@ import qs.utils
 Item {
     id: root
 
+    // The player to control. Defaults to the active player, so the
+    // dashboard renders exactly as before; embedders (e.g. the bar
+    // popout) pass their filtered player instead.
+    property MprisPlayer player: Players.active
+
     property real playerProgress: {
-        const active = Players.active;
+        const active = root.player;
         return active?.length ? (active.position % active.length) / active.length : 0;
     }
 
@@ -31,9 +36,11 @@ Item {
     // Defaults to true, so the dashboard renders exactly as before.
     property bool showGif: true
 
-    anchors.top: parent.top
-    anchors.bottom: parent.bottom
+    anchors.top: parent ? parent.top : undefined
+    anchors.bottom: (root.showGif && parent) ? parent.bottom : undefined
+    height: root.showGif ? undefined : implicitHeight
     implicitWidth: Tokens.sizes.dashboard.mediaWidth
+    implicitHeight: Math.max(355, controls.y + controls.implicitHeight + Tokens.padding.large)
 
     Behavior on playerProgress {
         Anim {
@@ -42,15 +49,15 @@ Item {
     }
 
     Timer {
-        running: Players.active?.isPlaying ?? false
+        running: root.player?.isPlaying ?? false
         interval: GlobalConfig.dashboard.mediaUpdateInterval
         triggeredOnStart: true
         repeat: true
-        onTriggered: Players.active?.positionChanged()
+        onTriggered: root.player?.positionChanged()
     }
 
     Loader {
-        active: root.visible && (Players.active?.isPlaying ?? false)
+        active: root.visible && (root.player?.isPlaying ?? false)
         sourceComponent: ServiceRef {
             service: Audio.beatTracker
         }
@@ -71,7 +78,7 @@ Item {
         wavy: true
         waveFrequency: 8
         waveDuration: 2000
-        wavePaused: !Players.active?.isPlaying
+        wavePaused: !root.player?.isPlaying
     }
 
     CoverArt {
@@ -98,7 +105,7 @@ Item {
 
             animate: true
             horizontalAlignment: Text.AlignHCenter
-            text: (Players.active?.trackTitle ?? qsTr("No media")) || qsTr("Unknown title")
+            text: (root.player?.trackTitle ?? qsTr("No media")) || qsTr("Unknown title")
             color: Colours.palette.m3primary
             font: Tokens.font.title.small
 
@@ -107,12 +114,12 @@ Item {
         }
 
         StyledText {
-            visible: !!Players.active && text !== ""
+            visible: !!root.player && text !== ""
             anchors.horizontalCenter: parent.horizontalCenter
 
             animate: true
             horizontalAlignment: Text.AlignHCenter
-            text: Players.active?.trackAlbum || qsTr("Unknown album")
+            text: root.player?.trackAlbum || qsTr("Unknown album")
             color: Colours.palette.m3outline
             font: Tokens.font.body.small
 
@@ -121,12 +128,12 @@ Item {
         }
 
         StyledText {
-            visible: !!Players.active && text !== ""
+            visible: !!root.player && text !== ""
             anchors.horizontalCenter: parent.horizontalCenter
 
             animate: true
             horizontalAlignment: Text.AlignHCenter
-            text: Players.active?.trackArtist || qsTr("Unknown artist")
+            text: root.player?.trackArtist || qsTr("Unknown artist")
             color: Colours.palette.m3secondary
 
             width: root.implicitWidth - Tokens.padding.extraLargeIncreased
@@ -153,10 +160,10 @@ Item {
             icon: "shuffle"
             isRound: true
             shapeMorph: true
-            checked: Players.active?.shuffle ?? false
+            checked: root.player?.shuffle ?? false
             font: Tokens.font.icon.small
-            disabled: !Players.active?.shuffleSupported
-            onClicked: Players.active.shuffle = !Players.active?.shuffle
+            disabled: !root.player?.shuffleSupported
+            onClicked: root.player.shuffle = !root.player?.shuffle
             implicitWidth: Math.round(implicitHeight * 0.9)
         }
 
@@ -165,19 +172,19 @@ Item {
             icon: "skip_previous"
             isRound: true
             shapeMorph: true
-            disabled: !Players.active?.canGoPrevious
-            onClicked: Players.active?.previous()
+            disabled: !root.player?.canGoPrevious
+            onClicked: root.player?.previous()
         }
 
         IconButton {
             fillWidth: true
-            icon: Players.active?.isPlaying ? "pause" : "play_arrow"
+            icon: root.player?.isPlaying ? "pause" : "play_arrow"
             animateIcon: true
             isRound: true
             shapeMorph: true
-            checked: Players.active?.isPlaying ?? false
-            disabled: !Players.active?.canTogglePlaying
-            onClicked: Players.active?.togglePlaying()
+            checked: root.player?.isPlaying ?? false
+            disabled: !root.player?.canTogglePlaying
+            onClicked: root.player?.togglePlaying()
         }
 
         IconButton {
@@ -185,27 +192,27 @@ Item {
             icon: "skip_next"
             isRound: true
             shapeMorph: true
-            disabled: !Players.active?.canGoNext
-            onClicked: Players.active?.next()
+            disabled: !root.player?.canGoNext
+            onClicked: root.player?.next()
         }
 
         IconButton {
             visible: root.extraButtons
             type: IconButton.Tonal
-            icon: Players.active?.loopState === MprisLoopState.Track ? "repeat_one" : "repeat"
+            icon: root.player?.loopState === MprisLoopState.Track ? "repeat_one" : "repeat"
             isRound: true
             shapeMorph: true
-            checked: Players.active?.loopState === MprisLoopState.Track || Players.active?.loopState === MprisLoopState.Playlist
+            checked: root.player?.loopState === MprisLoopState.Track || root.player?.loopState === MprisLoopState.Playlist
             font: Tokens.font.icon.small
-            disabled: !Players.active?.loopSupported
+            disabled: !root.player?.loopSupported
             onClicked: {
-                const state = Players.active.loopState;
+                const state = root.player.loopState;
                 if (state === MprisLoopState.None)
-                    Players.active.loopState = MprisLoopState.Track;
+                    root.player.loopState = MprisLoopState.Track;
                 else if (state === MprisLoopState.Track)
-                    Players.active.loopState = MprisLoopState.Playlist;
+                    root.player.loopState = MprisLoopState.Playlist;
                 else
-                    Players.active.loopState = MprisLoopState.None;
+                    root.player.loopState = MprisLoopState.None;
             }
             implicitWidth: Math.round(implicitHeight * 0.9)
         }
@@ -228,7 +235,7 @@ Item {
 
             anchors.fill: parent
 
-            playing: Players.active?.isPlaying ?? false
+            playing: root.player?.isPlaying ?? false
             speed: Audio.beatTracker.bpm / Config.general.mediaGifSpeedAdjustment // qmllint disable unresolved-type
             source: Paths.absolutePath(Config.paths.mediaGif)
             asynchronous: true

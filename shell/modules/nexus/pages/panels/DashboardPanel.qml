@@ -7,6 +7,7 @@ import M3Shapes
 import Caelestia.Config
 import qs.components
 import qs.components.controls
+import qs.services
 import qs.utils
 import qs.modules.nexus.common
 
@@ -108,7 +109,6 @@ PageBase {
         }
 
         SelectRow {
-            last: true
             Layout.fillWidth: true
             label: qsTr("Dashboard profile picture shape")
             subtext: qsTr("Choose the shape of the profile picture on the dashboard")
@@ -201,6 +201,29 @@ PageBase {
             reset: ({ node: GlobalConfig.dashboard, setting: "useMediaShapes" })
             checked: Config.dashboard.useMediaShapes
             onToggled: GlobalConfig.dashboard.useMediaShapes = checked
+        }
+
+        ToggleRow {
+            Layout.fillWidth: true
+            text: qsTr("Ambient color mode")
+            subtext: Colours.light ? qsTr("Ambient glow is unavailable in light mode") : qsTr("Ambient light glow in media tab")
+            reset: ({ node: GlobalConfig.dashboard, setting: "ambientColor" })
+            checked: Config.dashboard.ambientColor
+            enabled: !Colours.light
+            onToggled: GlobalConfig.dashboard.ambientColor = checked
+        }
+
+        StepperRow {
+            last: true
+            label: qsTr("Ambient glow opacity")
+            reset: ({ node: GlobalConfig.dashboard, setting: "ambientOpacity" })
+            value: Config.dashboard.ambientOpacity
+            from: 0
+            to: 1
+            stepSize: 0.05
+            enabled: Config.dashboard.ambientColor && !Colours.light
+            opacity: enabled ? 1 : 0.5
+            onMoved: v => GlobalConfig.dashboard.ambientOpacity = v
         }
 
         ToggleRow {

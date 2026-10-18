@@ -135,7 +135,7 @@ StyledRect {
             Anim {
                 duration: root.isDragging ? Tokens.anim.durations.expressiveFastSpatial : 0
                 properties: "x,y"
-                type: Anim.FastSpatial
+                easing: Tokens.anim.expressiveFastSpatial
             }
         }
 

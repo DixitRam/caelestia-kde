@@ -36,7 +36,8 @@ TextFieldBase {
     property var validate
     readonly property bool valid: !validate || (!text && emptyIsValid) || (validate instanceof RegExp ? validate.test(text) : !!validate(text))
     readonly property string effectiveSupportingText: isError && errorText ? errorText : supportingText
-    readonly property int supportingTextOffset: effectiveSupportingText ? supportingTextLoader.height + Tokens.spacing.extraSmall : 0
+    readonly property int extraSmallSpacing: Tokens.spacing.extraSmall
+    readonly property int supportingTextOffset: effectiveSupportingText ? supportingTextLoader.height + extraSmallSpacing : 0
 
     readonly property int filledOffset: type === StyledTextField.Filled ? Tokens.spacing.small : 0
 
@@ -108,7 +109,7 @@ TextFieldBase {
 
                     PropertyChanges {
                         placeholder.scale: root.smallFontScale
-                        placeholder.anchors.leftMargin: -(1 - root.smallFontScale) * placeholder.width / 2 + root.horizontalPadding + -Tokens.spacing.extraSmall
+                        placeholder.anchors.leftMargin: -(1 - root.smallFontScale) * placeholder.width / 2 + root.horizontalPadding - root.extraSmallSpacing
                     }
                     AnchorChanges {
                         target: placeholder
@@ -205,7 +206,7 @@ TextFieldBase {
             ShapePath {
                 id: path
 
-                readonly property real outlineGap: placeholder.width * root.smallFontScale + Tokens.spacing.extraSmall * 2
+                readonly property real outlineGap: placeholder.width * root.smallFontScale + root.extraSmallSpacing * 2
                 property real outlineGapScale: root.activeFocus || root.text ? 1 : 0
                 readonly property real inset: strokeWidth / 2
 

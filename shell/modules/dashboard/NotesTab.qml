@@ -518,6 +518,8 @@ Item {
                             model: root.selectedNote && root.selectedNote.items ? root.selectedNote.items : []
 
                             delegate: RowLayout {
+                                id: itemRow
+
                                 required property var modelData
                                 required property int index
 
@@ -525,36 +527,47 @@ Item {
                                 spacing: Tokens.spacing.extraSmall
 
                                 CheckBox {
-                                    Layout.alignment: Qt.AlignVCenter
-                                    checked: modelData.checked ?? false
+                                    Layout.alignment: Qt.AlignTop
+                                    checked: itemRow.modelData.checked ?? false
                                     onToggled: {
                                         const arr = (root.selectedNote.items || []).slice();
-                                        arr[index] = Object.assign({}, arr[index], { checked: !modelData.checked });
+                                        arr[itemRow.index] = Object.assign({}, arr[itemRow.index], { checked: !itemRow.modelData.checked });
                                         root.updateSelected("items", arr);
                                     }
                                 }
 
                                 Item {
+                                    id: itemWrapper
+
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: itemInput.implicitHeight
-                                    Layout.alignment: Qt.AlignVCenter
-                                    opacity: (modelData.checked ?? false) ? 0.6 : 1
+                                    Layout.preferredHeight: Math.max(itemInput.implicitHeight, 24)
+                                    Layout.alignment: Qt.AlignTop
+                                    clip: true
+                                    opacity: (itemRow.modelData.checked ?? false) ? 0.6 : 1
 
                                     TextInput {
                                         id: itemInput
 
                                         function commitItem(): void {
-                                            if (text !== (modelData.text ?? "")) {
+                                            if (text !== (itemRow.modelData.text ?? "")) {
                                                 const arr = (root.selectedNote.items || []).slice();
-                                                arr[index] = Object.assign({}, arr[index], { text: text });
+                                                arr[itemRow.index] = Object.assign({}, arr[itemRow.index], { text: text });
                                                 root.updateSelected("items", arr);
                                             }
                                         }
 
-                                        anchors.fill: parent
-                                        text: modelData.text ?? ""
-                                        font: Tokens.font.body.medium
-                                        color: (modelData.checked ?? false) ? Colours.palette.m3onSurfaceVariant : Colours.palette.m3onSurface
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        wrapMode: TextInput.Wrap
+                                        clip: true
+                                        text: itemRow.modelData.text ?? ""
+                                        font: {
+                                            const f = Qt.font(Tokens.font.body.medium);
+                                            f.strikeout = !!(itemRow.modelData.checked ?? false);
+                                            return f;
+                                        }
+                                        color: (itemRow.modelData.checked ?? false) ? Colours.palette.m3onSurfaceVariant : Colours.palette.m3onSurface
                                         selectByMouse: true
                                         selectionColor: Qt.alpha(Colours.palette.m3primary, 0.4)
                                         selectedTextColor: color
@@ -571,15 +584,6 @@ Item {
                                         text: qsTr("List item")
                                         font: itemInput.font
                                         opacity: 0.5
-                                        color: Colours.palette.m3onSurfaceVariant
-                                    }
-
-                                    Rectangle {
-                                        anchors.left: parent.left
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: Math.min(itemInput.contentWidth, parent.width)
-                                        height: 1
-                                        visible: modelData.checked ?? false
                                         color: Colours.palette.m3onSurfaceVariant
                                     }
                                 }

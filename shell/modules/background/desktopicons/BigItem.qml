@@ -36,7 +36,7 @@ Item {
     // wider than the one between columns; otherwise rows look much further apart.
     readonly property real sideGap: Tokens.padding.extraLarge / 2
     readonly property real topGap: Tokens.padding.small
-    readonly property real labelHeight: Tokens.padding.extraLargeIncreased
+    readonly property real labelHeight: isGroup ? Tokens.padding.extraLargeIncreased : topGap
     readonly property string label: {
         if (isGroup)
             return DesktopLayout.groups[itemId]?.name ?? "";
@@ -93,22 +93,19 @@ Item {
         id: hover
     }
 
-    // Frosted glass: the wallpaper behind the card, blurred and clipped to it.
+    // Frosted glass: the part of the controller's blurred wallpaper behind
+    // the card, clipped to it.
     Loader {
         anchors.fill: card
-        active: !root.frameless && !!root.controller.wallpaper && !GameMode.enabled
-        asynchronous: true
+        active: !root.frameless && !!root.controller.glass
 
         sourceComponent: MultiEffect {
             source: ShaderEffectSource {
-                sourceItem: root.controller.wallpaper
+                sourceItem: root.controller.glass
                 sourceRect: Qt.rect(root.controller.gridOrigin.x + root.x + card.x, root.controller.gridOrigin.y + root.y + card.y, card.width, card.height)
             }
             maskSource: cardMask
             maskEnabled: true
-            blurEnabled: true
-            blur: 1
-            blurMax: 48
             autoPaddingEnabled: false
         }
     }
@@ -205,8 +202,9 @@ Item {
 
     // Centred in the gap down to the next row's card (its top gap included), so
     // names in different scripts line up.
+    // Only groups carry a name; widgets show none.
     StyledRect {
-        visible: !root.frameless
+        visible: root.isGroup && !root.frameless
         anchors.horizontalCenter: card.horizontalCenter
         anchors.verticalCenter: card.bottom
         anchors.verticalCenterOffset: (root.labelHeight + root.topGap) / 2 - 1

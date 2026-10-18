@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import "desktopicons"
 import "desktopicons/LayoutEngine.js" as Engine
 import QtQuick
+import QtQuick.Effects
 import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
@@ -20,6 +21,8 @@ Item {
     // Wallpaper layer, sampled for the frosted cards of large items.
     property Item wallpaper: null
     readonly property point gridOrigin: Qt.point(gridItem.x, gridItem.y)
+    // The wallpaper blurred once for all frosted cards, null when unused.
+    readonly property Item glass: glassLoader.item
 
     readonly property var screenConfig: GlobalConfig.forScreen(screenData.name).background
     readonly property bool iconsEnabled: screenConfig.desktopIconsEnabled
@@ -54,7 +57,12 @@ Item {
     property var previewPositions: null
     property var dropCells: []
     property string mergeKey: ""
+    // The drop plan the preview was last built for. Drag moves arrive for
+    // every pointer motion, and rebuilding the preview re-lays out every tile
+    // and recreates the drop cells, so it only happens when the plan changes.
+    property string previewPlanKey: ""
     property bool dragImageReady: false
+    property string pendingDragKey: ""
     property string dragImageKey: ""
 
     property string openGroupId: ""
@@ -764,6 +772,9 @@ Item {
     function previewResize(key: string, w: int, h: int): void {
         if (!DesktopLayout.positions[key])
             return;
+        const span = previewSpans?.[key];
+        if (span && span.w === w && span.h === h)
+            return;
         const next = resizePlan(key, w, h);
         previewSpans = spansWith(key, w, h);
         previewPositions = Object.assign({}, DesktopLayout.positions, next);
@@ -968,6 +979,7 @@ Item {
     function prepareDragImage(key: string): void {
         dragImageReady = false;
         dragImageKey = key;
+        pendingDragKey = "";
         // Large items are grabbed as they look; icons go through dragPreview
         // so several files get a count badge.
         let source = tiles[key];
@@ -976,21 +988,46 @@ Item {
             dragPreview.count = Math.max(1, entriesFor(selectedKeys()).length);
             source = dragPreview;
         }
-        if (!source)
+        if (!source) {
+            dragImageKey = "";
             return;
+        }
         source.grabToImage(result => {
             if (dragImageKey !== key)
                 return;
+            dragImageProbe.source = result.url;
             dragSource.Drag.imageSource = result.url;
             dragImageReady = true;
+            if (pendingDragKey === key) {
+                pendingDragKey = "";
+                beginDrag(key);
+            }
         });
     }
 
     function beginDrag(key: string): void {
         if (renameActive)
             return;
+        // The first drag can outrun the async image grab; starting without it flickers.
+        if (!dragImageReady && dragImageKey === key) {
+            pendingDragKey = key;
+            return;
+        }
         const keys = isSelected(key) ? selectedKeys() : [key];
-        startDrag(keys, key, openGroupId, isBigKey(key) ? pressPoint : Qt.point(dragPreview.width / 2, Tokens.padding.small + iconSize / 2));
+        // For big widgets, adjust the hotSpot to the card's position within the tile.
+        let hotSpot = pressPoint;
+        if (isBigKey(key)) {
+            const tile = tiles[key];
+            if (tile && tile.card) {
+                hotSpot = Qt.point(
+                    pressPoint.x - tile.card.anchors.leftMargin,
+                    pressPoint.y - tile.card.anchors.topMargin
+                );
+            }
+        } else {
+            hotSpot = Qt.point(dragPreview.width / 2, Tokens.padding.small + iconSize / 2);
+        }
+        startDrag(keys, key, openGroupId, hotSpot);
     }
 
     // Drags one app straight out of a large folder, without opening it.
@@ -1056,6 +1093,7 @@ Item {
     }
 
     function clearDropPreview(): void {
+        previewPlanKey = "";
         previewPositions = null;
         dropCells = [];
         mergeKey = "";
@@ -1126,6 +1164,10 @@ Item {
 
     function updateDropPreview(x: real, y: real, internal: bool): void {
         const plan = dropPlan(x, y, internal);
+        const planKey = [internal, plan.mode, plan.target, plan.cell.col, plan.cell.row, plan.place.col, plan.place.row].join(",");
+        if (planKey === previewPlanKey)
+            return;
+        previewPlanKey = planKey;
         mergeKey = plan.mode === "place" || plan.mode === "none" ? "" : plan.target;
         if (plan.mode !== "place") {
             previewPositions = null;
@@ -1543,6 +1585,28 @@ wl-paste --no-newline --type text/uri-list`]
         onDropped: drop => root.commitDrop(drop)
     }
 
+    // Frosted glass for the cards of large items: the wallpaper is blurred
+    // once here and each card shows its own part of it. The blur starts at
+    // half size anyway, so the wallpaper is taken at half size too.
+    Loader {
+        id: glassLoader
+
+        anchors.fill: parent
+        visible: false
+        active: !!root.wallpaper && !GameMode.enabled && bigModel.count > 0
+
+        sourceComponent: MultiEffect {
+            source: ShaderEffectSource {
+                sourceItem: root.wallpaper
+                textureSize: Qt.size(Math.ceil(root.width / 2), Math.ceil(root.height / 2))
+            }
+            blurEnabled: true
+            blur: 1
+            blurMax: 48
+            autoPaddingEnabled: false
+        }
+    }
+
     Item {
         id: gridItem
 
@@ -1711,6 +1775,15 @@ wl-paste --no-newline --type text/uri-list`]
     }
 
     // Carries the system drag; the image is grabbed from dragPreview.
+    // The probe decodes the grab into the pixmap cache, so the drag finds it ready.
+    Image {
+        id: dragImageProbe
+
+        visible: false
+        asynchronous: false
+        cache: true
+    }
+
     Item {
         id: dragSource
 

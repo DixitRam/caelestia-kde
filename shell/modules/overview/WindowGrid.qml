@@ -673,7 +673,7 @@ Item {
             enabled: root._initialized
 
             NumberAnimation {
-                duration: listView.rawSwipeOffset === 0.0 ? 300 : 0
+                duration: listView.rawSwipeOffset === 0.0 ? Tokens.anim.duration(300) : 0
                 easing.type: listView.rawSwipeOffset === 0.0 ? Easing.OutCubic : Easing.Linear
             }
         }

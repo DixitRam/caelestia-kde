@@ -12,13 +12,23 @@ Scope {
 
     readonly property list<var> warnLevels: [...GlobalConfig.general.battery.warnLevels.values].sort((a, b) => b.level - a.level)
 
+    // UPower reports its initial state as a change shortly after startup, which is not a plug event.
+    property bool settled: false
+
+    Timer {
+        interval: 5000
+        running: true
+        onTriggered: root.settled = true
+    }
+
     Connections {
         function onOnBatteryChanged(): void {
+            const notify = root.settled && GlobalConfig.utilities.toasts.chargingChanged;
             if (UPower.onBattery) {
-                if (GlobalConfig.utilities.toasts.chargingChanged)
+                if (notify)
                     Toaster.toast(qsTr("Charger unplugged"), qsTr("Battery is discharging"), "power_off");
             } else {
-                if (GlobalConfig.utilities.toasts.chargingChanged)
+                if (notify)
                     Toaster.toast(qsTr("Charger plugged in"), qsTr("Battery is charging"), "power");
                 for (const level of root.warnLevels)
                     level.warned = false;

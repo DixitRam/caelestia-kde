@@ -66,6 +66,7 @@ StyledSwitch {
 
                 text: root.text
                 font: root.font
+                color: root.enabled ? Colours.palette.m3onSurface : Colours.disabledContent
                 elide: Text.ElideRight
             }
 
@@ -75,7 +76,7 @@ StyledSwitch {
 
                 visible: root.subtext
                 text: root.subtext
-                color: Colours.palette.m3onSurfaceVariant
+                color: root.enabled ? Colours.palette.m3onSurfaceVariant : Colours.disabledContent
                 font: NexusStyle.secondaryFont
                 elide: Text.ElideRight
             }

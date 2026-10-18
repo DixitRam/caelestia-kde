@@ -832,6 +832,70 @@ fn installed_effect(name: &str) -> Option<PathBuf> {
     .find(|candidate| candidate.is_file())
 }
 
+/// The KWin the effect is being built against. The plugin version is baked into the binary, and an
+/// effect built for another one is a plugin KWin quietly refuses to load - so a KWin update has to
+/// count as a change even when nothing in the checkout moved.
+fn kwin_plugin_version() -> String {
+    if let Ok(config) = fs::read_to_string("/usr/include/kwin/config-kwin.h")
+        && let Some(version) = plugin_version_in(&config)
+    {
+        return version;
+    }
+    process::capture("kwin_wayland", &["--version"])
+        .and_then(|text| version_triple_in(&text))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// `KWIN_PLUGIN_VERSION_STRING "6.2.1"` in KWin's own config header.
+fn plugin_version_in(config: &str) -> Option<String> {
+    const MARKER: &str = "KWIN_PLUGIN_VERSION_STRING \"";
+    let at = config.find(MARKER)? + MARKER.len();
+    let rest = &config[at..];
+    let end = rest.find('"')?;
+    let version = &rest[..end];
+    (!version.is_empty()).then(|| version.to_string())
+}
+
+/// The first `x.y.z` in a version banner.
+fn version_triple_in(text: &str) -> Option<String> {
+    let bytes: Vec<char> = text.chars().collect();
+    let mut start = None;
+    for (index, character) in bytes.iter().enumerate() {
+        if character.is_ascii_digit() {
+            if start.is_none() {
+                start = Some(index);
+            }
+        } else if *character == '.' && start.is_some() {
+            continue;
+        } else if let Some(begin) = start {
+            let candidate: String = bytes[begin..index].iter().collect();
+            if candidate.matches('.').count() == 2 {
+                return Some(candidate);
+            }
+            start = None;
+        }
+    }
+    let begin = start?;
+    let candidate: String = bytes[begin..].iter().collect();
+    (candidate.matches('.').count() == 2).then_some(candidate)
+}
+
+/// The KWin version an effect was compiled for, read out of the plugin factory symbol it exports.
+fn effect_kwin_version(effect: &Path) -> String {
+    const MARKER: &str = "org.kde.kwin.EffectPluginFactory";
+    let Ok(bytes) = fs::read(effect) else {
+        return String::new();
+    };
+    let text = String::from_utf8_lossy(&bytes);
+    let Some(at) = text.find(MARKER) else {
+        return String::new();
+    };
+    text[at + MARKER.len()..]
+        .chars()
+        .take_while(|character| character.is_ascii_digit() || *character == '.')
+        .collect()
+}
+
 fn effect_signature(built: &Path, installed: &Path) -> String {
     let digest = download::sha256(built).unwrap_or_default();
     let stamp = fs::metadata(installed)
@@ -845,7 +909,7 @@ fn effect_signature(built: &Path, installed: &Path) -> String {
             format!("{}:{modified}", metadata.len())
         })
         .unwrap_or_else(|_| "missing".to_string());
-    format!("{digest} {stamp}\n")
+    format!("{} {digest} {stamp}\n", kwin_plugin_version())
 }
 
 fn effect_up_to_date(shell_dir: &Path) -> bool {
@@ -858,6 +922,15 @@ fn effect_up_to_date(shell_dir: &Path) -> bool {
     let Some(installed) = installed_effect(&name.to_string_lossy()) else {
         return false;
     };
+    let target = kwin_plugin_version();
+    if target != "unknown" {
+        if effect_kwin_version(&installed) != target {
+            return false;
+        }
+        if effect_kwin_version(&built) != target {
+            return false;
+        }
+    }
     let stamp = workspace_stamp();
     fs::read_to_string(&stamp).unwrap_or_default() == effect_signature(&built, &installed)
 }
@@ -882,6 +955,17 @@ fn record_effect_install(shell_dir: &Path) {
 
 fn build_workspace_tracker(shell_dir: &Path, theme: &Toolchain, jobs: &str, load: &str) {
     output::info("Building and installing workspace-tracker KWin Effect...");
+    let target = kwin_plugin_version();
+    if let Some(previous) = built_effect(shell_dir)
+        && target != "unknown"
+        && !effect_kwin_version(&previous).is_empty()
+        && effect_kwin_version(&previous) != target
+    {
+        output::info(&format!(
+            "KWin is {target} now; cleaning the workspace-tracker build for it..."
+        ));
+        let _ = fs::remove_dir_all(shell_dir.join(EFFECT_DIR).join("build"));
+    }
     let build = shell_dir.join(EFFECT_DIR).join("build");
     if prepare_build_dir(&build, theme).is_err() {
         output::warn("Workspace tracker configuration failed; skipping KWin effect build.");
@@ -968,6 +1052,18 @@ fn enable_effect(reconfigure: bool) {
         None,
     );
     if reconfigure {
+        // A reconfigure alone does not load an effect that was not loaded before: KWin is told
+        // about it by name, then re-reads its configuration.
+        let _ = process::succeeds(
+            "qdbus6",
+            &[
+                "org.kde.KWin",
+                "/Effects",
+                "org.kde.kwin.Effects.loadEffect",
+                "kwin_workspace_tracker",
+            ],
+            None,
+        );
         let _ = process::succeeds("qdbus6", &["org.kde.KWin", "/KWin", "reconfigure"], None);
         output::ok("Installed workspace-tracker to KDE.");
     }

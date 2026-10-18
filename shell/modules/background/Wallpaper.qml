@@ -319,7 +319,7 @@ Item {
                 property: "maskRadius"
                 from: 0
                 to: img.maxRadius
-                type: Anim.Emphasized
+                easing: Tokens.anim.emphasized
                 duration: Tokens.anim.duration(2500)
                 onFinished: root.releaseHidden()
             }

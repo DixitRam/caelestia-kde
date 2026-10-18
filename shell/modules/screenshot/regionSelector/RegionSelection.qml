@@ -226,14 +226,17 @@ PanelWindow {
     property real regionY: Math.min(dragStartY, draggingY)
 
     TempScreenshotProcess {
-        id: screenshotProc
-
         running: true
         screen: root.screen
         screenshotDir: root.screenshotDir
         screenshotPath: root.screenshotPath
         onExited: (exitCode, exitStatus) => {
             Recorder.probeRecording();
+            if (exitCode !== 0) {
+                console.warn("[RegionSelection] snapshot failed with exit code", exitCode, "- backing out");
+                root.dismiss();
+                return;
+            }
             root.preparationDone = true;
         }
     }

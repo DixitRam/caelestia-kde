@@ -35,6 +35,12 @@ Singleton {
     readonly property Transparency transparency: Transparency {}
     readonly property alias wallLuminance: analyser.luminance
 
+    /// The disabled state, in one place. A control that cannot be used dims its container
+    /// and its content to these two rather than deriving a pair of its own, so what
+    /// disabled looks like is one decision instead of one per control.
+    readonly property color disabledContainer: Qt.alpha(palette.m3onSurface, 0.1)
+    readonly property color disabledContent: Qt.alpha(palette.m3onSurface, 0.38)
+
     /// True for a frame or so while a palette lands. CAnim lands every colour while it is
     /// set; see holdColourTransitions.
     property bool switchingTheme: false

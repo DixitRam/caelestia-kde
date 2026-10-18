@@ -134,7 +134,7 @@ Item {
 
         displaced: Transition {
             Anim {
-                type: Anim.DefaultEffects
+                duration: Tokens.anim.durations.expressiveDefaultEffects
                 properties: "opacity,scale"
                 to: 1
                 easing: Tokens.anim.standardDecel

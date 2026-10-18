@@ -29,7 +29,7 @@ Text {
                 target: root
                 property: "opacity"
                 to: 0
-                type: Anim.FastEffects
+                duration: Tokens.anim.durations.expressiveFastEffects
                 easing: Tokens.anim.standard
             }
             PropertyAction {}
@@ -43,14 +43,14 @@ Text {
                     target: root
                     property: "opacity"
                     to: 1
-                    type: Anim.DefaultEffects
+                    duration: Tokens.anim.durations.expressiveDefaultEffects
                     easing: Tokens.anim.standard
                 }
                 Anim {
                     target: root
                     property: "scale"
                     to: 1
-                    type: Anim.DefaultEffects
+                    duration: Tokens.anim.durations.expressiveDefaultEffects
                     easing: Tokens.anim.standard
                 }
             }

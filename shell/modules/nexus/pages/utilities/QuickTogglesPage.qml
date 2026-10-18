@@ -19,6 +19,9 @@ PageBase {
     readonly property var toolToggles: [
         { id: "settings", label: qsTr("Settings") },
         { id: "colorpicker", label: qsTr("Color Picker") },
+        { id: "launcher", label: qsTr("Launcher") },
+        { id: "overview", label: qsTr("Overview") },
+        { id: "dashboard", label: qsTr("Dashboard") },
         { id: "wallpaper", label: qsTr("Wallpaper") },
         { id: "badapple", label: qsTr("Bad Apple") },
     ]
@@ -27,6 +30,7 @@ PageBase {
         { id: "dnd", label: qsTr("Do Not Disturb") },
         { id: "gameMode", label: qsTr("Game Mode") },
         { id: "pauseWallpaper", label: qsTr("Pause Wallpaper") },
+        { id: "visualiser", label: qsTr("Audio Visualiser") },
         { id: "nightlight", label: qsTr("Night Light") },
         { id: "easyeffects", label: qsTr("EasyEffects") },
         { id: "restartShell", label: qsTr("Restart Shell") },
@@ -78,6 +82,14 @@ PageBase {
             first: true
             text: qsTr("Custom order")
             subtext: qsTr("Rearrange toggles with drag handles")
+            // Custom reset: the row reads a local property, default is off
+            reset: ({
+                customGet: () => Config.utilities.quickTogglesCustomOrder ?? false,
+                customSet: v => {
+                    GlobalConfig.utilities.quickTogglesCustomOrder = v;
+                },
+                customDef: false
+            })
             checked: root.customOrder
             onToggled: {
                 GlobalConfig.utilities.quickTogglesCustomOrder = checked;
@@ -87,6 +99,7 @@ PageBase {
         StepperRow {
             label: qsTr("Toggles per page")
             subtext: qsTr("Entries shown on each page of the drawer")
+            reset: ({ node: GlobalConfig.utilities, setting: "quickTogglesPerPage" })
             value: Config.utilities.quickTogglesPerPage ?? 6
             from: 2
             to: 12

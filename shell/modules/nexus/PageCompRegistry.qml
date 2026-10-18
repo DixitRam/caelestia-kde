@@ -140,6 +140,18 @@ QtObject {
                 Component {
                     BarMedia {}
                 }
+                Component {
+                    BarWeather {}
+                }
+                Component {
+                    BarPerformance {}
+                }
+                Component {
+                    BarScreenCapture {}
+                }
+                Component {
+                    BarKeepAwake {}
+                }
             }
         },
         Component {
@@ -228,9 +240,6 @@ QtObject {
                 }
                 Component {
                     OsdPage {}
-                }
-                Component {
-                    ClipboardPage {}
                 }
                 Component {
                     UtilitiesPanelPage {}

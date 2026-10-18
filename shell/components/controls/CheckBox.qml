@@ -23,7 +23,7 @@ Item {
         radius: Tokens.rounding.medium
         color: "transparent"
         border.width: 2
-        border.color: root.checked ? Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant
+        border.color: !root.enabled ? Colours.disabledContainer : root.checked ? Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant
 
         Behavior on border.color {
             CAnim {}
@@ -33,7 +33,7 @@ Item {
             anchors.centerIn: parent
             text: "check"
             fontStyle: Tokens.font.icon.builders.small.weight(Font.DemiBold).build()
-            color: Colours.palette.m3primary
+            color: !root.enabled ? Colours.disabledContent : Colours.palette.m3primary
             scale: root.checked ? 1 : 0
 
             Behavior on scale {
@@ -47,7 +47,7 @@ Item {
     CustomMouseArea {
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: {
             root.checked = !root.checked;
             root.toggled();

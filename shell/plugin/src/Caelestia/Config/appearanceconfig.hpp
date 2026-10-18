@@ -339,8 +339,6 @@ class AppearanceConfig : public settings::ObjectNode {
     CONFIG_GLOBAL_PROPERTY(bool, islands, false)
     CONFIG_GLOBAL_PROPERTY(bool, blur, true)
     CONFIG_GLOBAL_PROPERTY(bool, blurMask, true)
-    CONFIG_GLOBAL_PROPERTY(bool, ambientColor, true)
-    CONFIG_GLOBAL_PROPERTY(qreal, ambientOpacity, 0.45)
 };
 
 } // namespace caelestia::config

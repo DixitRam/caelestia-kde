@@ -13,13 +13,12 @@ import qs.components.controls
 import qs.services
 import qs.utils
 import qs.modules.nexus
-import qs.modules.bar.popouts as BarPopouts
 
 StyledRect {
     id: root
 
     required property DrawerVisibilities visibilities
-    required property BarPopouts.Wrapper popouts
+    required property var popouts
 
     readonly property real nonAnimHeight: implicitHeight
 
@@ -39,6 +38,9 @@ StyledRect {
             },
             {
                 id: "pauseWallpaper"
+            },
+            {
+                id: "visualiser"
             },
             {
                 id: "nightlight"
@@ -88,6 +90,7 @@ StyledRect {
     property real ghostX: 0
     property real ghostY: 0
     property double lastEdgeSwitch: 0
+    property double lastWheelSwitch: 0
 
     function pageSlice(): var {
         const src = root.dragging && root.dragOrder.length > 0 ? root.dragOrder : root.quickToggles;
@@ -105,6 +108,7 @@ StyledRect {
         case "wallpaper": return "wallpaper";
         case "restartShell": return "restart_alt";
         case "pauseWallpaper": return "pause";
+        case "visualiser": return "equalizer";
         case "easyeffects": return "graphic_eq";
         case "nightlight": return "bedtime";
         case "hotspot": return "wifi_tethering";
@@ -352,6 +356,11 @@ StyledRect {
             if (root.pageCount <= 1 || root.dragging)
                 return;
             const d = event.angleDelta.y !== 0 ? event.angleDelta.y : event.angleDelta.x;
+            // One gesture sends many events; without a cooldown it skips the middle page.
+            const now = Date.now();
+            if (d === 0 || now - root.lastWheelSwitch < 400)
+                return;
+            root.lastWheelSwitch = now;
             if (d < 0)
                 root.requestPage(root.currentPage + 1);
             else if (d > 0)
@@ -504,6 +513,33 @@ StyledRect {
                     }
                 }
                 DelegateChoice {
+                    roleValue: "launcher"
+                    delegate: Toggle {
+                        icon: "apps"
+                        inactiveOnColour: Colours.palette.m3onSurfaceVariant
+                        isToggle: false
+                        onClicked: Quickshell.execDetached(["qs", "-c", "caelestia", "ipc", "call", "drawers", "toggle", "launcher"])
+                    }
+                }
+                DelegateChoice {
+                    roleValue: "overview"
+                    delegate: Toggle {
+                        icon: "view_array"
+                        inactiveOnColour: Colours.palette.m3onSurfaceVariant
+                        isToggle: false
+                        onClicked: Quickshell.execDetached(["qs", "-c", "caelestia", "ipc", "call", "drawers", "toggle", "overview"])
+                    }
+                }
+                DelegateChoice {
+                    roleValue: "dashboard"
+                    delegate: Toggle {
+                        icon: "dashboard"
+                        inactiveOnColour: Colours.palette.m3onSurfaceVariant
+                        isToggle: false
+                        onClicked: Quickshell.execDetached(["qs", "-c", "caelestia", "ipc", "call", "drawers", "toggle", "dashboard"])
+                    }
+                }
+                DelegateChoice {
                     roleValue: "gameMode"
                     delegate: Toggle {
                         icon: "gamepad"
@@ -589,6 +625,14 @@ StyledRect {
                             const newVal = !GlobalConfig.background.videoWallpaperPaused;
                             GlobalConfig.background.videoWallpaperPaused = newVal;
                         }
+                    }
+                }
+                DelegateChoice {
+                    roleValue: "visualiser"
+                    delegate: Toggle {
+                        icon: "equalizer"
+                        checked: GlobalConfig.background.visualiser.enabled
+                        onClicked: GlobalConfig.background.visualiser.enabled = !GlobalConfig.background.visualiser.enabled
                     }
                 }
                 DelegateChoice {

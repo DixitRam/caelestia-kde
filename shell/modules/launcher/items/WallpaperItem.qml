@@ -54,6 +54,10 @@ Item {
         y: Tokens.padding.large
         color: Colours.tPalette.m3surfaceContainer
         radius: Tokens.rounding.large
+        // A 1px edge so the photo does not dissolve into the tile behind it. Pure black
+        // or white: a tinted neutral would show as a coloured fringe on the image.
+        border.width: 1
+        border.color: Colours.light ? Qt.rgba(0, 0, 0, 0.1) : Qt.rgba(1, 1, 1, 0.1)
 
         implicitWidth: Tokens.sizes.launcher.wallpaperWidth
         implicitHeight: implicitWidth / 16 * 9

@@ -199,7 +199,8 @@ kbuildsycoca6 --noincremental
 qdbus6 org.kde.KWin /KWin reconfigure
 ```
 
-If the desktop file is missing, re-run `scripts/10-autostart.sh`.
+If the desktop file is missing, re-run the installer's autostart step:
+`caelestia-install step 10-autostart`.
 
 ### 3.3.1 Screen Sharing / Camera Freezes Vesktop (or other apps)
 
@@ -273,7 +274,7 @@ systemctl --user disable --now kde-material-you-colors
 pgrep -af plasma-apply-colorscheme                # a new pid every second means something still loops
 ```
 
-`bash scripts/10-autostart.sh` stops that unit and deletes it, if you would rather
+`caelestia-install step 10-autostart` replaces that unit and stops it, if you would rather
 not do it by hand. It also removes the `MaterialYou*.colors` files KMY left in
 System Settings.
 
@@ -425,14 +426,16 @@ The installer configures **5 desktops** when it runs, and only then: a system up
 Caelestia's `GlobalShortcut` system uses `kglobalacceld`. When it registers a shortcut that conflicts with another app, it "steals" the binding and records it in:
 
 ```text
-~/.config/caelestia/stolen-shortcuts.json
+${XDG_CONFIG_HOME:-~/.config}/caelestia/stolen-shortcuts.json
 ```
 
 **If shortcuts are missing or wrong:**
 ```bash
-rm -f ~/.config/caelestia/stolen-shortcuts.json
+rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/caelestia/stolen-shortcuts.json"
 systemctl --user status plasma-kglobalaccel.service
 ```
+
+A file an older version left at `~/.config/caelestia/` because it ignored `XDG_CONFIG_HOME` is not read any more. If you set `XDG_CONFIG_HOME` somewhere other than `~/.config`, remove that leftover by hand.
 
 If `keyd` is active and manages Meta+1..5, the tweak script skips KWin bindings for those combos to avoid conflicts.
 

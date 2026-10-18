@@ -233,6 +233,7 @@ MouseArea {
                 contentWidth: width
                 contentHeight: column.implicitHeight
                 clip: true
+                boundsBehavior: Flickable.StopAtBounds
 
                 interactive: contentHeight > height
 
