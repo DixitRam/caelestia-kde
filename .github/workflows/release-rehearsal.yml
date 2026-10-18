@@ -1,0 +1,44 @@
+name: Release Rehearsal
+
+# The simulated push to main: dev's tip compiled by the exact graph a release runs, every
+# asset verified, and nothing named after a version.
+#
+# A schedule always runs the default branch's copy of this file, so the ref under test is an
+# input to the checkout rather than the trigger.
+
+on:
+  schedule:
+    - cron: "41 4 * * 2"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit to rehearse
+        type: string
+        required: false
+        default: dev
+      publish:
+        description: Also publish the rehearsal as a prerelease under rehearsal-<sha>
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-rehearsal-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  rehearsal:
+    uses: ./.github/workflows/version-release.yml
+    permissions:
+      contents: write
+      pull-requests: write
+    with:
+      channel: rehearsal
+      ref: ${{ inputs.ref || 'dev' }}
+      publish: ${{ inputs.publish || false }}
+      # The package build is the slow half, and a simulated release is exactly when it is
+      # worth paying for: it is the only consumer that reads the tarballs by checksum.
+      verify_packages: true
