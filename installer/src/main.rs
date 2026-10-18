@@ -14,6 +14,7 @@ mod install_kind;
 mod journal;
 mod js;
 mod logline;
+mod logout;
 mod menu;
 mod output;
 mod packages;
@@ -293,6 +294,16 @@ fn handoff(bundle: &Bundle, session: Session) -> Outcome {
                     Outcome::Failed
                 }
                 Err(Failure::Reported) => Outcome::Failed,
+            }
+        }
+        Some(Handoff::LogOut) => {
+            trace("handoff: log out");
+            match logout::now() {
+                Ok(()) => Outcome::Ok,
+                Err(problem) => {
+                    output::err(&problem);
+                    Outcome::Failed
+                }
             }
         }
     }

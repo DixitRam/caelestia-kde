@@ -106,6 +106,7 @@ pub enum Confirm {
     Handoff(Action),
     Install,
     Quit,
+    LogOut,
 }
 
 impl Confirm {
@@ -116,14 +117,15 @@ impl Confirm {
             Confirm::Handoff(Action::Uninstall) => &["Uninstall now", "Cancel"],
             Confirm::Handoff(Action::Install) | Confirm::Install => &["Install", "Cancel"],
             Confirm::Quit => &["Stop", "Keep going"],
+            Confirm::LogOut => &["Log out", "Not now"],
         }
     }
 
-    /// Where the highlight starts. Stopping a running install is the one question whose safe answer
-    /// is not the first button: the key that opened it must not be able to end the run.
+    /// Where the highlight starts. Two of these questions end something a keystroke cannot get
+    /// back — the run, or the session — so their safe answer is the one under the highlight.
     pub fn focus(self) -> usize {
         match self {
-            Confirm::Quit => 1,
+            Confirm::Quit | Confirm::LogOut => 1,
             _ => 0,
         }
     }
@@ -156,11 +158,13 @@ impl AuthMethod {
     }
 }
 
-/// The two actions that hand the terminal back to another program.
+/// The actions that hand the terminal over to something else: another program of the installer's,
+/// or the end of the session itself.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Handoff {
     Update,
     Uninstall,
+    LogOut,
 }
 
 /// What the TUI leaves behind: an exit code, and work for the caller once the terminal is back.
@@ -876,6 +880,9 @@ impl App {
                         keys.push(ui::key("r", "retry failed"));
                     }
                     keys.push(ui::key("l", "log"));
+                    if self.can_log_out() {
+                        keys.push(ui::key("o", "log out"));
+                    }
                     keys.push(ui::key(glyphs.enter(), "finish"));
                     keys.push(ui::key("q", "quit"));
                     keys
@@ -1406,6 +1413,7 @@ impl App {
         match key.code {
             KeyCode::Char('r') => self.retry_failed(),
             KeyCode::Char('l') => self.overlay = Some(Overlay::Log),
+            KeyCode::Char('o') if self.can_log_out() => self.ask(Confirm::LogOut),
             KeyCode::Char('?') => self.overlay = Some(Overlay::Keys),
             KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Esc | KeyCode::Char('q') => {
                 return self.finish();
@@ -1413,6 +1421,13 @@ impl App {
             _ => {}
         }
         Flow::Continue
+    }
+
+    /// Whether the session is worth ending. Restarting the desktop around a shell that is only
+    /// half installed is how a machine ends up with no desktop at all, so a run with something
+    /// left unresolved is one to put right before it is logged out of.
+    pub fn can_log_out(&self) -> bool {
+        self.tally().unresolved() == 0
     }
 
     /// The exit code has to agree with the screen: a session with a step that failed, or that the
@@ -1574,6 +1589,13 @@ impl App {
                 Flow::Done(Outcome::Ok)
             }
             Confirm::Install => self.confirm_install(),
+            // Ending the session is the last thing the wizard does, so it leaves the same way the
+            // other handoffs do: the terminal is given back first, and the logout is asked for
+            // outside the wizard.
+            Confirm::LogOut => {
+                self.handoff = Some(Handoff::LogOut);
+                self.finish()
+            }
         }
     }
 
@@ -2777,6 +2799,53 @@ mod tests {
         char_key(&mut app, 'r');
         assert_eq!(app.stage, Stage::Done);
         assert!(app.notice.is_some());
+    }
+
+    #[test]
+    fn logging_out_is_asked_for_before_the_session_ends() {
+        let mut app = app();
+        app.statuses = vec![Status::Ok; STEPS.len()];
+        app.stage = Stage::Done;
+
+        assert_eq!(char_key(&mut app, 'o'), Flow::Continue);
+        assert_eq!(
+            app.confirm,
+            Some(Confirm::LogOut),
+            "the session is not ended on one key"
+        );
+        assert_eq!(app.overlay, Some(Overlay::Confirm));
+        assert_eq!(
+            app.confirm_focus, 1,
+            "the highlight starts on the answer that keeps the session"
+        );
+
+        // Closing the card changes nothing, and leaves the reader where they were.
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.confirm, None);
+        assert_eq!(app.stage, Stage::Done);
+        assert_eq!(app.handoff, None);
+
+        // And the answer that says yes hands the logout to the caller, outside the wizard: the
+        // session cannot be ended while the terminal belongs to a screen being drawn on it.
+        char_key(&mut app, 'o');
+        assert_eq!(char_key(&mut app, 'y'), Flow::Done(Outcome::Ok));
+        assert_eq!(app.handoff, Some(Handoff::LogOut));
+    }
+
+    #[test]
+    fn a_run_that_did_not_finish_is_not_logged_out_of() {
+        let mut app = app();
+        app.statuses = vec![Status::Ok; STEPS.len()];
+        app.statuses[4] = Status::Failed;
+        app.stage = Stage::Done;
+
+        assert!(
+            !app.can_log_out(),
+            "a half-installed desktop is not a session to restart"
+        );
+        assert_eq!(char_key(&mut app, 'o'), Flow::Continue);
+        assert_eq!(app.confirm, None);
+        assert_eq!(app.handoff, None);
     }
 
     #[test]

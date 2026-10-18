@@ -1417,6 +1417,12 @@ fn done(frame: &mut Frame, app: &App, body: Rect) {
             theme,
             LABEL_COLUMN,
         ));
+        lines.push(ui::labeled(
+            "logout",
+            "o here, or log out from the desktop's own menu".to_string(),
+            theme,
+            LABEL_COLUMN,
+        ));
     }
     lines.push(ui::labeled(
         "update",
@@ -1605,6 +1611,13 @@ fn confirm_overlay(frame: &mut Frame, app: &App) {
             "Stop the install here?",
             "A step that is running is stopped first. Work already done stays done.".to_string(),
             Role::Warn,
+        ),
+        Some(Confirm::LogOut) => (
+            "Log out now?",
+            "Everything open is closed and the next session starts with Caelestia. Save what you \
+             are working on first."
+                .to_string(),
+            Role::Accent,
         ),
     };
 
@@ -2927,6 +2940,54 @@ mod tests {
             text.contains("r retry failed"),
             "the way out of an unfinished run: {text}"
         );
+    }
+
+    #[test]
+    fn the_summary_offers_to_log_out_for_the_reader() {
+        let mut app = app();
+        app.stage = Stage::Done;
+        app.statuses = vec![Status::Ok; STEPS.len()];
+        app.landed = Some(landed());
+        let text = render(&mut app, 110, 32);
+
+        assert!(
+            text.contains("o here, or log out from the desktop's own menu"),
+            "{text}"
+        );
+        assert!(
+            text.contains("o log out"),
+            "the key is in the footer: {text}"
+        );
+    }
+
+    #[test]
+    fn the_summary_does_not_offer_a_logout_it_will_not_do() {
+        let mut app = app();
+        app.stage = Stage::Done;
+        app.statuses = vec![Status::Ok; STEPS.len()];
+        app.statuses[4] = Status::Failed;
+        app.landed = Some(landed());
+        let text = render(&mut app, 110, 32);
+
+        assert!(!text.contains("o here"), "{text}");
+        assert!(!text.contains("o log out"), "{text}");
+    }
+
+    #[test]
+    fn the_logout_card_says_what_ending_the_session_does() {
+        let mut app = app();
+        app.stage = Stage::Done;
+        app.statuses = vec![Status::Ok; STEPS.len()];
+        app.ask(crate::app::Confirm::LogOut);
+        let text = render(&mut app, 100, 30);
+
+        assert!(text.contains("Log out now?"), "{text}");
+        assert!(
+            text.contains("Save what you") && text.contains("working on first"),
+            "the reader is told what it costs them: {text}"
+        );
+        assert!(text.contains("Log out (y)"), "{text}");
+        assert!(text.contains("Not now (n)"), "{text}");
     }
 
     #[test]

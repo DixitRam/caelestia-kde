@@ -254,11 +254,9 @@ pub fn run(bundle: &Path) -> Result<(), Failure> {
 
     if asked("Would you like to log out now?") {
         println!("Logging out...");
-        let _ = process::succeeds(
-            "qdbus6",
-            &["org.kde.Shutdown", "/Shutdown", "org.kde.Shutdown.logout"],
-            None,
-        );
+        if let Err(problem) = crate::logout::now() {
+            output::err(&problem);
+        }
     } else {
         println!("Exiting script. Please remember to log out manually later.");
     }
