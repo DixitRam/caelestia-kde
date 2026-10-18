@@ -269,7 +269,7 @@ fn state_line(app: &App) -> Line<'static> {
 fn finish_line(app: &App) -> Option<Line<'static>> {
     let (step, _) = app.unfinished.last()?;
     Some(Line::from(Span::styled(
-        format!("stopped at {step} ? install again to finish it"),
+        format!("stopped at {step} \u{00b7} install again to finish it"),
         app.theme.muted(),
     )))
 }
