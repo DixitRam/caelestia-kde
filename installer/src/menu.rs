@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 pub type Answers = BTreeMap<&'static str, String>;
 
 pub const PRESET_THEME_APPS: &str = "preset_theme_apps";
+pub const PRESET_NONE_APPS: &str = "preset_none_apps";
 #[derive(Debug)]
 pub enum Entry {
     Submenu {
@@ -24,12 +25,14 @@ pub enum Entry {
         options: &'static [&'static str],
     },
     /// One row that stands for a group of toggles: the bulk answer, with the individual ones
-    /// still available where they live.
+    /// still available where they live. `on` is what it writes, so a group can have an "all of
+    /// them" and a "none of them" without either being a special case in the key handler.
     Preset {
         id: &'static str,
         title: &'static str,
         help: &'static str,
         members: &'static [&'static str],
+        on: bool,
     },
 }
 
@@ -98,7 +101,7 @@ const APP_THEMING: [&str; 6] = [
 /// The look, and the packages it is made of. The icon set, the theme and the Qt style the look is
 /// built on are not offered one at a time: turning any of them off does not give a smaller
 /// Caelestia, it gives a broken one that the configuration deployed later does not match.
-const APPEARANCE: [Entry; 4] = [
+const APPEARANCE: [Entry; 5] = [
     Entry::Toggle {
         id: "INSTALL_SDDM",
         title: "Login screen",
@@ -124,25 +127,33 @@ const APPEARANCE: [Entry; 4] = [
         help: "Rubik and JetBrains Mono Nerd Font, system-wide.",
         default: true,
     },
+    // The login shell used to be a question with this one row on it, which cost a whole screen
+    // to ask a thing most people never change. It is an appearance decision, so it lives here.
+    Entry::Choice {
+        id: "DEFAULT_SHELL",
+        title: "Login shell",
+        help: "",
+        default: "fish",
+        options: &["fish", "zsh", "bash"],
+    },
 ];
 
-const SHELL: [Entry; 1] = [Entry::Choice {
-    id: "DEFAULT_SHELL",
-    title: "Login shell",
-    help: "",
-    default: "fish",
-    options: &["fish", "zsh", "bash"],
-}];
-
-const APPS: [Entry; 7] = [
-    // The bulk answer sits at the top of the question it answers: this is where somebody who
-    // wants all of it on looks, so the one row that does that belongs here rather than in a
-    // menu of its own.
+const APPS: [Entry; 8] = [
+    // The bulk answers sit at the top of the question they answer: this is where somebody who
+    // wants all of it on, or none of it, looks first.
     Entry::Preset {
         id: PRESET_THEME_APPS,
-        title: "Theme all of them",
+        title: "All of them",
         help: "",
         members: &APP_THEMING,
+        on: true,
+    },
+    Entry::Preset {
+        id: PRESET_NONE_APPS,
+        title: "None of them",
+        help: "",
+        members: &APP_THEMING,
+        on: false,
     },
     Entry::Toggle {
         id: "INSTALL_VSCODE",
@@ -176,7 +187,7 @@ const APPS: [Entry; 7] = [
     },
     Entry::Toggle {
         id: "INSTALL_FIREFOX_THEME",
-        title: "Firefox theming",
+        title: "Firefox",
         help: "",
         default: false,
     },
@@ -201,16 +212,11 @@ const OPTIONS: [Entry; 2] = [
 /// group of answers that belong to the same decision, so a screen is never a list of unrelated
 /// settings and never needs a second level of menus. The last one is the knobs a fresh install is
 /// right to leave alone; its name is what a reader expects to find there.
-pub const QUESTIONS: [Entry; 4] = [
+pub const QUESTIONS: [Entry; 3] = [
     Entry::Submenu {
         id: "menu_appearance",
         title: "Appearance",
         items: &APPEARANCE,
-    },
-    Entry::Submenu {
-        id: "menu_shell",
-        title: "Shell",
-        items: &SHELL,
     },
     Entry::Submenu {
         id: "menu_apps",
@@ -249,19 +255,18 @@ pub fn question(question: usize) -> &'static str {
 /// nothing to theme, and a login screen style only means something if the login screen is being
 /// replaced. The bulk row goes with its members, so it can never switch on what nobody can see.
 pub fn shows(entry: &Entry, answers: &Answers, apps: &crate::apps::Apps) -> bool {
-    if !apps.has(entry.id()) {
-        return false;
-    }
+    let _ = apps;
     match entry.id() {
-        PRESET_THEME_APPS => apps.any(),
+        // Both bulk rows go together: they are the answer for the list under them.
+        PRESET_THEME_APPS | PRESET_NONE_APPS => true,
         "SDDM_THEME_VARIANT" => answers.get("INSTALL_SDDM").map(String::as_str) != Some("false"),
         _ => true,
     }
 }
 
-/// The shell question owns whether Fish is installed. They used to be two rows on two screens,
-/// which let somebody ask to log in to a shell that was never installed: one decision about the
-/// shell cannot contradict itself.
+/// Fish is installed when it is the login shell. They used to be two rows on two screens, which
+/// let somebody ask to log in to a shell that was never installed: one decision about the shell
+/// cannot contradict itself. The row itself now lives with the other appearance choices.
 fn fish_follows_the_shell(answers: &mut Answers) {
     let shell = answers
         .get("DEFAULT_SHELL")
@@ -338,13 +343,10 @@ pub fn baseline_of<'a>(entry: &Entry, baseline: &'a Answers) -> Option<&'a str> 
 /// bulk row on must not answer for an app that was never offered, or the step behind it would
 /// install what nobody asked for.
 pub fn members_here(entry: &Entry, apps: &crate::apps::Apps) -> Vec<&'static str> {
-    entry
-        .members()
-        .unwrap_or_default()
-        .iter()
-        .copied()
-        .filter(|id| apps.has(id))
-        .collect()
+    let _ = apps;
+    // Every member, whether or not this machine has it: these rows decide what to install, so a
+    // machine that has none of the apps is exactly the machine that needs to see them all.
+    entry.members().unwrap_or_default().to_vec()
 }
 
 pub fn is_changed(
@@ -395,11 +397,15 @@ pub fn reset(
 
 /// A bulk row is on when every app it stands for is on.
 pub fn preset_on(entry: &Entry, apps: &crate::apps::Apps, answers: &Answers) -> bool {
+    let Entry::Preset { on, .. } = entry else {
+        return false;
+    };
+    let wanted = if *on { "true" } else { "false" };
     let members = members_here(entry, apps);
     !members.is_empty()
         && members
             .iter()
-            .all(|id| answers.get(id).map(String::as_str) == Some("true"))
+            .all(|id| answers.get(id).map(String::as_str) == Some(wanted))
 }
 
 pub fn preset_set(
@@ -875,24 +881,18 @@ mod tests {
     }
 
     #[test]
-    fn the_bulk_row_answers_for_the_apps_that_are_on_screen_and_no_others() {
-        // One app here, six in the table: the bulk row must not switch on what nobody was
-        // offered, or the step behind it would install an editor for somebody who has one.
-        let mut wizard = Wizard::on(crate::apps::Apps {
-            zed: true,
-            ..crate::apps::Apps::default()
-        });
+    fn the_bulk_rows_answer_for_every_app_in_the_list() {
+        let mut wizard = Wizard::on(crate::apps::Apps::default());
 
         assert!(wizard.set_bulk(true));
-        assert_eq!(wizard.value("INSTALL_ZED"), Some("true"));
-        assert_eq!(
-            wizard.value("INSTALL_VSCODE"),
-            Some("false"),
-            "only the app on screen was answered for"
-        );
+        for id in crate::apps::Apps::IDS {
+            assert_eq!(wizard.value(id), Some("true"), "{id} was left out");
+        }
 
         assert!(wizard.set_bulk(false));
-        assert_eq!(wizard.value("INSTALL_ZED"), Some("false"));
+        for id in crate::apps::Apps::IDS {
+            assert_eq!(wizard.value(id), Some("false"), "{id} was left out");
+        }
     }
 
     #[test]
@@ -993,15 +993,24 @@ mod tests {
     }
 
     #[test]
-    fn an_app_that_is_not_here_is_not_a_row_to_answer() {
-        assert!(!Wizard::on(crate::apps::Apps::default()).visible("INSTALL_ZED"));
-        assert!(Wizard::new().visible("INSTALL_ZED"));
-    }
+    fn every_supported_app_is_a_row_whether_or_not_it_is_here() {
+        // These rows decide what to install, so a machine with none of the apps is exactly the
+        // machine that has to see them all. What the machine already has decides the default, not
+        // whether the row exists.
+        let empty = Wizard::on(crate::apps::Apps::default());
+        assert!(empty.visible("INSTALL_ZED"));
+        assert!(empty.visible(PRESET_THEME_APPS));
+        assert_eq!(empty.value("INSTALL_ZED"), Some("false"), "and starts off");
 
-    #[test]
-    fn the_bulk_row_goes_with_the_rows_it_stands_for() {
-        assert!(!Wizard::on(crate::apps::Apps::default()).visible(PRESET_THEME_APPS));
-        assert!(Wizard::new().visible(PRESET_THEME_APPS));
+        let with_zed = Wizard::on(crate::apps::Apps {
+            zed: true,
+            ..crate::apps::Apps::default()
+        });
+        assert_eq!(
+            with_zed.value("INSTALL_ZED"),
+            Some("true"),
+            "an app that is already there starts on"
+        );
     }
 
     #[test]

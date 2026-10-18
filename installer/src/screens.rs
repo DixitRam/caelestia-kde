@@ -916,11 +916,14 @@ fn value_of(entry: &'static Entry, app: &App) -> String {
     }
 }
 
+/// A switch reads as a checkbox, which is what it is: one row, one yes or no, and the same shape
+/// on every screen that offers one.
 fn on_off(on: bool, glyphs: Glyphs) -> String {
-    if on {
-        format!("{} on", glyphs.status(Status::Ok))
-    } else {
-        format!("{} off", glyphs.mark())
+    match (on, glyphs.plain()) {
+        (true, false) => "▣ on".to_string(),
+        (false, false) => "▢ off".to_string(),
+        (true, true) => "[x] on".to_string(),
+        (false, true) => "[ ] off".to_string(),
     }
 }
 
@@ -931,37 +934,29 @@ fn review(frame: &mut Frame, app: &App, body: Rect) {
     let glyphs = app.glyphs;
     let (summary, list) = ui::review_layout(body);
 
-    let will_run = STEPS
-        .iter()
-        .filter(|step| !crate::steps::is_skipped(step, &app.answers))
-        .count();
     let changed = count_changed(app);
+    // What the user is about to get, in their terms. How many internal steps it takes is the
+    // installer's business: it says nothing about what will happen to their machine.
+    let mut headline = vec![Span::styled(
+        "Caelestia will be installed.".to_string(),
+        theme.heading(),
+    )];
+    if changed > 0 {
+        headline.push(Span::styled(
+            format!("  {} changed.", ui::plural(changed, "option", "options")),
+            theme.accent(),
+        ));
+    }
     ui::prose(
         frame,
         summary,
-        vec![Line::from(vec![
-            Span::styled(
-                format!(
-                    "{} of {} will run",
-                    will_run,
-                    ui::plural(STEPS.len(), "step", "steps")
-                ),
-                theme.body(),
-            ),
-            Span::styled(" · ", theme.muted()),
-            Span::styled(
-                if changed == 0 {
-                    "every option is at its default".to_string()
-                } else {
-                    ui::plural(changed, "option changed", "options changed")
-                },
-                if changed == 0 {
-                    theme.muted()
-                } else {
-                    theme.accent()
-                },
-            ),
-        ])],
+        vec![
+            Line::from(headline),
+            Line::from(Span::styled(
+                "Your own settings are backed up first.".to_string(),
+                theme.muted(),
+            )),
+        ],
         theme.body(),
     );
 
@@ -995,17 +990,12 @@ fn review_sections(app: &App) -> Vec<Vec<Line<'static>>> {
     let glyphs = app.glyphs;
     let mut sections = Vec::new();
     for phase in Phase::ALL {
-        let mut section: Vec<Line<'static>> = vec![Line::from(vec![
-            Span::styled(phase.title().to_uppercase(), theme.title()),
-            Span::styled(
-                format!(
-                    " · {} of {}",
-                    STEPS.iter().filter(|step| step.phase == phase).count(),
-                    ui::plural(STEPS.len(), "step", "steps")
-                ),
-                theme.muted(),
-            ),
-        ])];
+        // The heading is the phase and nothing else. Counting steps here told the reader how the
+        // installer is built rather than what it is about to do.
+        let mut section: Vec<Line<'static>> = vec![Line::from(Span::styled(
+            phase.title().to_uppercase(),
+            theme.title(),
+        ))];
         for step in STEPS.iter().filter(|step| step.phase == phase) {
             let skipped = crate::steps::is_skipped(step, &app.answers);
             let status = if skipped {
@@ -1682,45 +1672,23 @@ fn confirm_overlay(frame: &mut Frame, app: &App) {
     for line in wrap(&question, (inner.width as usize).saturating_sub(2)) {
         lines.push(Line::from(Span::styled(line, theme.muted())));
     }
-    // What the yes actually starts, counted from the answers rather than asserted.
+    // What the yes actually starts, in the terms of the person saying it.
     if app.confirm == Some(Confirm::Install) {
-        let will_run = STEPS
-            .iter()
-            .filter(|step| !crate::steps::is_skipped(step, &app.answers))
-            .count();
-        let skipped = STEPS.len() - will_run;
         let changed = count_changed(app);
         lines.push(blank());
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!(
-                    " {} of {}",
-                    will_run,
-                    ui::plural(STEPS.len(), "step", "steps")
-                ),
-                theme.body(),
-            ),
-            Span::styled(
-                if skipped == 0 {
-                    " · nothing switched off".to_string()
-                } else {
-                    format!(" · {skipped} switched off")
-                },
-                theme.muted(),
-            ),
-        ]));
         lines.push(Line::from(Span::styled(
-            if changed == 0 {
-                " every option is at its default".to_string()
-            } else {
-                format!(" {} changed", ui::plural(changed, "option", "options"))
-            },
-            if changed == 0 {
-                theme.muted()
-            } else {
-                theme.accent()
-            },
+            "Your settings are backed up first.".to_string(),
+            theme.muted(),
         )));
+        if changed > 0 {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "{} changed from the defaults.",
+                    ui::plural(changed, "option", "options")
+                ),
+                theme.accent(),
+            )));
+        }
     }
     lines.push(blank());
     ui::prose(frame, inner, lines, theme.body());
@@ -2232,11 +2200,12 @@ mod tests {
         app.overlay = Some(Overlay::Confirm);
         let text = render(&mut app, 100, 30);
         assert!(text.contains("Install Caelestia now?"), "{text}");
+        // What a person is told is what happens to their machine, not how many steps it takes.
+        assert!(text.contains("backed up"), "{text}");
         assert!(
-            text.contains(&format!("of {} steps", STEPS.len())),
-            "the work is counted rather than asserted: {text}"
+            !text.contains("steps"),
+            "the step count is the installer's business: {text}"
         );
-        assert!(text.contains("every option is at its default"), "{text}");
     }
 
     fn char_key(app: &mut App, character: char) -> Flow {
@@ -2392,7 +2361,9 @@ mod tests {
     }
 
     #[test]
-    fn an_app_question_with_nothing_left_to_ask_says_so_rather_than_going_blank() {
+    fn the_app_question_offers_every_app_even_on_a_machine_that_has_none() {
+        // The rows are an install decision, so a machine with none of the apps has to see all of
+        // them - that is the machine that needs them.
         let mut app = app().with_apps(crate::apps::Apps::default());
         app.stage = Stage::Options;
         app.question = (0..menu::question_count())
@@ -2404,11 +2375,19 @@ mod tests {
             .expect("the app question is in the tree");
 
         let text = render(&mut app, 100, 30);
-        assert!(text.contains("Nothing on this machine"), "{text}");
-        assert!(
-            text.contains("Applications"),
-            "and it is still the question being asked: {text}"
-        );
+        for id in crate::apps::Apps::IDS {
+            let entry = menu::every_entry()
+                .into_iter()
+                .find(|entry| entry.id() == id)
+                .expect("every app id is a row");
+            assert!(
+                text.contains(entry.title()),
+                "{} is missing: {text}",
+                entry.title()
+            );
+        }
+        assert!(text.contains("All of them"), "{text}");
+        assert!(text.contains("None of them"), "{text}");
     }
 
     #[test]
@@ -2508,8 +2487,8 @@ mod tests {
         assert!(text.contains("FINALIZE"), "{text}");
         assert!(text.contains("Update system"), "{text}");
         assert!(
-            text.contains("will run"),
-            "the summary answers the question: {text}"
+            text.contains("will be installed"),
+            "the summary answers the question in the user's terms: {text}"
         );
         assert!(
             text.contains("– "),

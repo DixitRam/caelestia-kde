@@ -2777,7 +2777,11 @@ mod tests {
 
         // And on a select it steps through the options rather than doing nothing.
         app.question = question_of("DEFAULT_SHELL");
-        app.cursor = 0;
+        app.cursor = app
+            .current_entries()
+            .iter()
+            .position(|entry| entry.id() == "DEFAULT_SHELL")
+            .expect("the login shell row is in its question");
         let select = app.selected().map(Entry::id).expect("a select");
         assert_eq!(app.answers.get(select).map(String::as_str), Some("fish"));
         char_key(&mut app, ' ');
@@ -2997,31 +3001,24 @@ mod tests {
     }
 
     #[test]
-    fn a_question_whose_rows_have_all_gone_can_still_be_left() {
-        // The app rows go when the machine has none of the apps, and the login screen style goes
-        // when the login screen is left alone. Neither leaves the user stuck on a screen.
+    fn a_question_that_loses_a_row_cannot_strand_the_cursor() {
+        // Rows come and go with the answers - the login screen style goes when the login screen is
+        // left alone - so the cursor has to be pulled back onto whatever is left rather than
+        // pointing past it.
         let mut app = app();
         app.stage = Stage::Options;
-        app.question = question_of(menu::PRESET_THEME_APPS);
-        app.apps = crate::apps::Apps::default();
-        for (id, answer) in crate::apps::Apps::default().answers() {
-            app.answers.insert(id, answer.to_string());
-        }
+        app.question = question_of("SDDM_THEME_VARIANT");
+        app.cursor = 99;
 
-        assert!(app.current_entries().is_empty());
-        assert!(app.selected().is_none());
-
-        // A key that would change a row does nothing rather than panicking.
         char_key(&mut app, ' ');
-        char_key(&mut app, 'j');
-        assert_eq!(app.cursor, 0);
+        assert!(
+            app.cursor < app.current_entries().len(),
+            "the cursor is on the list"
+        );
+        assert!(app.selected().is_some());
 
         press(&mut app, KeyCode::Enter);
-        assert_eq!(app.question, 3, "onward still works");
-        assert_eq!(app.stage, Stage::Options);
-
-        press(&mut app, KeyCode::Esc);
-        assert_eq!(app.question, 2, "and back does too");
+        assert_eq!(app.stage, Stage::Options, "onward still works");
     }
 
     #[test]

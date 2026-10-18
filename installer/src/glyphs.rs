@@ -30,6 +30,12 @@ impl Glyphs {
         Self { set: pick(env) }
     }
 
+    /// Whether this set is the plain one, for the few places where a glyph is chosen rather than
+    /// looked up. A checkbox is a shape, not a status, so it is drawn here.
+    pub fn plain(self) -> bool {
+        matches!(self.set, Set::Ascii)
+    }
+
     /// The width every status glyph occupies, so names line up whatever the state is.
     pub fn status_cell(self) -> usize {
         match self.set {

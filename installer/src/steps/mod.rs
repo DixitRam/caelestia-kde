@@ -148,13 +148,13 @@ pub const STEPS: [Step; 17] = [
         run: system_update::run,
     },
     Step {
-        name: "Ensure prerequisites",
+        name: "Check for required tools",
         id: "01-ensure-prereqs",
         phase: Phase::Prepare,
         run: prereqs::run,
     },
     Step {
-        name: "Update submodules",
+        name: "Fetch the shell sources",
         id: "02a-submodules",
         phase: Phase::Prepare,
         run: submodules::run,
@@ -172,7 +172,7 @@ pub const STEPS: [Step; 17] = [
         run: packages::all,
     },
     Step {
-        name: "Set up Python tooling and matugen",
+        name: "Set up the theming tools",
         id: "02-packages",
         phase: Phase::Packages,
         run: packages::tooling,
@@ -238,7 +238,7 @@ pub const STEPS: [Step; 17] = [
         run: autostart::run,
     },
     Step {
-        name: "Install optional components",
+        name: "Install the apps you picked",
         id: "11-optional-apps",
         phase: Phase::Finalize,
         run: optional_apps::run,
@@ -469,7 +469,7 @@ mod tests {
     #[test]
     fn the_backup_runs_after_the_submodule_update_on_purpose() {
         let position = |name: &str| STEPS.iter().position(|step| step.name == name).unwrap();
-        assert!(position("Back up current setup") > position("Update submodules"));
+        assert!(position("Back up current setup") > position("Fetch the shell sources"));
     }
 
     #[test]
@@ -503,7 +503,7 @@ mod tests {
     fn optional_components_run_only_when_one_app_is_asked_for() {
         let step = STEPS
             .iter()
-            .find(|step| step.name == "Install optional components")
+            .find(|step| step.name == "Install the apps you picked")
             .unwrap();
         assert!(is_skipped(step, &BTreeMap::new()));
         for answer in OPTIONAL_APP_ANSWERS {
