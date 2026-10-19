@@ -307,18 +307,18 @@ mod tests {
     fn set_answers_an_option_without_walking_the_wizard() {
         let parsed = run(&[
             "--set",
-            "INSTALL_SDDM=false",
+            "SYNC_LOGIN_SCREEN=false",
             "--set",
             "DEFAULT_SHELL=zsh",
             "--set",
-            "INSTALL_SDDM=true",
+            "SYNC_LOGIN_SCREEN=true",
         ]);
         assert_eq!(
             parsed.set,
             vec![
-                ("INSTALL_SDDM", "false".to_string()),
+                ("SYNC_LOGIN_SCREEN", "false".to_string()),
                 ("DEFAULT_SHELL", "zsh".to_string()),
-                ("INSTALL_SDDM", "true".to_string()),
+                ("SYNC_LOGIN_SCREEN", "true".to_string()),
             ],
             "in the order they were given, so the last one wins"
         );
@@ -328,7 +328,7 @@ mod tests {
     fn a_set_that_names_no_option_or_no_value_is_refused() {
         assert!(parse_args(&["--set"]).unwrap_err().contains("ID=value"));
         assert!(
-            parse_args(&["--set", "INSTALL_SDDM"])
+            parse_args(&["--set", "SYNC_LOGIN_SCREEN"])
                 .unwrap_err()
                 .contains("ID=value")
         );
@@ -336,7 +336,7 @@ mod tests {
         let unknown = parse_args(&["--set", "INSTALL_WIDGET=true"]).unwrap_err();
         assert!(unknown.contains("INSTALL_WIDGET"), "{unknown}");
 
-        let wrong = parse_args(&["--set", "INSTALL_SDDM=yes"]).unwrap_err();
+        let wrong = parse_args(&["--set", "SYNC_LOGIN_SCREEN=yes"]).unwrap_err();
         assert!(wrong.contains("true or false"), "{wrong}");
 
         let impossible = parse_args(&["--set", "DEFAULT_SHELL=tcsh"]).unwrap_err();

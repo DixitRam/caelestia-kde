@@ -242,17 +242,12 @@ if("shell" IN_LIST ENABLE_MODULES)
     install(FILES LICENSE DESTINATION "${INSTALL_QSCONFDIR}")
 
     if(CAELESTIA_PACKAGE)
-        set(_SDDM_THEME_DIR "usr/share/sddm/themes/caelestia")
-        caelestia_install_directory(
-            "${CAELESTIA_ROOT_DIR}/src/sddm/themes/full/"
-            DESTINATION "${_SDDM_THEME_DIR}"
-            )
+        # The greeter's sync helper, under the name the install looks for. It is not a login
+        # theme: Plasma Login draws its own screen and this only keeps its colours in step.
         install(PROGRAMS
-            "${CAELESTIA_ROOT_DIR}/src/sddm/sync.sh"
-            DESTINATION "${_SDDM_THEME_DIR}/scripts")
-        install(FILES
-            "${CAELESTIA_ROOT_DIR}/src/kde/shells/caelestia.desktop/contents/fonts/GoogleSansFlex.ttf"
-            DESTINATION "${_SDDM_THEME_DIR}/assets/google-sans-flex")
+            "${CAELESTIA_ROOT_DIR}/src/greeter/sync.sh"
+            DESTINATION "${INSTALL_BINDIR}"
+            RENAME "caelestia-greeter-sync")
         caelestia_install_directory(
             "${CAELESTIA_ROOT_DIR}/src/kde/shells/caelestia.desktop"
             DESTINATION "usr/share/plasma/shells"

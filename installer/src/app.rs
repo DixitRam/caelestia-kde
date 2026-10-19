@@ -598,14 +598,10 @@ impl App {
         }
     }
 
-    /// The rows of the question on screen, with the ones that are not worth showing left out: an
-    /// app this machine does not have has nothing here to theme. This is the list the cursor
-    /// indexes, so what is drawn and what a key moves over cannot disagree.
+    /// The rows of the question on screen. This is the list the cursor indexes, so what is drawn
+    /// and what a key moves over cannot disagree.
     pub fn current_entries(&self) -> Vec<&'static Entry> {
-        menu::items_of(self.question)
-            .iter()
-            .filter(|entry| menu::shows(entry, &self.answers, &self.apps))
-            .collect()
+        menu::items_of(self.question).iter().collect()
     }
 
     pub fn selected(&self) -> Option<&'static Entry> {
@@ -1275,9 +1271,9 @@ impl App {
         // The answers, then the row that goes on: the way out of a question is the last row of
         // the list, so the arrows find it as they find everything else.
         let rows = entries.len() + 1;
-        // Rows come and go with the answers — a login screen style goes when the login screen is
-        // left alone — so the cursor is pulled back onto the list before it is moved, and entering
-        // and leaving keep working on a question whose rows have all gone.
+        // Rows come and go with the answers — an option goes when it is no longer reachable — so
+        // the cursor is pulled back onto the list before it is moved, and entering and leaving
+        // keep working on a question whose rows have all gone.
         self.cursor = self.cursor.min(rows - 1);
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
@@ -3097,7 +3093,7 @@ mod tests {
     fn a_scripted_answer_is_where_the_wizard_starts_rather_than_a_change() {
         let mut app = app();
         app.apply_settings(&[
-            ("INSTALL_SDDM", "false".to_string()),
+            ("SYNC_LOGIN_SCREEN", "false".to_string()),
             ("DEFAULT_SHELL", "zsh".to_string()),
         ]);
 
@@ -3136,13 +3132,12 @@ mod tests {
     }
 
     #[test]
-    fn a_question_that_loses_a_row_cannot_strand_the_cursor() {
-        // Rows come and go with the answers - the login screen style goes when the login screen is
-        // left alone - so the cursor has to be pulled back onto whatever is left rather than
-        // pointing past it.
+    fn a_cursor_past_the_end_of_a_question_is_pulled_back_onto_it() {
+        // A question can be reached with a cursor left over from a longer one, so the cursor has
+        // to be pulled back onto whatever is there rather than pointing past it.
         let mut app = app();
         app.stage = Stage::Options;
-        app.question = question_of("SDDM_THEME_VARIANT");
+        app.question = question_of("SYNC_LOGIN_SCREEN");
         app.cursor = 99;
 
         press(&mut app, KeyCode::Down);
@@ -3183,19 +3178,22 @@ mod tests {
     }
 
     #[test]
-    fn leaving_a_question_hides_a_row_without_moving_the_cursor_off_its_neighbour() {
+    fn switching_a_row_off_leaves_the_cursor_on_it() {
         let mut app = app();
         app.stage = Stage::Options;
-        app.question = question_of("INSTALL_SDDM");
+        app.question = question_of("SYNC_LOGIN_SCREEN");
         app.cursor = 0;
         let rows = app.current_entries().len();
 
-        // Turning the login screen off takes the style under it with it.
         char_key(&mut app, ' ');
-        assert_eq!(app.current_entries().len(), rows - 1);
+        assert_eq!(
+            app.current_entries().len(),
+            rows,
+            "the row stays where it can be switched back on"
+        );
         assert_eq!(
             app.selected().map(Entry::id),
-            Some("INSTALL_SDDM"),
+            Some("SYNC_LOGIN_SCREEN"),
             "the cursor is still on the row that was changed"
         );
         assert!(app.cursor < app.current_entries().len());

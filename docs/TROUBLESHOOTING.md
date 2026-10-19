@@ -524,101 +524,55 @@ The plugin injects a temporary KWin script for window tracking. If KWin scriptin
 qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript
 ```
 
-### 7.6 The Login Screen (Plasma Login and SDDM)
+### 7.6 The Login Screen (Plasma Login)
 
-Plasma 6.6 and newer boot into Plasma Login, KDE's fork of SDDM. The two are
-configured in different places, and the installer picks a branch at install time:
+Caelestia does not install a login theme. Plasma 6.6 and newer boot into Plasma Login,
+whose greeter's QML is compiled into `/usr/lib/plasma-login-greeter`: there is no
+theme directory, no `--theme`, and no name in a configuration file that points it at
+someone else's screen. The screen Caelestia draws itself is the **lock screen** - see
+7.9 - which kscreenlocker loads from a Plasma shell package.
 
-| | Plasma Login | SDDM |
-|---|---|---|
-| How to tell | `plasmalogin.service` is active/enabled | `sddm.service` is active/enabled |
-| Theme | none: its greeter is a Plasma shell, and it loads no SDDM theme | `/usr/share/sddm/themes/caelestia` |
-| Wallpaper | `[Greeter][Wallpaper][org.kde.image][General] Image` in `/etc/plasmalogin.conf`, pointing at a copy under the `plasmalogin` user's `wallpapers/` | `assets/background` inside the theme |
-| Colors | the `plasmalogin` user's own `~/.config/kdeglobals` plus the scheme files in its `~/.local/share/color-schemes/` | `theme.conf` inside the theme |
-| Sync helper | `/usr/local/bin/caelestia-greeter-sync` | `/usr/share/sddm/themes/caelestia/scripts/sync.sh` |
+What an install can set on the login screen is what it shows, not how it is laid out:
+
+| | Plasma Login |
+|---|---|
+| Wallpaper | `[Greeter][Wallpaper][org.kde.image][General] Image` in `/etc/plasmalogin.conf`, pointing at a copy under the `plasmalogin` user's `wallpapers/caelestia/` |
+| Colours | the `plasmalogin` user's own `~/.config/kdeglobals` plus the scheme files in its `~/.local/share/color-schemes/` |
+| Sync helper | `/usr/local/bin/caelestia-greeter-sync` for a checkout and `/usr/bin/caelestia-greeter-sync` from the package, plus the sudoers rule at `/etc/sudoers.d/caelestia-greeter-sync` that lets the desktop run it |
 
 The greeter runs as its own system user, which cannot read your home directory, so
 anything it shows has to be copied to it. That is what the sync helper does, and it
-runs after every wallpaper or color change through the posthook in
-`~/.config/caelestia/cli.json`. An install that switches display managers replaces
-its hook rather than stacking a second one.
+runs after every wallpaper or colour change through the posthook in
+`~/.config/caelestia/cli.json`. A machine that boots another display manager is left
+alone: the step says so and changes nothing.
 
-**The login screen shows Breeze colors or no background:**
+**The login screen shows Breeze colours or no background:**
 
 ```bash
 # Which display manager is actually installed
 command -v plasmalogin sddm
+readlink -f /etc/systemd/system/display-manager.service
 
-# Plasma Login: what the greeter is told to show
+# What the greeter is told to show
 kreadconfig6 --file /etc/plasmalogin.conf --group Greeter --group Wallpaper \
     --group org.kde.image --group General --key Image
 
-# SDDM: which theme each config source selects, last one read wins
-grep -rn "Current=" /etc/sddm.conf /etc/sddm.conf.d/ /usr/lib/sddm/sddm.conf.d/ 2>/dev/null
-ls /usr/share/sddm/themes/caelestia/theme.conf
-
 # Re-copy the wallpaper and the scheme, then log out
-sudo /usr/local/bin/caelestia-greeter-sync          # Plasma Login
-sudo /usr/share/sddm/themes/caelestia/scripts/sync.sh   # SDDM
+sudo /usr/local/bin/caelestia-greeter-sync   # /usr/bin/… from the package
+caelestia login-screen
 ```
 
-Both greeters read their configuration when they start, so a change is visible at
-the next logout rather than immediately.
+The greeter reads its configuration when it starts, so a change is visible at the next
+logout rather than immediately.
 
-**The login screen style (full or mini) is not what was chosen:**
+**The colours stop following the desktop:**
 
-Only SDDM wears the Caelestia theme. Plasma Login draws its own login screen and
-loads no theme of ours, so a machine running it keeps its own screen and takes only
-the colours and the wallpaper; the step says as much in its output. On SDDM the
-theme is installed in the variant that was chosen, and `caelestia login-screen`
-re-installs it in the variant already there.
-
-**After switching display managers:**
-
-The step above picks its branch when it runs, so switching the machine over leaves
-the greeter it is no longer using configured. Which manager the machine boots is read
-from `/etc/systemd/system/display-manager.service` first, so the two units still being
-enabled does not send it down the wrong branch. Switch the services over, re-run the
-step, and reboot:
+The posthook is what keeps them in step, so ask `cli.json` whether it is still there,
+and run the step again if it is not:
 
 ```bash
-sudo systemctl disable plasmalogin.service    # the manager being switched away from
-sudo systemctl enable sddm.service
-caelestia login-screen                        # configure the manager that boots now
+caelestia login-screen
 ```
-
-`caelestia login-screen` runs the same step the installer runs, for the display
-manager the machine boots. It installs the theme in the variant that is already
-there, so an install made with `SDDM_THEME_VARIANT=mini` stays on mini.
-
-**The login screen hangs, or the greeter crash-loops:**
-
-SDDM 0.21 and newer run the greeter binary the theme asks for: `QtVersion=6` in the
-theme's `metadata.desktop` runs `sddm-greeter-qt6`, and any other value - the key
-being absent included - runs the Qt 5 greeter. Arch and CachyOS build that greeter
-into the `sddm` package with `qt5-declarative` only an optional dependency, so it
-dies on `libQt5Quick.so.5: cannot open shared object file` with exit code 127, and
-SDDM respawns it instead of drawing a login screen. Caelestia's theme is Qt 6, and
-the installer selects it only after checking that the greeter it asks for exists;
-when that check fails the theme is installed but left unselected, and the output
-names the greeter that is missing.
-
-```bash
-# What the theme asks for, and whether that greeter is installed
-grep -rn '^QtVersion' /usr/share/sddm/themes/*/metadata.desktop
-command -v sddm-greeter-qt6
-
-# What the greeter last said (the theme it was told to load, and why it stopped)
-journalctl -b -u sddm --no-pager | tail -n 40
-```
-
-A machine that is already stuck on the crashing greeter comes back from a TTY
-(`Ctrl+Alt+F3`) or by booting with `systemd.unit=multi-user.target`. Stop SDDM, make
-the theme and the greeter agree, then start it again. A theme that asks for Qt 6 needs
-`sddm-greeter-qt6`, which an SDDM older than 0.21 does not have: upgrade it, or select
-a theme that matches the greeter in `[Theme] Current`. Installing `qt5-declarative` is
-the other way out on Arch and CachyOS: it makes the Qt 5 greeter work for the Qt 5
-themes that ask for it, which is what that optional dependency is for.
 
 ### 7.7 Installer Window Rules
 

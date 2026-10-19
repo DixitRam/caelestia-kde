@@ -134,7 +134,7 @@ fn a_set_that_the_menu_cannot_answer_is_refused_before_anything_runs() {
         stderr(&impossible)
     );
 
-    let shapeless = run(&["--set", "INSTALL_SDDM"]);
+    let shapeless = run(&["--set", "SYNC_LOGIN_SCREEN"]);
     assert_eq!(code(&shapeless), 2, "{}", stderr(&shapeless));
     assert!(
         stderr(&shapeless).contains("ID=value"),
@@ -311,7 +311,7 @@ fn an_uninstall_with_nothing_to_remove_says_so_and_finishes() {
         stdout(&output)
     );
     assert!(
-        stdout(&output).contains("Caelestia has been uninstalled."),
+        stdout(&output).contains("the shell, its configs and its integrations"),
         "{}",
         stdout(&output)
     );

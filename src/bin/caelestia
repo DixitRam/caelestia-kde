@@ -227,7 +227,7 @@ EOF
         03a-wallpapers
         04-deploy-kde
         04a-window-rules
-        05-sddm-theme
+        05-login-screen
         06-services
         08-build-shell
         09-system-tweaks
@@ -293,12 +293,13 @@ cmd_login_screen() {
             cat <<'EOF'
 Usage: caelestia login-screen
 
-Configure the login screen for the display manager this machine boots. Run it after
-switching between Plasma Login and SDDM: the installer configures the manager that
-was live when it ran.
+Keep the Plasma Login screen in step with the desktop. Plasma Login draws its own
+screen and loads no theme of ours, so what an install can set is its wallpaper and
+its colours; this re-runs the sync that does it, after a wallpaper change that the
+posthook missed.
 
-The theme is installed in the variant that is already there, so an install made with
-SDDM_THEME_VARIANT=mini keeps the mini theme.
+On a machine that boots another display manager there is nothing to sync: Caelestia's
+own screen is the lock screen, which the shell build installs.
 EOF
             return 0
             ;;
@@ -319,8 +320,8 @@ EOF
     # shellcheck source=/dev/null
     . "$SCRIPTS_DIR/lib/installer-bin.sh"
 
-    BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND="$KIND" INSTALL_SDDM=true \
-        caelestia_run_step 05-sddm-theme
+    BUNDLE_DIR="$DATA_DIR" CAELESTIA_INSTALL_KIND="$KIND" SYNC_LOGIN_SCREEN=true \
+        caelestia_run_step 05-login-screen
 }
 
 cmd_version() {

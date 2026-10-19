@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn a_row_about_something_other_than_an_app_is_never_hidden() {
         let none = Apps::default();
-        for id in ["INSTALL_SDDM", "APPLY_FONTS", "DEFAULT_SHELL"] {
+        for id in ["SYNC_LOGIN_SCREEN", "APPLY_FONTS", "DEFAULT_SHELL"] {
             assert!(none.has(id), "{id} is not an app row");
         }
     }

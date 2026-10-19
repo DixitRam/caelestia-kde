@@ -30,7 +30,6 @@ from pathlib import Path
 PACKAGE_ONLY_PREFIXES = (
     "etc/xdg/quickshell/caelestia/assets/icons",
     "usr/share/plasma/shells/caelestia.desktop",
-    "usr/share/sddm/themes/caelestia",
 )
 
 COMPILED_SUFFIXES = (".so", ".dylib", ".dll")

@@ -7,17 +7,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOGIN_STEP="$REPO_ROOT/installer/src/steps/login_screen.rs"
 UNINSTALL_STEP="$REPO_ROOT/installer/src/uninstall.rs"
-SYNC_SCRIPT="$REPO_ROOT/src/sddm/sync.sh"
+SYNC_SCRIPT="$REPO_ROOT/src/greeter/sync.sh"
 CLI="$REPO_ROOT/src/bin/caelestia"
 
 PLASMA_LOGIN_HOOK="sudo /usr/local/bin/caelestia-greeter-sync --posthook"
 
-# What the step installs is the crate's own behaviour now, and the crate tests it
-# (installer/src/steps/login_screen.rs and installer/tests/steps.rs): the variant that is
-# read from the installed theme, the Qt version SDDM routes on, which greeter that version
-# needs, which display manager is live, when a theme is left unselected, and the posthook
-# edit that keeps a hook the user wrote. What is left here is the pairing between the step
-# and the uninstall that undoes it, and sync.sh, which is shipped rather than run.
+# The step syncs the Plasma Login screen: no theme of ours is installed anywhere, so what is
+# left to check here is the pairing between the step and the uninstall that undoes it, and the
+# shipped sync.sh, which the desktop calls rather than the installer.
 
 json_get() {
     python3 - "$@" <<'PYEOF'
@@ -92,18 +89,6 @@ PYEOF
     assert_eq "<absent>" "$(json_get "$dir/cli.json" theme postHook)" "uninstall should remove ours, not leave an empty hook behind"
 }
 
-test_the_saved_theme_selection_is_named_the_same_twice() {
-    local written read_back
-    written="$(grep -o 'sddm\.conf\.theme-current' "$LOGIN_STEP" | head -n 1)"
-    read_back="$(grep -o 'caelestia/sddm\.conf\.theme-current' "$UNINSTALL_STEP" | head -n 1)"
-
-    assert_ne "" "$written" "the step should save the previous theme selection"
-    assert_ne "" "$read_back" "and uninstall should read the same record"
-    assert_contains "$read_back" "$written" "both should name the same file"
-
-    assert_contains "$(cat "$LOGIN_STEP")" '#none' "the installer should be able to record that there was no selection"
-    assert_contains "$(cat "$UNINSTALL_STEP")" '#none' "uninstall should understand that record"
-}
 
 test_the_login_wallpaper_copy_has_a_directory_of_its_own() {
     assert_contains "$(cat "$SYNC_SCRIPT")" 'PLASMALOGIN_WALLPAPERS="$PLASMALOGIN_HOME/wallpapers/caelestia"' "the sync should copy into its own directory"
@@ -131,7 +116,7 @@ test_the_login_screen_command_runs_the_greeter_step() {
     cat > "$data/caelestia-install" <<EOF
 #!/bin/bash
 printf '%s|%s|%s|%s\n' "\$1" "\$2" "\$BUNDLE_DIR" "\$CAELESTIA_INSTALL_KIND" > "$dir/ran"
-printf 'INSTALL_SDDM=%s\n' "\$INSTALL_SDDM" >> "$dir/ran"
+printf 'SYNC_LOGIN_SCREEN=%s\n' "\$SYNC_LOGIN_SCREEN" >> "$dir/ran"
 EOF
     chmod +x "$data/caelestia-install"
 
@@ -140,9 +125,9 @@ EOF
     local status=$?
 
     assert_status 0 "$status" "login-screen should run the greeter step"
-    assert_contains "$(cat "$dir/ran" 2>/dev/null)" "step|05-sddm-theme|$data|package" \
+    assert_contains "$(cat "$dir/ran" 2>/dev/null)" "step|05-login-screen|$data|package" \
         "the step should hear which install it belongs to, and where its bundle is"
-    assert_contains "$(cat "$dir/ran" 2>/dev/null)" "INSTALL_SDDM=true" \
+    assert_contains "$(cat "$dir/ran" 2>/dev/null)" "SYNC_LOGIN_SCREEN=true" \
         "running the step by hand is asking for the login screen"
 }
 

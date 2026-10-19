@@ -5,7 +5,7 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SYNC_SCRIPT="$REPO_ROOT/src/sddm/sync.sh"
+SYNC_SCRIPT="$REPO_ROOT/src/greeter/sync.sh"
 
 build_world() {
     local root="$1"

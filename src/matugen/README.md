@@ -121,8 +121,8 @@ every color change `theme.postHook` with `SCHEME_NAME`, `SCHEME_FLAVOUR`, `SCHEM
 
 `~/.config/caelestia/templates/` is rendered the same way too, into
 `$XDG_STATE_HOME/caelestia/theme/`. Those files are written against upstream's `{{ role.hex }}`
-syntax rather than matugen's, so they are rendered by the command instead of by a template: the
-SDDM theme the installer registers is one of them, and the greeter reads the result.
+syntax rather than matugen's, so they are rendered by the command instead of by a template:
+the Plasma Login colour scheme the installer syncs is one of them, and the greeter reads the result.
 
 ## The palette will look different
 

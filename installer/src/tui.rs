@@ -190,8 +190,18 @@ impl Tui {
 mod tests {
     use std::io::Write;
     use std::os::fd::FromRawFd;
+    use std::sync::{Mutex, OnceLock};
 
     use super::*;
+
+    /// The handing over is process-wide, so two tests doing it at once would each be checking the
+    /// other's log. One at a time, and in the order the story reads.
+    fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
 
     /// What a program the wizard started does with the output it was given.
     fn write_to_inherited_output(line: &str) -> io::Result<()> {
@@ -202,6 +212,7 @@ mod tests {
 
     #[test]
     fn what_a_step_started_writes_lands_in_the_log_rather_than_on_the_screen() {
+        let _turn = one_at_a_time();
         let directory = crate::tmp::TempDir::new("caelestia-tui-test").expect("a temporary dir");
         let log = directory.path().join("install.log");
 
@@ -216,6 +227,7 @@ mod tests {
 
     #[test]
     fn the_output_is_handed_back_so_what_prints_next_is_not_a_log_line() {
+        let _turn = one_at_a_time();
         let directory =
             crate::tmp::TempDir::new("caelestia-tui-give-back").expect("a temporary dir");
         let log = directory.path().join("install.log");
@@ -235,6 +247,7 @@ mod tests {
 
     #[test]
     fn the_screen_the_wizard_draws_on_outlives_the_output_being_handed_over() {
+        let _turn = one_at_a_time();
         let directory = crate::tmp::TempDir::new("caelestia-tui-screen").expect("a temp dir");
         let log = directory.path().join("install.log");
 

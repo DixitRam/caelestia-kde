@@ -174,10 +174,10 @@ mod tests {
         let all_on = text(Path::new("/b"), "1.0", &on, &rows(&on));
         assert!(all_on.contains("nothing switched off"), "{all_on}");
 
-        let off = answers(&[("INSTALL_SDDM", "false".to_string())]);
+        let off = answers(&[("SYNC_LOGIN_SCREEN", "false".to_string())]);
         let trimmed = text(Path::new("/b"), "1.0", &off, &rows(&off));
         assert!(!trimmed.contains("nothing switched off"), "{trimmed}");
-        assert!(trimmed.contains("skip  05-sddm-theme"), "{trimmed}");
+        assert!(trimmed.contains("skip  05-login-screen"), "{trimmed}");
     }
 
     #[test]

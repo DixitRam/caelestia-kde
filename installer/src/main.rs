@@ -87,7 +87,7 @@ CAELESTIA_TUI_NO_ANIMATION=1.
 
 --set takes the id of an option, as the wizard names it, and a value it can hold: a switch takes
 true or false, a select takes one of its options. Repeat it for every answer a script needs.
-\"caelestia-install --set INSTALL_SDDM=false --set DEFAULT_SHELL=zsh\" answers two questions and
+\"caelestia-install --set SYNC_LOGIN_SCREEN=false --set DEFAULT_SHELL=zsh\" answers two questions and
 leaves the rest at their defaults.
 
 --plan answers what this run would do to this machine without doing any of it: the steps, grouped

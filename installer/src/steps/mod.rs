@@ -204,8 +204,8 @@ pub const STEPS: [Step; 17] = [
         run: window_rules::run,
     },
     Step {
-        name: "Install SDDM theme",
-        id: "05-sddm-theme",
+        name: "Match the login screen",
+        id: "05-login-screen",
         phase: Phase::Configure,
         run: login_screen::run,
     },
@@ -374,7 +374,7 @@ pub fn is_skipped(step: &Step, answers: &Answers) -> bool {
     // shown to a person, and a policy keyed on prose stops applying the day somebody rewords it.
     match step.id {
         "00a-system-update" => answer_is_true(answers, "SKIP_SYSTEM_UPDATE"),
-        "05-sddm-theme" => !answer_is_true(answers, "INSTALL_SDDM"),
+        "05-login-screen" => !answer_is_true(answers, "SYNC_LOGIN_SCREEN"),
         "11-optional-apps" => !OPTIONAL_APP_ANSWERS
             .iter()
             .any(|answer| answer_is_true(answers, answer)),
@@ -407,7 +407,7 @@ mod tests {
     fn every_step_the_policy_names_really_exists() {
         // The skip policy names steps by id. An id that matches nothing is a rule that silently
         // never applies, which is how a reviewed-out step ends up running anyway.
-        let named = ["00a-system-update", "05-sddm-theme", "11-optional-apps"];
+        let named = ["00a-system-update", "05-login-screen", "11-optional-apps"];
         for id in named {
             assert!(
                 STEPS.iter().any(|step| step.id == id),
@@ -416,14 +416,17 @@ mod tests {
         }
 
         // And the two that can be switched off are switched off by their own answers.
-        let off = answers(&[("SKIP_SYSTEM_UPDATE", "true"), ("INSTALL_SDDM", "false")]);
+        let off = answers(&[
+            ("SKIP_SYSTEM_UPDATE", "true"),
+            ("SYNC_LOGIN_SCREEN", "false"),
+        ]);
         let skipped: Vec<&str> = STEPS
             .iter()
             .filter(|step| is_skipped(step, &off))
             .map(|step| step.id)
             .collect();
         assert!(skipped.contains(&"00a-system-update"), "{skipped:?}");
-        assert!(skipped.contains(&"05-sddm-theme"), "{skipped:?}");
+        assert!(skipped.contains(&"05-login-screen"), "{skipped:?}");
         assert!(
             skipped.contains(&"11-optional-apps"),
             "no optional app is on, so that step has nothing to do: {skipped:?}"
@@ -432,7 +435,7 @@ mod tests {
         // With everything on, nothing is skipped for being switched off.
         let on = answers(&[
             ("SKIP_SYSTEM_UPDATE", "false"),
-            ("INSTALL_SDDM", "true"),
+            ("SYNC_LOGIN_SCREEN", "true"),
             ("INSTALL_VSCODE", "false"),
             ("INSTALL_ZED", "false"),
             ("INSTALL_SPICETIFY", "false"),
@@ -492,13 +495,16 @@ mod tests {
     }
 
     #[test]
-    fn the_sddm_theme_is_skipped_unless_asked_for() {
+    fn the_login_screen_is_matched_only_when_it_is_asked_for() {
         let step = STEPS
             .iter()
-            .find(|step| step.name == "Install SDDM theme")
+            .find(|step| step.name == "Match the login screen")
             .unwrap();
         assert!(is_skipped(step, &BTreeMap::new()));
-        assert!(!is_skipped(step, &answers(&[("INSTALL_SDDM", "true")])));
+        assert!(!is_skipped(
+            step,
+            &answers(&[("SYNC_LOGIN_SCREEN", "true")])
+        ));
     }
 
     #[test]
@@ -523,7 +529,7 @@ mod tests {
             .map(|answer| (*answer, "true".to_string()))
             .chain([
                 ("SKIP_SYSTEM_UPDATE", "false".to_string()),
-                ("INSTALL_SDDM", "true".to_string()),
+                ("SYNC_LOGIN_SCREEN", "true".to_string()),
             ])
             .collect();
         for step in STEPS.iter() {

@@ -273,8 +273,13 @@ fn the_installed_footprint_is_removed() {
         "the user's shell settings are not the installer's to remove"
     );
 
+    // The frame's own words, not a score of what happened.
     assert!(
-        stdout.contains("Caelestia has been uninstalled."),
+        stdout.contains("the shell, its configs and its integrations"),
+        "{stdout}"
+    );
+    assert!(
+        !stdout.contains("Caelestia has been uninstalled."),
         "{stdout}"
     );
 }

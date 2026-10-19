@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use crate::js;
 use crate::output;
 use crate::paths;
-use crate::privileges;
 use crate::process;
 use crate::steps::{Context, Failure, wallpapers_dir};
 
@@ -169,7 +168,6 @@ fn set_wallpaper(context: &Context) {
         ));
         let in_use = Path::new(&in_use);
         apply_wallpaper(in_use);
-        patch_breeze_login_wallpaper(in_use);
         return;
     }
 
@@ -218,8 +216,6 @@ fn set_wallpaper(context: &Context) {
             None,
         );
     }
-
-    patch_breeze_login_wallpaper(&chosen);
 }
 
 fn apply_wallpaper(image: &Path) {
@@ -253,26 +249,6 @@ fn plasma_script(url: &str) -> String {
             }}
         "
     )
-}
-
-fn patch_breeze_login_wallpaper(image: &Path) {
-    if crate::install_kind::is_packaged() {
-        return;
-    }
-    if !Path::new("/usr/share/sddm/themes/breeze/theme.conf").is_file() {
-        return;
-    }
-
-    let expression = format!("s|^background=.*|background={}|", image.display());
-    let _ = privileges::elevated(
-        "sed",
-        &[
-            "-i",
-            &expression,
-            "/usr/share/sddm/themes/breeze/theme.conf",
-        ],
-        None,
-    );
 }
 
 fn write_key(file: &str, group: &str, key: &str, value: &str) {

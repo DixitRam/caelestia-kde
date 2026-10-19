@@ -130,7 +130,7 @@ directory does, and a checkout's `uninstall.sh` does both for a source install.
 
 What stays is the user's own state, which the package never owned: `~/.config/caelestia`,
 the session environment at `~/.config/environment.d/caelestia.conf`, the autostart state
-under `~/.local`, and the sudoers drop-in at `/etc/sudoers.d/caelestia-sddm-sync` that
+under `~/.local`, and the sudoers drop-in at `/etc/sudoers.d/caelestia-greeter-sync` that
 lets the login screen follow the wallpaper. Deleting those is what removes the last trace
 of the install. There is no uninstall command, and upstream has none either: removal
 belongs to whoever installed the files, which for a package is pacman.

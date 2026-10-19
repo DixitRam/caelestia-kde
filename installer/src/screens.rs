@@ -20,9 +20,6 @@ const VALUE_COLUMN: usize = 12;
 /// How wide the name column ever gets.
 const NAME_CELL: usize = 52;
 
-/// How far a row that belongs to the row above it is moved in.
-const CHILD_INDENT: u16 = 2;
-
 /// The label column of the failure card and the summary.
 const LABEL_COLUMN: usize = 8;
 
@@ -977,19 +974,10 @@ pub(crate) fn option_rows(app: &App, width: u16) -> Vec<Line<'static>> {
             } else {
                 "  ".to_string()
             };
-            // A row that only exists under another one is drawn under it: the indent is what says
-            // that "Login screen style" belongs to "Login screen" rather than beside it.
-            let indent = if menu::parent_of(entry).is_some() {
-                CHILD_INDENT as usize
-            } else {
-                0
-            };
-            let room = name_width.saturating_sub(indent);
+            let room = name_width;
             let name = format!(
-                "{:indent$}{:<room$}",
-                "",
+                "{:<room$}",
                 ui::fit(entry.title(), room, glyphs.ellipsis()),
-                indent = indent,
                 room = room
             );
             let (value, value_style) = value_cell(entry, app);
@@ -2646,36 +2634,31 @@ mod tests {
     }
 
     #[test]
-    fn a_row_that_belongs_to_the_row_above_it_is_drawn_under_it() {
-        // "Login screen style" is only a decision once the login screen is being replaced, so it
-        // is drawn under that row rather than beside it.
+    fn every_option_row_starts_at_the_same_column() {
+        // Nothing is drawn under anything else any more: the SDDM login styles were the only
+        // child rows, and they are gone. The pointer is one cell wide either way, so every row's
+        // title begins in the same column.
         let mut app = app();
         app.stage = Stage::Options;
         app.question = 0;
-        let entries = app.current_entries();
-        let parent = entries
-            .iter()
-            .position(|entry| entry.id() == "INSTALL_SDDM")
-            .expect("the login screen row");
-        let child = entries
-            .iter()
-            .position(|entry| entry.id() == "SDDM_THEME_VARIANT")
-            .expect("the login screen style row");
         let rows = option_rows(&app, 96);
-        // Columns, not byte offsets: the cursor glyph is three bytes wide and one cell wide.
-        let column = |index: usize| -> usize {
-            let text: String = rows[index]
-                .spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect();
-            let bytes = text.find("Login").expect("the word Login starts the row");
-            text[..bytes].chars().count()
-        };
-        assert_eq!(
-            column(child),
-            column(parent) + CHILD_INDENT as usize,
-            "the style is not drawn under the login screen"
+        let titles: Vec<&'static str> = app
+            .current_entries()
+            .iter()
+            .map(|entry| entry.title())
+            .collect();
+        let columns: Vec<usize> = rows
+            .iter()
+            .zip(titles)
+            .map(|(row, title)| {
+                let text: String = row.spans.iter().map(|span| span.content.as_ref()).collect();
+                let bytes = text.find(title).expect("the title is on its row");
+                text[..bytes].chars().count()
+            })
+            .collect();
+        assert!(
+            columns.windows(2).all(|pair| pair[0] == pair[1]),
+            "the rows start at different columns: {columns:?}"
         );
     }
 
@@ -2733,15 +2716,19 @@ mod tests {
         );
 
         // The row that does carry a fact shows it, and only while it is under the cursor.
-        app.cursor = 1;
+        app.cursor = 0;
         let shot = render(&mut app, 100, 30);
         assert!(
-            shot.contains("the login card alone"),
+            shot.contains("Login screen colours"),
+            "the first row is the login screen: {shot}"
+        );
+        assert!(
+            shot.contains("Plasma Login draws its own screen"),
             "the row's own help is on screen:\n{shot}"
         );
-        app.cursor = 0;
+        app.cursor = 1;
         assert!(
-            !render(&mut app, 100, 30).contains("the login card alone"),
+            !render(&mut app, 100, 30).contains("Plasma Login draws its own screen"),
             "and it goes with the cursor"
         );
 

@@ -144,15 +144,6 @@ package() {
     DESTDIR="$pkgdir" cmake --install "$_build_dir"
     DESTDIR="$pkgdir" cmake --install "$_effect_build_dir"
 
-    install -d "$pkgdir/etc/sddm.conf.d"
-    cat > "$pkgdir/etc/sddm.conf.d/zz-caelestia.conf" <<'DROPIN'
-[General]
-GreeterEnvironment=QML_XHR_ALLOW_FILE_READ=1
-
-[Theme]
-Current=caelestia
-DROPIN
-
     install -d "$pkgdir/usr/lib/udev/rules.d"
     echo 'KERNEL=="uinput", MODE="0600", OPTIONS+="static_node=uinput", TAG+="uaccess"' > "$pkgdir/usr/lib/udev/rules.d/70-uinput.rules"
 
@@ -165,8 +156,8 @@ DROPIN
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 
     local required=(
-        etc/sddm.conf.d/zz-caelestia.conf
         usr/bin/caelestia-install
+        usr/bin/caelestia-greeter-sync
         usr/lib/systemd/user/caelestia-shell.service
         usr/share/licenses/$pkgname/LICENSE
     )

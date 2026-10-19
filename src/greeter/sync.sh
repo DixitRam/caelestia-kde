@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
+# Keeps the Plasma Login screen in step with the desktop.
+#
+# Plasma Login draws its own screen - its greeter's QML is compiled into the greeter binary and no
+# theme of ours can be loaded - so what an install can reach is what it shows: the wallpaper and the
+# colour scheme, in the greeter user's own configuration. This helper writes those, and the desktop
+# calls it after every wallpaper or colour change.
 set -euo pipefail
-
-user_path_exists() {
-    sudo -H -u "$REAL_USER" test -e "$1" || sudo -H -u "$REAL_USER" test -L "$1"
-}
 
 copy_user_file() {
     local src="$1"
@@ -57,23 +59,6 @@ copy_user_file() {
     return 0
 }
 
-sync_optional_user_file() {
-    local src="$1"
-    local dest="$2"
-    local max_bytes="$3"
-    local label="$4"
-
-    if copy_user_file "$src" "$dest" "$max_bytes"; then
-        echo "✓ Synced $label"
-    else
-        rm -f -- "$dest"
-
-        if user_path_exists "$src"; then
-            echo "WARNING: Skipping unreadable or invalid $label: $src" >&2
-        fi
-    fi
-}
-
 if [[ -n "${SUDO_USER:-}" ]]; then
     REAL_USER="$SUDO_USER"
 else
@@ -88,7 +73,6 @@ if [[ -z "$REAL_HOME" ]] || [[ "$REAL_HOME" = "/" ]]; then
 fi
 
 CAEL_STATE="$REAL_HOME/.local/state/caelestia"
-THEME_DIR="/usr/share/sddm/themes/caelestia"
 
 CAELESTIA_BIN=""
 for candidate in "$REAL_HOME/.local/bin/caelestia" /usr/local/bin/caelestia /usr/bin/caelestia; do
@@ -204,78 +188,8 @@ if is_plasmalogin_active; then
     exit "$FAILED"
 fi
 
-sync_optional_user_file \
-    "$REAL_HOME/.face.icon" \
-    "$THEME_DIR/assets/avatar.face.icon" \
-    "$((5 * 1024 * 1024))" \
-    "avatar.face.icon"
-
-sync_optional_user_file \
-    "$REAL_HOME/.face" \
-    "$THEME_DIR/assets/avatar.face" \
-    "$((5 * 1024 * 1024))" \
-    "avatar.face"
-
-THEME_CONF_SRC="$CAEL_STATE/theme/sddm-theme.conf"
-THEME_CONF_DEST="$THEME_DIR/theme.conf"
-MAX_THEME_CONF_BYTES=$((1024 * 1024))
-
-if copy_user_file "$THEME_CONF_SRC" "$THEME_CONF_DEST" "$MAX_THEME_CONF_BYTES"; then
-    sys_os="Linux"
-    if [[ -f /etc/os-release ]]; then
-        sys_os=$(grep -oP '^PRETTY_NAME="\K[^"]+' /etc/os-release || grep -oP '^PRETTY_NAME=\K.+' /etc/os-release || echo "Linux")
-    fi
-    sys_host=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "localhost")
-
-    sys_os_escaped=$(printf '%s' "$sys_os" | sed 's/[\/&]/\\&/g')
-    sys_host_escaped=$(printf '%s' "$sys_host" | sed 's/[\/&]/\\&/g')
-
-    sed -i "s/^os=.*/os=$sys_os_escaped/" "$THEME_CONF_DEST"
-    sed -i "s/^host=.*/host=$sys_host_escaped/" "$THEME_CONF_DEST"
-
-    chmod 644 "$THEME_CONF_DEST"
-    echo "✓ Synced theme.conf"
-else
-    echo "No theme.conf found, leaving existing theme.conf unchanged."
-fi
-
-WALLPAPER_SRC="$CAEL_STATE/wallpaper/current"
-MAX_WALLPAPER_BYTES=$((50 * 1024 * 1024))
-MAX_VIDEO_WALLPAPER_BYTES=$((250 * 1024 * 1024))
-WALLPAPER_DEST="$THEME_DIR/assets/background"
-
-if command -v file >/dev/null 2>&1; then
-    WALLPAPER_MIME="$(sudo -H -u "$REAL_USER" file -b --mime-type -L "$WALLPAPER_SRC" 2>/dev/null || true)"
-    case "$WALLPAPER_MIME" in
-        video/webm)       WALLPAPER_DEST="$THEME_DIR/assets/background.webm" ;;
-        video/x-matroska) WALLPAPER_DEST="$THEME_DIR/assets/background.mkv" ;;
-        video/quicktime)  WALLPAPER_DEST="$THEME_DIR/assets/background.mov" ;;
-        video/x-msvideo)  WALLPAPER_DEST="$THEME_DIR/assets/background.avi" ;;
-        video/*)
-            WALLPAPER_TARGET="$(sudo -H -u "$REAL_USER" readlink -f "$WALLPAPER_SRC" 2>/dev/null || true)"
-            TARGET_EXT="$(printf '%s' "${WALLPAPER_TARGET##*.}" | tr '[:upper:]' '[:lower:]')"
-            case "$TARGET_EXT" in
-                mp4|m4v|webm|mkv|mov|avi) WALLPAPER_DEST="$THEME_DIR/assets/background.$TARGET_EXT" ;;
-                *)                        WALLPAPER_DEST="$THEME_DIR/assets/background.mp4" ;;
-            esac
-            ;;
-    esac
-fi
-
-MAX_BYTES="$MAX_WALLPAPER_BYTES"
-case "$WALLPAPER_DEST" in
-    *.mp4|*.m4v|*.webm|*.mkv|*.mov|*.avi) MAX_BYTES="$MAX_VIDEO_WALLPAPER_BYTES" ;;
-esac
-
-if copy_user_file "$WALLPAPER_SRC" "$WALLPAPER_DEST" "$MAX_BYTES"; then
-    for old in "$THEME_DIR/assets/background" "$THEME_DIR/assets/background."*; do
-        if [[ -e "$old" ]] && [[ "$old" != "$WALLPAPER_DEST" ]]; then
-            rm -f -- "$old"
-        fi
-    done
-    echo "✓ Synced background"
-else
-    echo "No readable wallpaper found, leaving existing background unchanged."
-fi
-
-exit "$FAILED"
+# The screen Caelestia draws itself is the lock screen, and its sync belongs to the shell build.
+# A machine on another display manager has nothing here to keep in step, which is not a failure:
+# an install that was made before this helper existed can still be calling it.
+echo "No Plasma Login on this machine: its login screen takes nothing from Caelestia."
+exit 0

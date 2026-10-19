@@ -101,22 +101,12 @@ const APP_THEMING: [&str; 6] = [
 /// The look, and the packages it is made of. The icon set, the theme and the Qt style the look is
 /// built on are not offered one at a time: turning any of them off does not give a smaller
 /// Caelestia, it gives a broken one that the configuration deployed later does not match.
-const APPEARANCE: [Entry; 5] = [
+const APPEARANCE: [Entry; 4] = [
     Entry::Toggle {
-        id: "INSTALL_SDDM",
-        title: "Login screen",
-        help: "",
+        id: "SYNC_LOGIN_SCREEN",
+        title: "Login screen colours",
+        help: "Plasma Login draws its own screen; this keeps its wallpaper and colours in step.",
         default: true,
-    },
-    Entry::Choice {
-        id: "SDDM_THEME_VARIANT",
-        title: "Login screen style",
-        // A machine on Plasma Login draws its own login screen and loads no theme of ours, so the
-        // style this row picks is one nobody there will see. That is said in the log where the
-        // choice would have been used, rather than left to be discovered after a reboot.
-        help: "Full adds a clock, system info, quotes and the avatar; mini is the login card alone.",
-        default: "full",
-        options: &["full", "mini"],
     },
     Entry::Toggle {
         id: "APPLY_LOCKSCREEN",
@@ -251,26 +241,6 @@ pub fn question(question: usize) -> &'static str {
     match QUESTIONS.get(question) {
         Some(entry) => entry.title(),
         None => "",
-    }
-}
-
-/// The row a row only makes sense under, if it has one: turning that off takes this one with it,
-/// and the screen draws this one under it so the pair reads as one decision.
-pub fn parent_of(entry: &Entry) -> Option<&'static str> {
-    match entry.id() {
-        "SDDM_THEME_VARIANT" => Some("INSTALL_SDDM"),
-        _ => None,
-    }
-}
-
-/// Whether a row belongs on screen. A row with a parent goes when the parent is switched off: a
-/// login screen style only means something if the login screen is being replaced. The bulk row
-/// goes with its members, so it can never switch on what nobody can see.
-pub fn shows(entry: &Entry, answers: &Answers, apps: &crate::apps::Apps) -> bool {
-    let _ = apps;
-    match parent_of(entry) {
-        Some(parent) => answers.get(parent).map(String::as_str) != Some("false"),
-        None => true,
     }
 }
 
@@ -601,7 +571,8 @@ mod tests {
         }
 
         fn visible(&self, id: &str) -> bool {
-            shows(entry(id), &self.answers, &self.apps)
+            // Every row is shown; the id is looked up so an unknown one still fails loudly.
+            every_entry().iter().any(|entry| entry.id() == id)
         }
     }
 
@@ -787,9 +758,9 @@ mod tests {
     #[test]
     fn toggles_flip_and_a_bulk_row_is_not_a_toggle() {
         let mut wizard = Wizard::new();
-        let sddm = entry("INSTALL_SDDM");
-        assert!(toggle(sddm, &mut wizard.answers));
-        assert_eq!(value(sddm, &wizard.answers), Some("false"));
+        let login = entry("SYNC_LOGIN_SCREEN");
+        assert!(toggle(login, &mut wizard.answers));
+        assert_eq!(value(login, &wizard.answers), Some("false"));
 
         assert!(
             !toggle(preset(), &mut wizard.answers),
@@ -840,7 +811,7 @@ mod tests {
         let wizard = Wizard::new();
         for key in [
             "SKIP_SYSTEM_UPDATE",
-            "INSTALL_SDDM",
+            "SYNC_LOGIN_SCREEN",
             "INSTALL_VSCODE",
             "INSTALL_ZED",
             "INSTALL_SPICETIFY",
@@ -909,19 +880,19 @@ mod tests {
     fn a_row_knows_whether_it_was_changed_and_can_go_back() {
         let mut wizard = Wizard::new();
 
-        assert!(!wizard.changed("INSTALL_SDDM"));
+        assert!(!wizard.changed("SYNC_LOGIN_SCREEN"));
         assert!(!wizard.changed("DEFAULT_SHELL"));
 
-        wizard.change("INSTALL_SDDM");
+        wizard.change("SYNC_LOGIN_SCREEN");
         wizard.change("DEFAULT_SHELL");
-        assert!(wizard.changed("INSTALL_SDDM"));
+        assert!(wizard.changed("SYNC_LOGIN_SCREEN"));
         assert!(wizard.changed("DEFAULT_SHELL"));
 
-        assert!(wizard.back("INSTALL_SDDM"));
+        assert!(wizard.back("SYNC_LOGIN_SCREEN"));
         assert!(wizard.back("DEFAULT_SHELL"));
-        assert_eq!(wizard.value("INSTALL_SDDM"), Some("true"));
+        assert_eq!(wizard.value("SYNC_LOGIN_SCREEN"), Some("true"));
         assert_eq!(wizard.value("DEFAULT_SHELL"), Some("fish"));
-        assert!(!wizard.changed("INSTALL_SDDM"));
+        assert!(!wizard.changed("SYNC_LOGIN_SCREEN"));
         assert!(!wizard.changed("DEFAULT_SHELL"));
     }
 
@@ -975,8 +946,8 @@ mod tests {
     fn one_change_key_changes_whatever_kind_of_row_it_is_given() {
         let mut wizard = Wizard::new();
 
-        assert!(wizard.change("INSTALL_SDDM"), "a switch flips");
-        assert_eq!(wizard.value("INSTALL_SDDM"), Some("false"));
+        assert!(wizard.change("SYNC_LOGIN_SCREEN"), "a switch flips");
+        assert_eq!(wizard.value("SYNC_LOGIN_SCREEN"), Some("false"));
 
         assert!(wizard.change("DEFAULT_SHELL"), "a select steps on");
         assert_eq!(wizard.value("DEFAULT_SHELL"), Some("zsh"));
@@ -989,17 +960,6 @@ mod tests {
 
         assert!(wizard.change(PRESET_THEME_APPS));
         assert!(wizard.bulk_is_on(), "and back on again");
-    }
-
-    #[test]
-    fn a_login_screen_style_is_only_worth_showing_while_there_is_a_login_screen() {
-        let mut wizard = Wizard::new();
-        assert!(wizard.visible("SDDM_THEME_VARIANT"));
-        assert!(wizard.visible("INSTALL_SDDM"));
-
-        wizard.change("INSTALL_SDDM");
-        assert!(!wizard.visible("SDDM_THEME_VARIANT"));
-        assert!(wizard.visible("INSTALL_SDDM"), "the row that hid it stays");
     }
 
     #[test]
@@ -1021,6 +981,17 @@ mod tests {
             Some("true"),
             "an app that is already there starts on"
         );
+    }
+
+    #[test]
+    fn the_login_screen_row_survives_being_switched_off() {
+        // It has no child rows any more - the SDDM login styles are gone - so switching it off
+        // hides nothing and the row itself stays where it can be switched back on.
+        let mut wizard = Wizard::new();
+        assert!(wizard.visible("SYNC_LOGIN_SCREEN"));
+        wizard.change("SYNC_LOGIN_SCREEN");
+        assert!(wizard.visible("SYNC_LOGIN_SCREEN"));
+        assert_eq!(wizard.value("SYNC_LOGIN_SCREEN"), Some("false"));
     }
 
     #[test]

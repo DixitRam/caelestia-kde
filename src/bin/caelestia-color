@@ -524,7 +524,8 @@ def cmd_finish_palette(scheme_path: str, palettes_path: str, factor: str) -> int
 
     colours.update(SUCCESS_COLORS["light" if data.get("mode") == "light" else "dark"])
 
-    # A Catppuccin name upstream carried through: onSurface is what `text` means to SDDM.
+    # A Catppuccin name upstream carried through: onSurface is what `text` means to the
+    # lock screen and the greeter.
     if colours.get("onSurface") and not colours.get("text"):
         colours["text"] = colours["onSurface"]
 
@@ -570,7 +571,7 @@ def cmd_render_templates(scheme_path: str, templates_dir: str, out_dir: str, mod
     """Render `~/.config/caelestia/templates/` into the state directory.
 
     Upstream's own `{{ role.hex }}` syntax, unchanged because templates in the wild are
-    written against it; ours ships one for SDDM.
+    written against it; ours ships one for Plasma Login.
     """
     data = json.loads(pathlib.Path(scheme_path).read_text(encoding="utf-8"))
     colours = {name: Colour(code) for name, code in data.get("colours", {}).items()}

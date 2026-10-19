@@ -1244,26 +1244,10 @@ impl Uninstaller {
     fn remove_system_files(&self) {
         section("Step 8 - Remove System-level Files");
 
-        for (path, message) in [
-            (
-                "/etc/keyd/quickshell.conf",
-                "Removed /etc/keyd/quickshell.conf",
-            ),
-            (
-                "/usr/share/sddm/themes/caelestia",
-                "Removed SDDM theme: /usr/share/sddm/themes/caelestia",
-            ),
-        ] {
-            let target = Path::new(path);
-            if !target.exists() {
-                continue;
-            }
-            if sudo_remove(target, target.is_dir()) {
-                output::ok(message);
-            }
-            if path == "/etc/keyd/quickshell.conf" {
-                let _ = privileges::elevated("rmdir", &["/etc/keyd"], None);
-            }
+        let keyd = Path::new("/etc/keyd/quickshell.conf");
+        if keyd.exists() && sudo_remove(keyd, keyd.is_dir()) {
+            output::ok("Removed /etc/keyd/quickshell.conf");
+            let _ = privileges::elevated("rmdir", &["/etc/keyd"], None);
         }
 
         for rule in [
@@ -1313,6 +1297,7 @@ impl Uninstaller {
         }
 
         self.remove_posthooks();
+        // Left by an installer that still shipped an SDDM login theme.
         let _ = fs::remove_file(self.path(".config/caelestia/templates/sddm-theme.conf"));
         self.leave_input_group();
     }
@@ -1344,10 +1329,12 @@ impl Uninstaller {
     }
 
     // The login screen is a system configuration, so what the install changed there is put
-    // back: the theme selection it recorded, the drop-ins it wrote, and its sync helper.
+    // back: the wallpaper it pointed the greeter at, and its sync helper.
     fn restore_login_screen(&self) {
         for rule in [
             "/etc/sudoers.d/ydotoold-nopasswd",
+            "/etc/sudoers.d/caelestia-greeter-sync",
+            // The name an install from before the helper was renamed used.
             "/etc/sudoers.d/caelestia-sddm-sync",
         ] {
             let path = Path::new(rule);
@@ -1359,6 +1346,8 @@ impl Uninstaller {
             }
         }
 
+        // An install that shipped an SDDM login theme left its selection behind; the theme itself
+        // went with the package, and the selection would point SDDM at nothing.
         for dropin in [
             "/etc/sddm.conf.d/caelestia.conf",
             "/etc/sddm.conf.d/zz-caelestia.conf",
@@ -1366,7 +1355,7 @@ impl Uninstaller {
             let path = Path::new(dropin);
             if path.is_file() && sudo_remove(path, false) {
                 output::ok(&format!(
-                    "Removed SDDM config drop-in: {}",
+                    "Removed the SDDM drop-in an older install wrote: {}",
                     path.file_name().unwrap_or_default().to_string_lossy()
                 ));
             }
@@ -1398,10 +1387,10 @@ impl Uninstaller {
                 };
                 let _ = privileges::elevated("kwriteconfig6", &arguments, None);
                 if previous == "#none" {
-                    output::ok("Removed the login screen theme selection from /etc/sddm.conf");
+                    output::ok("Removed the SDDM theme selection an older install made");
                 } else {
                     output::ok(&format!(
-                        "Restored the login screen theme in /etc/sddm.conf ({previous})"
+                        "Restored the SDDM theme selection an older install replaced ({previous})"
                     ));
                 }
                 let _ = fs::remove_file(&recorded);
@@ -1421,7 +1410,7 @@ impl Uninstaller {
                     ],
                     None,
                 );
-                output::ok("Removed the login screen theme selection from /etc/sddm.conf");
+                output::ok("Removed the SDDM theme selection an older install made");
             }
         }
 
@@ -1496,7 +1485,7 @@ impl Uninstaller {
             let _ = stdin.write_all(POSTHOOK_CLEANER.as_bytes());
         }
         if child.wait().map(|status| status.success()).unwrap_or(false) {
-            output::ok("Removed SDDM posthooks from cli.json");
+            output::ok("Removed the login screen posthook from cli.json");
         }
     }
 

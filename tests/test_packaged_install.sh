@@ -7,7 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLI="$REPO_ROOT/src/bin/caelestia"
 
-EXPECTED_STEPS=(03-deploy-configs 03a-wallpapers 04-deploy-kde 04a-window-rules 05-sddm-theme 06-services 08-build-shell 09-system-tweaks 10-autostart)
+EXPECTED_STEPS=(03-deploy-configs 03a-wallpapers 04-deploy-kde 04a-window-rules 05-login-screen 06-services 08-build-shell 09-system-tweaks 10-autostart)
 
 DIR=""
 CALLS=""
@@ -97,22 +97,28 @@ test_the_machine_steps_stay_out_of_a_packaged_install() {
     done
 }
 
-test_the_greeter_step_selects_without_installing_the_theme() {
+test_the_login_screen_step_syncs_without_installing_anything() {
     local script
     script="$(cat "$REPO_ROOT/installer/src/steps/login_screen.rs")"
 
-    assert_contains "$script" 'The theme files belong to the package.' "the theme copy should be skipped"
-    assert_contains "$script" 'The theme selection belongs to the package.' "the selection under /etc should be skipped"
-    assert_contains "$script" "The display manager's dependencies belong to the package." "the distro dependencies should be skipped"
-    assert_contains "$script" '"SDDM theme installed."' "while the posthook is still registered for both kinds"
+    # Nothing of ours is installed for the login screen any more: the step writes the greeter's
+    # own configuration and leaves the screen to Plasma Login.
+    assert_not_contains "$script" 'theme.conf' "no login theme is written"
+    assert_not_contains "$script" 'sddm.conf' "and no display manager config either"
+    assert_contains "$script" 'The package'"'"'s login screen helper is not installed at' \
+        "a package is expected to ship the sync helper"
+    assert_contains "$script" '"Login screen configured for Plasma Login."' \
+        "and the posthook is registered for both kinds"
 
     local cmake pkgbuild
     cmake="$(cat "$REPO_ROOT/shell/CMakeLists.txt")"
     pkgbuild="$(cat "$REPO_ROOT/packaging/aur/caelestia-kde/PKGBUILD")"
-    assert_contains "$cmake" 'usr/share/sddm/themes/caelestia' "CMake should install the theme the posthook re-syncs"
-    assert_contains "$cmake" 'src/sddm/sync.sh' "and the helper the posthook runs"
-    assert_contains "$pkgbuild" 'etc/sddm.conf.d/zz-caelestia.conf' "and the drop-in that selects it"
-    assert_contains "$pkgbuild" 'usr/lib/udev/rules.d/70-uinput.rules' "and the udev rule the system block writes for a checkout"
+    assert_not_contains "$cmake" 'usr/share/sddm/themes' "CMake should install no login theme"
+    assert_contains "$cmake" 'src/greeter/sync.sh' \
+        "but it should ship the helper the step runs"
+    assert_contains "$cmake" 'caelestia-greeter-sync' "under the name the step looks for"
+    assert_not_contains "$pkgbuild" 'etc/sddm.conf.d' "and the package should select none"
+    assert_contains "$pkgbuild" 'usr/lib/udev/rules.d/70-uinput.rules' "the udev rule the system block writes for a checkout is still the package's"
 }
 
 test_shared_runtime_files_have_one_cmake_owner() {
@@ -160,8 +166,6 @@ test_shared_runtime_files_have_one_cmake_owner() {
         "the package must not re-declare CMake-owned data paths"
     assert_not_contains "$pkgbuild" 'usr/share/caelestia/scripts/08-build-shell.sh' \
         "the package must not re-declare CMake-owned installer scripts"
-    assert_not_contains "$pkgbuild" 'usr/share/sddm/themes/caelestia' \
-        "the package must not re-declare the CMake-owned SDDM theme"
     assert_not_contains "$pkgbuild" 'etc/xdg/quickshell/caelestia/assets/icons' \
         "the package must not re-declare the CMake-owned icon tree"
     assert_not_contains "$pkgbuild" 'install -m755 src/bin/*' \
@@ -339,8 +343,6 @@ test_the_package_does_not_prune_cmake_owned_paths() {
     local pkgbuild
     pkgbuild="$(cat "$REPO_ROOT/packaging/aur/caelestia-kde/PKGBUILD")"
 
-    assert_not_contains "$pkgbuild" 'cp -r src/sddm/themes/full' \
-        "CMake should own the SDDM theme tree"
     assert_not_contains "$pkgbuild" 'cp -r src/yet-another-monochrome-icon-set' \
         "CMake should own the icon tree"
     assert_not_contains "$pkgbuild" 'cp -r src/kde/shells/caelestia.desktop' \
