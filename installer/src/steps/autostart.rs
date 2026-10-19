@@ -337,6 +337,21 @@ fn request_window_preview(context: &Context, home: &Path, quickshell: &Path) {
     let applications = home.join(".local").join("share").join("applications");
     let _ = fs::create_dir_all(&applications);
     let _ = fs::write(applications.join("org.quickshell.desktop"), patched);
+
+    // The entry names its icon, so the icon has to be somewhere an icon theme looks. Both names
+    // are written: `caelestia` is what the entry asks for, `org.quickshell` is the name an install
+    // that predates the rename left behind and what a stale entry still points at.
+    let icons = home
+        .join(".local")
+        .join("share")
+        .join("icons/hicolor/scalable/apps");
+    let icon = context.bundle.join("assets").join("caelestia.svg");
+    if icon.is_file() && fs::create_dir_all(&icons).is_ok() {
+        for name in ["caelestia.svg", "org.quickshell.svg"] {
+            let _ = fs::copy(&icon, icons.join(name));
+        }
+    }
+
     let _ = process::succeeds("kbuildsycoca6", &[], None);
     println!("  [OK]  Window preview interface requested.");
 }

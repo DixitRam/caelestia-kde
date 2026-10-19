@@ -31,11 +31,6 @@ impl Fixture {
         self.path("cache").join("caelestia-kde").join(name)
     }
 
-    #[cfg(unix)]
-    fn text(&self, name: &str) -> String {
-        self.path(name).to_string_lossy().to_string()
-    }
-
     fn step(&self, id: &str, path: &Path, extra: &[(&str, &str)]) -> Output {
         self.in_bundle(id, path, None, extra)
     }
@@ -1262,6 +1257,11 @@ fn a_source_install_writes_the_launcher_the_unit_and_the_interface_declaration()
         "[Desktop Entry]\nExec=/usr/bin/quickshell\nX-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1\n",
     )
     .expect("the asset");
+    std::fs::write(
+        fixture.path("bundle/assets/caelestia.svg"),
+        "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+    )
+    .expect("the icon");
 
     let output = run_autostart(&fixture, &tools, &[("CAELESTIA_INSTALL_KIND", "source")]);
     assert_eq!(output.code, Some(0), "{}", output.stderr);
@@ -1303,6 +1303,17 @@ fn a_source_install_writes_the_launcher_the_unit_and_the_interface_declaration()
         preview_text.contains("Exec=/") && !preview_text.contains("Exec=/usr/bin/quickshell"),
         "the exec line points at the resolved binary: {preview_text}"
     );
+
+    // The entry names its icon, so the icon has to be where an icon theme looks, under both the
+    // name it asks for and the name an older install left behind.
+    for name in ["caelestia.svg", "org.quickshell.svg"] {
+        let icon = fixture.path(&format!(".local/share/icons/hicolor/scalable/apps/{name}"));
+        assert!(
+            icon.is_file(),
+            "{name} is not in the icon theme: {}",
+            icon.display()
+        );
+    }
     assert!(
         output.stdout.contains("Autostart entries configured."),
         "{}",

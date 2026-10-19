@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.svg" width="64" alt="Caelestia logo" />
+<img src="assets/logo.svg" width="80" alt="Caelestia logo" />
 
 # caelestia-kde
 

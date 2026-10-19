@@ -219,6 +219,7 @@ if("shell" IN_LIST ENABLE_MODULES)
         DESTINATION "${INSTALL_DATADIR}/shell/assets")
     install(FILES
         "${CAELESTIA_ROOT_DIR}/assets/org.quickshell.desktop"
+        "${CAELESTIA_ROOT_DIR}/assets/caelestia.svg"
         DESTINATION "${INSTALL_DATADIR}/assets")
 
     foreach(dir assets components modules services utils)
