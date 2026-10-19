@@ -1734,6 +1734,10 @@ mod tests {
         app.pretend = true;
         app.detection.installed = false;
         app.unfinished.clear();
+        // Whether sudo is warm is the host's fact as well, and a machine that has just
+        // authenticated has nothing to ask: without this, a test that walks to the gate would
+        // pass or fail on whether the machine running it happens to have a cached ticket.
+        app.needs_password = true;
         app
     }
 
