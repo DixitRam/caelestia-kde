@@ -486,10 +486,11 @@ fn sudo_binary() -> Option<PathBuf> {
     // resolver next to this honors. It is taken as given rather than checked: an override that
     // names nothing is a broken override, and running some other sudo in its place would report
     // something the caller never asked about.
-    if let Ok(explicit) = std::env::var("CAELESTIA_SUDO_BIN") {
-        if !explicit.is_empty() {
-            return Some(PathBuf::from(explicit));
-        }
+    if let Some(explicit) = std::env::var("CAELESTIA_SUDO_BIN")
+        .ok()
+        .filter(|explicit| !explicit.is_empty())
+    {
+        return Some(PathBuf::from(explicit));
     }
     sudo_path().or_else(|| crate::process::locate("sudo"))
 }

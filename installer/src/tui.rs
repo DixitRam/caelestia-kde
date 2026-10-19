@@ -235,13 +235,15 @@ mod tests {
         hand_over(&log);
         hand_over(&log);
         give_back();
-        let written = write_to_inherited_output("");
+        // A marker rather than an empty file: another test's own printing can land in a log that
+        // is open on the whole process, and this is about where *this* output goes.
+        let written = write_to_inherited_output("this line belongs on the screen\n");
 
         assert!(written.is_ok(), "the terminal is back: {written:?}");
-        let logged = std::fs::read_to_string(&log).expect("the log is there");
+        let logged = std::fs::read_to_string(&log).unwrap_or_default();
         assert!(
-            logged.is_empty(),
-            "nothing reached the log after giving it back: {logged}"
+            !logged.contains("this line belongs on the screen"),
+            "the output is still going to the log after giving it back: {logged}"
         );
     }
 
