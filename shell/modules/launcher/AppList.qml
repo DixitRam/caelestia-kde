@@ -36,6 +36,10 @@ StyledListView {
             return "actions";
         }
 
+        // Bare math like "2+2" or "(3*4)^2=" goes straight to the calculator
+        if (GlobalConfig.launcher.inlineCalc && /^[\d\s.,()+\-*\/^%=]+$/.test(text) && /\d\s*[+\-*\/^%]+\s*[\d(.]/.test(text))
+            return "calc";
+
         return "apps";
     }
 

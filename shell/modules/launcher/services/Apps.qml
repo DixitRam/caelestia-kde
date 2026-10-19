@@ -1,6 +1,7 @@
 pragma Singleton
 
 import Quickshell
+import Quickshell.Io
 import Caelestia
 import Caelestia.Models
 import Caelestia.Config
@@ -10,6 +11,7 @@ Searcher {
     id: root
 
     property alias alphaApps: appDb.alphaApps
+    property list<string> settingsIds: []
 
     function launch(entry: DesktopEntry): void {
         appDb.incrementFrequency(entry.id);
@@ -54,7 +56,7 @@ Searcher {
             weights = [1];
 
             if (!search.startsWith(`${prefix}t `))
-                return query(search).map(e => e.entry);
+                return withSettingsPages(search, query(search).map(e => e.entry));
         }
 
         const results = query(search.slice(prefix.length + 2)).map(e => e.entry);
@@ -63,12 +65,36 @@ Searcher {
         return results;
     }
 
+    // System Settings pages, like KRunner. They are NoDisplay, so DesktopEntries.applications
+    // skips them; byId still resolves them. Name matches go above apps, comment-only matches below.
+    function withSettingsPages(search: string, apps: list<var>): list<var> {
+        const q = search.trim().toLowerCase();
+        if (!GlobalConfig.launcher.searchSettingsPages || q.length < 3)
+            return apps;
+
+        // Every word has to appear; a trailing "s" is dropped so "themes" still finds "theme"
+        const words = q.split(/\s+/).map(w => w.length > 3 ? w.replace(/s$/, "") : w);
+        const matches = text => words.every(w => text.toLowerCase().includes(w));
+        const pages = settingsIds.map(id => DesktopEntries.byId(id)).filter(Boolean);
+        const byName = pages.filter(e => matches(e.name));
+        const byComment = pages.filter(e => !byName.includes(e) && matches(`${e.name} ${e.comment} ${e.genericName}`));
+        return byName.concat(apps, byComment);
+    }
+
     function selector(item: var): string {
         return keys.map(k => item[k]).join(" ");
     }
 
     list: appDb.apps.filter(a => !Strings.testRegexList(GlobalConfig.launcher.hiddenApps, a.id))
     useFuzzy: GlobalConfig.launcher.useFuzzy.apps
+
+    Process {
+        running: GlobalConfig.launcher.searchSettingsPages && root.settingsIds.length === 0
+        command: ["sh", "-c", "for f in /usr/share/applications/kcm_*.desktop; do [ -e \"$f\" ] && basename \"$f\" .desktop; done"]
+        stdout: StdioCollector {
+            onStreamFinished: root.settingsIds = text.trim().split("\n").filter(Boolean)
+        }
+    }
 
     AppDb {
         id: appDb

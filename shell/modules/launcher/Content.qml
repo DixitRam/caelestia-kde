@@ -209,6 +209,8 @@ Item {
                             currentItem.clicked();
                         else
                             currentItem.modelData.onClicked(list.currentList);
+                    } else if (currentItem.math !== undefined) {
+                        currentItem.onClicked();
                     } else {
                         Apps.launch(currentItem.modelData);
                         root.visibilities.launcher = false;

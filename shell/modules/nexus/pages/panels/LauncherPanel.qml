@@ -311,6 +311,28 @@ PageBase {
         }
 
         SectionHeader {
+            text: qsTr("Experimental")
+        }
+
+        ToggleRow {
+            first: true
+            text: qsTr("Inline calculator")
+            subtext: qsTr("Typing math like 2+2 shows the result without the calc prefix")
+            reset: ({ node: GlobalConfig.launcher, setting: "inlineCalc" })
+            checked: GlobalConfig.launcher.inlineCalc
+            onToggled: GlobalConfig.launcher.inlineCalc = checked
+        }
+
+        ToggleRow {
+            last: true
+            text: qsTr("Search System Settings pages")
+            subtext: qsTr("Show matching pages such as Global Theme or Display Configuration")
+            reset: ({ node: GlobalConfig.launcher, setting: "searchSettingsPages" })
+            checked: GlobalConfig.launcher.searchSettingsPages
+            onToggled: GlobalConfig.launcher.searchSettingsPages = checked
+        }
+
+        SectionHeader {
             text: qsTr("Fuzzy search")
         }
 
