@@ -188,6 +188,9 @@ fi
 if [[ -f "$BUNDLE_DIR/assets/org.quickshell.desktop" ]]; then
     echo "  Requesting KWin screencast interface for window previews..."
     mkdir -p "$HOME/.local/share/applications"
+    mkdir -p "$HOME/.local/share/icons/hicolor/scalable/apps"
+    cp -f "$BUNDLE_DIR/assets/caelestia.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/caelestia.svg" 2>/dev/null || true
+    cp -f "$BUNDLE_DIR/assets/caelestia.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/org.quickshell.svg" 2>/dev/null || true
     sed "s|^Exec=.*|Exec=$QUICKSHELL_CANONICAL_PATH|" \
         "$BUNDLE_DIR/assets/org.quickshell.desktop" \
         > "$HOME/.local/share/applications/org.quickshell.desktop" 2>/dev/null || true

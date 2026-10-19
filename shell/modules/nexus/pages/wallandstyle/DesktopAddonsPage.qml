@@ -45,32 +45,6 @@ PageBase {
             Layout.preferredHeight: Tokens.padding.large
         }
 
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 0
-
-            ToggleRow {
-                Layout.fillWidth: true
-                first: true
-                text: qsTr("Auto-hide media shapes")
-                subtext: qsTr("Hide media shapes when a window is open")
-                reset: ({ node: GlobalConfig.background.desktopShapes, setting: "autoHide" })
-                checked: Config.background.desktopShapes.autoHide
-                onToggled: GlobalConfig.background.desktopShapes.autoHide = checked
-            }
-
-            ToggleRow {
-                Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
-                Layout.fillWidth: true
-                last: true
-                text: qsTr("Auto-hide lyrics")
-                subtext: qsTr("Hide lyrics when a window is open")
-                reset: ({ node: GlobalConfig.background.desktopLyrics, setting: "autoHide" })
-                checked: Config.background.desktopLyrics.autoHide
-                onToggled: GlobalConfig.background.desktopLyrics.autoHide = checked
-            }
-        }
-
         SectionHeader {
             text: qsTr("Desktop clock")
         }
@@ -114,12 +88,21 @@ PageBase {
             }
 
             ToggleRow {
-                last: true
                 Layout.fillWidth: true
                 text: qsTr("Invert colors")
                 reset: ({ node: GlobalConfig.background.desktopLyrics, setting: "invertColors" })
                 checked: Config.background.desktopLyrics.invertColors
                 onToggled: GlobalConfig.background.desktopLyrics.invertColors = checked
+            }
+
+            ToggleRow {
+                last: true
+                Layout.fillWidth: true
+                text: qsTr("Auto-hide lyrics")
+                subtext: qsTr("Hide lyrics when a window is open")
+                reset: ({ node: GlobalConfig.background.desktopLyrics, setting: "autoHide" })
+                checked: Config.background.desktopLyrics.autoHide
+                onToggled: GlobalConfig.background.desktopLyrics.autoHide = checked
             }
         }
 
@@ -153,6 +136,26 @@ PageBase {
                 wrapSubtext: true
                 label: qsTr("Configure Visualizer")
                 subtext: qsTr("Right click on desktop -> Edit Mode -> Right click visualizer -> Configure")
+            }
+        }
+
+        SectionHeader {
+            text: qsTr("Media shapes")
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 0
+
+            ToggleRow {
+                first: true
+                last: true
+                Layout.fillWidth: true
+                text: qsTr("Auto-hide media shapes")
+                subtext: qsTr("Hide media shapes when a window is open")
+                reset: ({ node: GlobalConfig.background.desktopShapes, setting: "autoHide" })
+                checked: Config.background.desktopShapes.autoHide
+                onToggled: GlobalConfig.background.desktopShapes.autoHide = checked
             }
         }
     }
