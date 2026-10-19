@@ -2,25 +2,6 @@
 # Enable KDE desktop mode and sync KDE wallpaper layout to desktop mode.
 set -euo pipefail
 
-CONFIG_FILE="$HOME/.config/caelestia/shell.json"
-
-if [[ -f "$CONFIG_FILE" ]]; then
-    if updated=$(jq '.background.wallpaperEnabled = false' "$CONFIG_FILE" 2>/dev/null); then
-        printf '%s\n' "$updated" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
-    fi
-else
-    mkdir -p "$(dirname "$CONFIG_FILE")"
-    cat <<EOF > "$CONFIG_FILE"
-{
-    "background": {
-        "wallpaperEnabled": false
-    }
-}
-EOF
-fi
-
-echo "StartupTasks: Enabled KDE desktop mode (wallpaperEnabled = false)"
-
 SYNC_SCRIPT=""
 for candidate in \
     "${SCRIPTS_DIR:-}/sync-kde-wallpaper-layout.sh" \

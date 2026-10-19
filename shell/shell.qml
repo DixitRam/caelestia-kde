@@ -150,6 +150,23 @@ ShellRoot {
         }
     }
 
+    Process {
+        id: skwdWallCheckProcess
+
+        running: true
+        command: ["sh", "-c", "command -v skwd-walld"]
+
+        onExited: code => {
+            const enabled = (code !== 0);
+            GlobalConfig.background.wallpaperEnabled = enabled;
+            for (let i = 0; i < Quickshell.screens.length; i++) {
+                const sConf = GlobalConfig.forScreen(Quickshell.screens[i].name);
+                if (sConf)
+                    sConf.background.resetOption("wallpaperEnabled");
+            }
+        }
+    }
+
     BatteryMonitor {}
     BluetoothReconnect {}
 }
