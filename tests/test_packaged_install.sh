@@ -110,13 +110,16 @@ test_the_login_screen_step_syncs_without_installing_anything() {
     assert_contains "$script" '"Login screen configured for Plasma Login."' \
         "and the posthook is registered for both kinds"
 
-    local cmake pkgbuild
+    local cmake pkgbuild contract
     cmake="$(cat "$REPO_ROOT/shell/CMakeLists.txt")"
     pkgbuild="$(cat "$REPO_ROOT/packaging/aur/caelestia-kde/PKGBUILD")"
+    contract="$(cat "$REPO_ROOT/.github/scripts/packaging_contract.py")"
     assert_not_contains "$cmake" 'usr/share/sddm/themes' "CMake should install no login theme"
     assert_contains "$cmake" 'src/greeter/sync.sh' \
         "but it should ship the helper the step runs"
     assert_contains "$cmake" 'caelestia-greeter-sync' "under the name the step looks for"
+    assert_contains "$contract" 'usr/bin/caelestia-greeter-sync' \
+        "and the parity contract has to know the package is the layout that ships it"
     assert_not_contains "$pkgbuild" 'etc/sddm.conf.d' "and the package should select none"
     assert_contains "$pkgbuild" 'usr/lib/udev/rules.d/70-uinput.rules' "the udev rule the system block writes for a checkout is still the package's"
 }

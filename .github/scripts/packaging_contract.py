@@ -26,9 +26,13 @@ from pathlib import Path
 
 # Installed only by CAELESTIA_PACKAGE=ON, relative to the staging root.
 # Keep in step with the if(CAELESTIA_PACKAGE) block in shell/CMakeLists.txt:
-# the icons land under INSTALL_QSCONFDIR, which is etc/xdg, not usr/share.
+# the icons land under INSTALL_QSCONFDIR, which is etc/xdg, not usr/share, and the
+# greeter's sync helper is a package file - a source install takes the same script
+# from the bundle and puts it in /usr/local/bin instead, which is why the path is a
+# file and not a directory.
 PACKAGE_ONLY_PREFIXES = (
     "etc/xdg/quickshell/caelestia/assets/icons",
+    "usr/bin/caelestia-greeter-sync",
     "usr/share/plasma/shells/caelestia.desktop",
 )
 
