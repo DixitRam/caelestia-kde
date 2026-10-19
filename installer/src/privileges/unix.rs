@@ -483,11 +483,12 @@ fn have_askpass() -> bool {
 
 fn sudo_binary() -> Option<PathBuf> {
     // CAELESTIA_SUDO_BIN names the sudo to escalate through, the same override the shell
-    // resolver next to this honors.
+    // resolver next to this honors. It is taken as given rather than checked: an override that
+    // names nothing is a broken override, and running some other sudo in its place would report
+    // something the caller never asked about.
     if let Ok(explicit) = std::env::var("CAELESTIA_SUDO_BIN") {
-        let explicit = PathBuf::from(explicit);
-        if crate::process::is_executable(&explicit) {
-            return Some(explicit);
+        if !explicit.is_empty() {
+            return Some(PathBuf::from(explicit));
         }
     }
     sudo_path().or_else(|| crate::process::locate("sudo"))
