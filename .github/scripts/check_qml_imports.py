@@ -62,6 +62,8 @@ ALWAYS_OK = {
 
 CAELESTIA_CLASS_RE = re.compile(r"class\s+(\w+)\s*(?:final\s*)?(?::[^{;]*)?\{")
 CAELESTIA_NAMED_ELEMENT_RE = re.compile(r'QML_NAMED_ELEMENT\(\s*"(\w+)"\s*\)')
+# rootnodes.hpp registers GlobalConfig/TokenConfig through a macro: SINGLETON_DECL(Class, Root, QmlName)
+CAELESTIA_SINGLETON_DECL_RE = re.compile(r"^SINGLETON_DECL\(\s*\w+\s*,\s*\w+\s*,\s*(\w+)\s*\)", re.MULTILINE)
 
 VALID_BAREWORD_MODULE_RE = re.compile(r"^(qs(\.[\w.]+)?|[A-Z][\w.]*)$")
 
@@ -136,6 +138,7 @@ def build_caelestia_registry(plugin_src_root: Path) -> dict[str, set[str]]:
         rel_parts = hpp.relative_to(plugin_src_root).parts[:-1]
         module = "Caelestia" if not rel_parts else "Caelestia." + ".".join(rel_parts)
         text = strip_comments(hpp.read_text(encoding="utf-8"))
+        registry[module].update(CAELESTIA_SINGLETON_DECL_RE.findall(text))
         matches = list(CAELESTIA_CLASS_RE.finditer(text))
         for i, m in enumerate(matches):
             start, end = m.end(), (matches[i + 1].start() if i + 1 < len(matches) else len(text))
